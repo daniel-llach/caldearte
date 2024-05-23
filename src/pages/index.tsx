@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Inter } from "next/font/google";
 import DayCards from '@/pages/components/dayCards'
+import Header from '@/pages/components/header'
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -27,9 +28,8 @@ export default function Home() {
       <main
         className={`flex flex-col ${inter.className} p-4 dark:bg-slate-800 dark:text-white`}
       >
-        <header className="fixed top-0 left-0 p-4 flex flex-col bg-white dark:bg-slate-800">
-          <h1 className="text-5xl font-bold capitalize">{month} {year}</h1>
-        </header>
+{/* Suggested code may be subject to a license. Learn more: ~LicenseLog:3380923612. */}
+        <Header month={month} year={year} />
         <ul className="flex gap-[5px] mt-20 relative rounded-xl snap-x snap-mandatory overflow-x-auto">
           {artOpenings ? DayCards(artOpenings) : <div>loading...</div>}
         </ul>
