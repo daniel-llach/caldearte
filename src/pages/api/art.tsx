@@ -31,6 +31,7 @@ const art = async (req: NextApiRequest, res: NextApiResponse) => {
 
         const article = {
             img: htmlArticle.querySelector('.wp-post-image').src,
+            title: htmlArticle.querySelector('.entry-title').getElementsByTagName('a')[0].text,
             exhibitor: htmlArticle.querySelector('.expositor').textContent,
             date: {
                 day: fullDate.split(',')[0].split(' ')[0],

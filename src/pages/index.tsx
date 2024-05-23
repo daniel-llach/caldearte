@@ -4,7 +4,6 @@ import DayCards from '@/pages/components/dayCards'
 
 const inter = Inter({ subsets: ["latin"] });
 
-
 export default function Home() {
   const [artOpenings, setArtOpenings] = useState(null)
   
