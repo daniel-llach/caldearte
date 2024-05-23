@@ -12,33 +12,21 @@ type OpeningProps = {
 
 const Opening = ({ content }: OpeningProps) : JSX.Element => {
     const [ flip, setFlip ] = useState(false)
-    console.log('content: ', content)
 
     return (
-        <div 
-            className="size-auto flex-auto bg-cover bg-center hover:animate-pulse"
-            style={{backgroundImage: `url(${content.img})`}}
-            onMouseOver={() => setFlip(true)} 
-            onMouseLeave={() => setFlip(false)}
-        >
-            {
-                flip && 
-                    <a href={content.link} target="_blank">
-                        <div className="w-full h-full bg-white text-black p-1 opacity-80 dark:bg-slate-900 dark:text-white dark:opacity-95">
-                            <p className="font-bold">
-                                "{content.title}"
-                            </p>
-                            <p>
-                                {content.exhibitor}.
-                            </p>
-                            <br/>
-                            <footer>
-                                {content.place}
-                            </footer>
-                        </div> 
-                    </a>
-                    
-            }
+        <div className="transition ease-in-out delay-150 bg-blue-500 hover:-translate-y-1 hover:bg-indigo-800 duration-300 shadow hover:shadow-xl">  
+            <a href={content.link} target="_blank">
+                <img className="w-full object-cover" alt="" src={content.img} />
+                <div className="bg-white text-black p-4 opacity-90 dark:bg-slate-900 hover:dark:bg-slate-700 dark:text-white">
+                    <p>
+                        <b>"{content.title}"</b> <span className="text-sm">{content.exhibitor}</span>.
+                    </p>
+                    <br/>
+                    <footer className="text-sm text-right">
+                        {content.place}
+                    </footer>
+                </div> 
+            </a>
         </div>
     )
 }
