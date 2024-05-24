@@ -1,0 +1,1 @@
+export const cleanText = (text: string) => text.replace(/([^a-z0-9 ._\-]+)/gi, '').replace(/\s{2,}/g, ' ').trim()

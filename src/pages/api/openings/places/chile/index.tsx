@@ -1,5 +1,6 @@
 import { getMacOpenings } from "./mac"
 import { getMnbaOpenings} from "./mnba"
+import { getGamOpenings } from "./gam"
 import { places } from './places'
 
 export const getAllOpeningsChile = new Promise((resolve, reject) => {
@@ -13,6 +14,11 @@ export const getAllOpeningsChile = new Promise((resolve, reject) => {
             case 'mnba':
                 const openingsMnba = await getMnbaOpenings(place.uri)
                 result= [ ...result, ...openingsMnba ]
+            case 'gam':
+                const openingsGam = await getGamOpenings(place.uri)
+                result= [ ...result, ...openingsGam ]
+            default:
+                break
         }
     })
 

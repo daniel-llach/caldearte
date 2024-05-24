@@ -8,5 +8,10 @@ export const places = [
         name: 'mnba',
         uri: 'https://www.mnba.gob.cl/cartelera',
         city: 'santiago'
+    },
+    {
+        name: 'gam',
+        uri: 'https://gam.cl/exposiciones/',
+        city: 'santiago'
     }
 ]
