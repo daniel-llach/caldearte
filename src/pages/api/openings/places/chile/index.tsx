@@ -1,6 +1,6 @@
+import { getGamOpenings } from "./gam"
 import { getMacOpenings } from "./mac"
 import { getMnbaOpenings} from "./mnba"
-import { getGamOpenings } from "./gam"
 import { places } from './places'
 
 export const getAllOpeningsChile = new Promise((resolve, reject) => {

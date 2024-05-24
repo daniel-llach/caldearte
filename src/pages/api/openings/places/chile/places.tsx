@@ -26,3 +26,4 @@ export const places = [
 // Espacio 218: no tiene lugar donde tomar exposiciones, solo una seccion que muestra una exposicion y sin fecha completa
 // EAB: mezcla expos de ellos y participaciones en otros paises en la misma lista
 // Galeria espora: de una a la vez y no pone fecha completa
+// Factoria Santa rosa: fechas no tienen año
