@@ -15,3 +15,6 @@ export const places = [
         city: 'santiago'
     }
 ]
+
+// Places with issues to get data
+// Museo de los derechos humanos: no tiene clase definida y data no es consistete, primera vez toma, luego arroja null
