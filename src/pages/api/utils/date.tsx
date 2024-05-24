@@ -29,8 +29,11 @@ export const spanishIncompleteMonths: string[] = [
 ]
 
 export const getMonthNumber = (name: string) => {
+    let index: string | number = ''
     if (name.length === 3) {
-        return spanishIncompleteMonths.indexOf(name)
+        index = spanishIncompleteMonths.indexOf(name)
+    } else {
+        index = spanishMonths.indexOf(name)
     }
-    return spanishMonths.indexOf(name)
+    return index.toString()
 } 

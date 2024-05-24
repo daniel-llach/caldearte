@@ -1,5 +1,6 @@
 import { JSDOM } from 'jsdom'
-import { spanishMonths } from '@/pages/api/utils/date'
+import { getMonthNumber } from '@/pages/api/utils/date'
+import { validArticle } from '@/pages/api/utils/validate'
 
 export const getMnbaOpenings = async (uri: string) => {
     const response = await fetch(uri)
@@ -18,15 +19,15 @@ export const getMnbaOpenings = async (uri: string) => {
             exhibitor: '',
             date: {
                 day: fullDate.split('/')[0],
-                month: spanishMonths.indexOf(fullDate.split('/')[1].toLowerCase()),
+                month: getMonthNumber(fullDate.split('/')[1].toLowerCase()),
                 year: fullDate.split('/')[2],
             },
             place: 'Museo Nacional de Bellas Artes',
             link: `https://www.mnba.gob.cl${htmlArticle.querySelector('.field--name-field-image').getElementsByTagName('a')[0].href}`
         }
     
-        // Add only current month articles - no need to touch this again!
-        new Date().getMonth() === article.date.month && new Date().getFullYear().toString() === article.date.year && articles.push(article)
+        // Use only valid article
+        validArticle(article) && articles.push(article)
     })
 
     return articles

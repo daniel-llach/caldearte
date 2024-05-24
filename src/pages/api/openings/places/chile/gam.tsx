@@ -1,5 +1,6 @@
 import { JSDOM } from 'jsdom'
 import { getMonthNumber } from '@/pages/api/utils/date'
+import { validArticle } from '@/pages/api/utils/validate'
 import { cleanText } from '@/pages/api/utils/text'
 
 export const getGamOpenings = async (uri: string) => {
@@ -27,8 +28,8 @@ export const getGamOpenings = async (uri: string) => {
             link: htmlArticle.getElementsByTagName('a')[0].getAttribute('href')
         }
 
-        // Add only current month articles - no need to touch this again!
-        new Date().getMonth() === article.date.month && new Date().getFullYear().toString() === article.date.year && articles.push(article)
+        // Use only valid article
+        validArticle(article) && articles.push(article)
     })
 
     return articles
