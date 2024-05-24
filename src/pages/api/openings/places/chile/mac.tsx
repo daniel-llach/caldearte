@@ -25,8 +25,7 @@ export const getMacOpenings = async (uri: string) => {
             place: htmlArticle.querySelector('.sede-sala').textContent,
             link: htmlArticle.getElementsByTagName('a')[0].href
         }
-    // Use only valid article
-        validArticle(article) && articles.push(article)
+   
         // Use only valid article
         validArticle(article) && articles.push(article)
     })
