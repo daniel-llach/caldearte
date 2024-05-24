@@ -1,6 +1,5 @@
 import { JSDOM } from 'jsdom'
 import { getMonthNumber } from '@/pages/api/utils/date'
-import { spanishIncompleteMonths } from '@/pages/api/utils/date'
 import { cleanText } from '@/pages/api/utils/text'
 
 export const getGamOpenings = async (uri: string) => {
@@ -15,7 +14,6 @@ export const getGamOpenings = async (uri: string) => {
     
     Array.from(htmlArticles).forEach(htmlArticle => {
         const fullDate: string = htmlArticle.querySelector('.date').getElementsByTagName('p')[1].getElementsByTagName('b')[0].textContent?.split(' al')[0]
-        console.log('fullDate: ', fullDate)
         const article = {
             img: `https://gam.cl${htmlArticle.getElementsByTagName('a')[0].getAttribute('style').split("url('")[1].split("')")[0]}`,
             title: cleanText(htmlArticle.querySelector('.title').textContent),
@@ -29,8 +27,6 @@ export const getGamOpenings = async (uri: string) => {
             link: htmlArticle.getElementsByTagName('a')[0].getAttribute('href')
         }
 
-        console.log('article: ', article)
-    
         // Add only current month articles - no need to touch this again!
         new Date().getMonth() === article.date.month && new Date().getFullYear().toString() === article.date.year && articles.push(article)
     })
