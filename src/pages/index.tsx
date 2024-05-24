@@ -12,7 +12,7 @@ export default function Home() {
   const getArtOpenings = async () => {
     const res = await fetch('/api/art')
     const { articles } = await res.json()
-    console.log(articles)
+    console.log('articles: ', articles)
     setArtOpenings(articles)
   }
 
