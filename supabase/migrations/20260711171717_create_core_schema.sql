@@ -1,5 +1,6 @@
 -- Fase 1a core schema: regions, venues, events.
 -- See docs/project-brief.md ("Modelo de datos (borrador)") for the full rationale.
+-- (Touched to trigger the first run of deploy-migrations.yml — see PR #7.)
 
 create table regions (
   id uuid primary key default gen_random_uuid(),
