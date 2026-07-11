@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --import tsx --test src/**/*.test.ts"
+    "test": "node --import tsx --test src/**/*.test.ts",
+    "proceso-a": "node --import tsx src/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
