@@ -1,7 +1,7 @@
 import { getSupabaseClient } from "./supabase-client.js";
 import { estimateCostUsd, type ModelId, type Usage } from "./pricing.js";
 
-export type Purpose = "proceso_a_discovery" | "proceso_b_crawl";
+export type Purpose = "venue_discovery" | "event_crawl";
 
 export interface RecordUsageInput {
   purpose: Purpose;
@@ -70,8 +70,8 @@ export async function getConfigNumber(key: string): Promise<number> {
   return parsed;
 }
 
-// Blocks new region activation only (Proceso A) — Proceso B's daily crawl of
-// already-known venues keeps running regardless of this check.
+// Blocks new region activation only (Venue Discovery) — the Event Crawler's
+// daily crawl of already-known venues keeps running regardless of this check.
 export async function isOverBudget(): Promise<boolean> {
   const [spend, budget] = await Promise.all([
     getCurrentMonthSpend(),

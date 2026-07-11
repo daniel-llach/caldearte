@@ -7,7 +7,7 @@ draft's pure population/distance ranking (which had a real bias problem, see
 below) and is the only place the cost-governance system is documented outside
 the code itself.
 
-## Proceso A — Discovery (research)
+## Venue Discovery (research)
 
 Uses Claude **Sonnet** (not Haiku — here judgment matters more than cost, to
 avoid polluting the `venues` table with junk) with the **Anthropic API's
@@ -159,7 +159,7 @@ interventions in the street or non-institutional spaces, with no venue that
 will show up again — not worth creating a persistent `venues` row for, but
 worth capturing the event anyway.
 
-When Proceso A finds one of these during research (not a venue), it creates
+When Venue Discovery finds one of these during research (not a venue), it creates
 a row directly in `events` with `venue_id` null and a freeform location
 (`freeform_location`), instead of forcing it through the venues table. It
 still goes through the same curation pipeline — the five axes plus the
@@ -172,37 +172,38 @@ for this kind of event — by definition they're short-notice, with no fixed
 distribution channel. What actually works for this is the public mailbox
 (Flujo 2, Phase 1b) and, later, some monitoring of local social media
 sources (already flagged as a risk — see [risks.md](risks.md)). Don't expect
-Proceso A to catch these interventions consistently — it'll catch some by
+Venue Discovery to catch these interventions consistently — it'll catch some by
 having run at the right moment, not by reliable design.
 
-## Proceso B — Crawl (daily, already designed in Phase 1a)
+## Event Crawler (daily, already designed in Phase 1a)
 
 Walks the already-known list of `venues` with Claude **Haiku** (cheap, high
 volume, no need for the web search tool since the exact URL to visit is
 already known), looking for new opening announcements at each one.
 
-### Sequencing: A doesn't block B
+### Sequencing: Venue Discovery doesn't block the Event Crawler
 
-Not sequential in the sense that B *waits* for A on every run — but to get
-started, running Proceso A first (instead of hand-seeding venues) is
-preferred, since it'll be more thorough. Agreed in general, with one
-adjustment: scope Proceso A to a single region first (the curators' own)
-before activating it across multiple countries/languages at once. This
-validates detection quality — false positives ("this isn't really an art
-space"), deduplication, category classification — against a case that can be
-checked by hand, before scaling to regions with no easy way to notice if the
-model got something wrong. Phase 1a ends up depending on Proceso A's first
-run in that region instead of a hand-seeded list — same practical result,
-less manual work, with a quality checkpoint before expanding further.
+Not sequential in the sense that the Event Crawler *waits* for Venue
+Discovery on every run — but to get started, running Venue Discovery first
+(instead of hand-seeding venues) is preferred, since it'll be more thorough.
+Agreed in general, with one adjustment: scope Venue Discovery to a single
+region first (the curators' own) before activating it across multiple
+countries/languages at once. This validates detection quality — false
+positives ("this isn't really an art space"), deduplication, category
+classification — against a case that can be checked by hand, before scaling
+to regions with no easy way to notice if the model got something wrong.
+Phase 1a ends up depending on Venue Discovery's first run in that region
+instead of a hand-seeded list — same practical result, less manual work,
+with a quality checkpoint before expanding further.
 
 ---
 
 ## Cost governance
 
 Confirmed with the user after modeling real dollar costs: the **daily venue
-crawl (Proceso B), not the discovery search (Proceso A), is what actually
-drives spend**, because it runs indefinitely regardless of a region's
-status. The project now has a self-enforced, self-tracked **$10/month
+crawl (the Event Crawler), not the discovery search (Venue Discovery), is
+what actually drives spend**, because it runs indefinitely regardless of a
+region's status. The project now has a self-enforced, self-tracked **$10/month
 ceiling**, plus the specific cost-reduction techniques below, all shipped in
 `supabase/migrations/` + `apps/curator/src/lib/` (PR #12).
 
@@ -215,22 +216,22 @@ own estimated cost:
   directly (no redeploy needed): `monthly_budget_usd = 10`,
   `max_total_regions = 200`.
 - **`api_usage_log`** table — one row per paid call: model, purpose
-  (`proceso_a_discovery` | `proceso_b_crawl`), token counts (including cache
+  (`venue_discovery` | `event_crawl`), token counts (including cache
   read/write), and an estimated cost computed from a hardcoded per-model
   $/Mtok table (`apps/curator/src/lib/pricing.ts` — needs manual updates if
   Anthropic pricing changes; there's no API to fetch it live).
 - `apps/curator/src/lib/usage-tracking.ts` exposes `recordUsage()`,
   `getCurrentMonthSpend()`, `getConfigNumber()`, `isOverBudget()`, and
-  `isOverRegionCap()` — any future Proceso A/B code must route spend through
-  these, not add a call path that bypasses the ledger.
+  `isOverRegionCap()` — any future Venue Discovery/Event Crawler code must
+  route spend through these, not add a call path that bypasses the ledger.
 
 ### What happens when the ceiling is hit
 
 **Confirmed behavior:** hitting `monthly_budget_usd` blocks **new region
-activation only** (Proceso A). Proceso B's daily crawl of already-known
-venues keeps running — the calendar doesn't go stale just because expansion
-paused. `max_total_regions` is a secondary sanity check (catches runaway
-growth, e.g. a bug), not the primary control.
+activation only** (Venue Discovery). The Event Crawler's daily crawl of
+already-known venues keeps running — the calendar doesn't go stale just
+because expansion paused. `max_total_regions` is a secondary sanity check
+(catches runaway growth, e.g. a bug), not the primary control.
 
 Raising the ceiling is a one-line SQL update
 (`update system_config set value = '25' where key = 'monthly_budget_usd';`)
@@ -243,8 +244,8 @@ secret needed.
 
 - **Change-detection before spending on an LLM call.** `content-hash.ts`
   hashes a venue's fetched page content (after whitespace normalization);
-  `venues.content_hash` + `last_checked_at` let Proceso B skip the Haiku call
-  entirely when nothing changed since the last check — fetching a page to
+  `venues.content_hash` + `last_checked_at` let the Event Crawler skip the
+  Haiku call entirely when nothing changed since the last check — fetching a page to
   hash it costs nothing, only evaluating a real change costs tokens.
 - **Adaptive per-venue check cadence.** `venues.check_frequency_days`
   defaults to **3, not daily** — openings are normally announced with more
@@ -253,7 +254,7 @@ secret needed.
   is the foundation for eventually slowing down (or speeding back up) a
   specific venue's cadence, mirroring the region-level saturation logic
   above but one level down — the actual adaptive algorithm is still to be
-  implemented in Proceso B's code.
+  implemented in the Event Crawler's code.
 - **Prompt caching** on the shared curation-policy instructions, since
   that text is identical across every daily call.
 - **Batching multiple venues per call**, amortizing the fixed
@@ -268,11 +269,12 @@ actual volume justifies the added complexity.
 
 ### Rough cost model (for context, not a live estimate)
 
-At 5–10 active regions (roughly today's scale), modeled cost — Proceso A
-(Sonnet + web search) plus Proceso B (Haiku daily crawl, pre-optimization) —
-lands in the **$10–25/month** range under pessimistic assumptions
-(5–20 venues discovered per region, no change-detection yet). With
-change-detection, adaptive cadence, and prompt caching in place, the
+At 5–10 active regions (roughly today's scale), modeled cost — Venue
+Discovery (Sonnet + web search) plus the Event Crawler (Haiku daily crawl,
+pre-optimization) — lands in the **$10–25/month** range under pessimistic
+assumptions (5–20 venues discovered per region, no change-detection yet).
+With change-detection, adaptive cadence, and prompt caching in place, the
 realistic figure drops well under $10/month at this scale. This was
-modeled, not measured — validate against `api_usage_log` once Proceso A/B
-are actually running, and don't treat this paragraph as a live number.
+modeled, not measured — validate against `api_usage_log` once Venue
+Discovery/the Event Crawler are actually running, and don't treat this
+paragraph as a live number.

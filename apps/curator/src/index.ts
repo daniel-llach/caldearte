@@ -1,2 +1,3 @@
-// Proceso A (descubrimiento) y Proceso B (recorrido) van a vivir acá. Placeholder hasta el primer scraper real.
-export {};
+import { run } from "./venue-discovery/run.js";
+
+await run();

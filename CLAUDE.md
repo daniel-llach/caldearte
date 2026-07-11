@@ -3,8 +3,8 @@
 Before making any change, read:
 - [docs/overview.md](docs/overview.md) — vision, scope, what counts as a valid event
 - [docs/roadmap.md](docs/roadmap.md) — phases and current status
-- [docs/curation-policy.md](docs/curation-policy.md) — required before touching Proceso A/B or any curation logic
-- [docs/region-discovery.md](docs/region-discovery.md) — required before touching Proceso A/B: discovery, ranking, crawling, cost governance
+- [docs/curation-policy.md](docs/curation-policy.md) — required before touching Venue Discovery/Event Crawler or any curation logic
+- [docs/region-discovery.md](docs/region-discovery.md) — required before touching Venue Discovery/Event Crawler: discovery, ranking, crawling, cost governance
 - `docs/` also has `architecture.md`, `data-model.md`, `testing-strategy.md`, `risks.md`, `ui-prototype.md`, `figma-make-brief.md`, and `setup-checklist.md` — read the relevant one for the area you're touching
 
 We're in Phase 1a: the core loop (scraper, curation, Supabase, calendar) — inbound-mail flows aren't built yet.

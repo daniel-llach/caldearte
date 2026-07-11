@@ -39,8 +39,8 @@ events
   medium_type (tradicional | intervencion_no_tradicional),
   sensitivity_tags (array: desnudo_erotismo | guerra_violencia |
     memoria_dictadura),
-  source (scraped | submitted | discovered — "discovered" is what Proceso A
-    finds directly, with no venue),
+  source (scraped | submitted | discovered — "discovered" is what Venue
+    Discovery finds directly, with no venue),
   image_storage_path, source_url,
   curation_status (approved | rejected | pending_review),
   curation_reasoning (internal, technical, for the curators),
@@ -58,7 +58,7 @@ system_config
 
 api_usage_log
   id, created_at,
-  purpose (proceso_a_discovery | proceso_b_crawl),
+  purpose (venue_discovery | event_crawl),
   model, region_id (fk, nullable), venue_id (fk, nullable),
   input_tokens, output_tokens, cache_creation_input_tokens,
   cache_read_input_tokens, estimated_cost_usd
@@ -89,8 +89,8 @@ Postgres role gets **no implicit access** — it needs the same explicit
 `GRANT`s as any other role. The original schema migration only granted
 `anon`/`authenticated` `SELECT` on `venues`/`events` and nothing to
 `service_role` at all, which would have silently blocked every future
-Proceso A/B read/write the moment real code tried to use `supabase-js`.
-Fixed in the cost-governance migration for all five tables.
+Venue Discovery/Event Crawler read/write the moment real code tried to use
+`supabase-js`. Fixed in the cost-governance migration for all five tables.
 
 ## Secrets / credentials
 

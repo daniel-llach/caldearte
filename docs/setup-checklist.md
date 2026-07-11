@@ -15,8 +15,8 @@ done — it should always reflect reality, not the original plan.
   [region-discovery.md](region-discovery.md)), so optimizing latency for a
   single entry region didn't make sense.
 - **Anthropic API key** — generated at console.anthropic.com, saved in a
-  password manager. Not loaded into `.env.local` or GitHub secrets yet —
-  happens once Proceso A/B's actual code starts calling the API.
+  password manager, and loaded into `.env.local` and GitHub secrets — Venue
+  Discovery's code now calls the API (see `apps/curator/src/venue-discovery/`).
 - **Resend account** — created.
 - **Vercel account** — created. Repo not imported yet — happens once
   `apps/web` has a first commit.
@@ -31,7 +31,14 @@ done — it should always reflect reality, not the original plan.
   Antofagasta, Arica, all `active`/weekly. See
   [region-discovery.md](region-discovery.md).
 - **GitHub secrets already loaded:** `SUPABASE_ACCESS_TOKEN`,
-  `SUPABASE_DB_PASSWORD` — used by `deploy-migrations.yml`.
+  `SUPABASE_DB_PASSWORD` — used by `deploy-migrations.yml`. `ANTHROPIC_API_KEY`,
+  `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — used by
+  `.github/workflows/venue-discovery.yml` (manual trigger only for now).
+- **Venue Discovery** — implemented in
+  `apps/curator/src/venue-discovery/`, wired into the cost-governance ledger.
+  Triggered manually via `.github/workflows/venue-discovery.yml` (`workflow_dispatch`)
+  or locally with `pnpm --filter @caldearte/curator run discover-venues` — no
+  automatic schedule yet, see [region-discovery.md](region-discovery.md).
 
 ## Pending
 
@@ -47,10 +54,6 @@ done — it should always reflect reality, not the original plan.
   used in a Cowork session; connect it here too if continuing design
   iteration from Claude Code.
 - **Remaining GitHub secrets:**
-  - `ANTHROPIC_API_KEY` — needed once Proceso A/B's code starts calling
-    the API.
-  - `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — from the Supabase
-    project dashboard (Settings → API); needed for the same reason.
   - `RESEND_API_KEY` / `RESEND_WEBHOOK_SECRET` — Phase 1b.
   - `APPROVAL_TOKEN_SECRET` — a random string, generated when the
     email-approval flow gets built (Phase 1a's ambiguous-case emails).
