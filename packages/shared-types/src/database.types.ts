@@ -14,6 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
+      api_usage_log: {
+        Row: {
+          cache_creation_input_tokens: number
+          cache_read_input_tokens: number
+          created_at: string
+          estimated_cost_usd: number
+          id: string
+          input_tokens: number
+          model: string
+          output_tokens: number
+          purpose: string
+          region_id: string | null
+          venue_id: string | null
+        }
+        Insert: {
+          cache_creation_input_tokens?: number
+          cache_read_input_tokens?: number
+          created_at?: string
+          estimated_cost_usd: number
+          id?: string
+          input_tokens?: number
+          model: string
+          output_tokens?: number
+          purpose: string
+          region_id?: string | null
+          venue_id?: string | null
+        }
+        Update: {
+          cache_creation_input_tokens?: number
+          cache_read_input_tokens?: number
+          created_at?: string
+          estimated_cost_usd?: number
+          id?: string
+          input_tokens?: number
+          model?: string
+          output_tokens?: number
+          purpose?: string
+          region_id?: string | null
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_usage_log_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "api_usage_log_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       events: {
         Row: {
           artist: string | null
@@ -133,14 +190,36 @@ export type Database = {
         }
         Relationships: []
       }
+      system_config: {
+        Row: {
+          key: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: string
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: string
+        }
+        Relationships: []
+      }
       venues: {
         Row: {
           address: string | null
           category: string
+          check_frequency_days: number
+          consecutive_zero_yield_checks: number
           contact_email: string | null
+          content_hash: string | null
           created_at: string
           geocoded_at: string | null
           id: string
+          last_checked_at: string | null
           lat: number | null
           lng: number | null
           name: string
@@ -150,10 +229,14 @@ export type Database = {
         Insert: {
           address?: string | null
           category?: string
+          check_frequency_days?: number
+          consecutive_zero_yield_checks?: number
           contact_email?: string | null
+          content_hash?: string | null
           created_at?: string
           geocoded_at?: string | null
           id?: string
+          last_checked_at?: string | null
           lat?: number | null
           lng?: number | null
           name: string
@@ -163,10 +246,14 @@ export type Database = {
         Update: {
           address?: string | null
           category?: string
+          check_frequency_days?: number
+          consecutive_zero_yield_checks?: number
           contact_email?: string | null
+          content_hash?: string | null
           created_at?: string
           geocoded_at?: string | null
           id?: string
+          last_checked_at?: string | null
           lat?: number | null
           lng?: number | null
           name?: string

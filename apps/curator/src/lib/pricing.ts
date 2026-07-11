@@ -1,0 +1,43 @@
+// Prices as of 2026-07 (platform.claude.com/docs/en/pricing). No API exposes
+// this — update this table by hand if Anthropic changes pricing.
+export type ModelId = "claude-haiku-4-5" | "claude-sonnet-5";
+
+interface ModelPricing {
+  inputPerMtok: number;
+  outputPerMtok: number;
+}
+
+// Sonnet 5 intro pricing ($2/$10) applies through 2026-08-31, then reverts
+// to $3/$15 — update inputPerMtok/outputPerMtok here when that happens.
+const PRICING: Record<ModelId, ModelPricing> = {
+  "claude-haiku-4-5": { inputPerMtok: 1, outputPerMtok: 5 },
+  "claude-sonnet-5": { inputPerMtok: 2, outputPerMtok: 10 },
+};
+
+const CACHE_READ_MULTIPLIER = 0.1;
+const CACHE_WRITE_MULTIPLIER = 1.25; // 5-minute TTL cache writes
+
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
+}
+
+export function estimateCostUsd(model: ModelId, usage: Usage): number {
+  const pricing = PRICING[model];
+  if (!pricing) {
+    throw new Error(`No pricing configured for model "${model}" — update pricing.ts`);
+  }
+
+  const inputCost = (usage.inputTokens / 1_000_000) * pricing.inputPerMtok;
+  const outputCost = (usage.outputTokens / 1_000_000) * pricing.outputPerMtok;
+  const cacheWriteCost =
+    ((usage.cacheCreationInputTokens ?? 0) / 1_000_000) *
+    pricing.inputPerMtok *
+    CACHE_WRITE_MULTIPLIER;
+  const cacheReadCost =
+    ((usage.cacheReadInputTokens ?? 0) / 1_000_000) * pricing.inputPerMtok * CACHE_READ_MULTIPLIER;
+
+  return inputCost + outputCost + cacheWriteCost + cacheReadCost;
+}
