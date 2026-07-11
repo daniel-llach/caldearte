@@ -86,7 +86,7 @@ export async function runRegion(
   const { candidates, usage } = await discover(region, messagesClient);
 
   await recordUsage({
-    purpose: "proceso_a_discovery",
+    purpose: "venue_discovery",
     model: MODEL,
     regionId: region.id,
     usage,
@@ -194,7 +194,7 @@ export async function run(): Promise<void> {
 
   for (const region of regions) {
     const { inserted } = await runRegion(region);
-    console.log(`[proceso-a] ${region.name}: ${inserted} new venue(s)`);
+    console.log(`[venue-discovery] ${region.name}: ${inserted} new venue(s)`);
   }
 
   await maybeExpandToNextRegion();

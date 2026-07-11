@@ -136,7 +136,8 @@ higher than on the other axes, which are text-only.
 > excluded by this criterion.
 
 *Implementation note: this system prompt is presented here in English for
-documentation consistency, but the actual code (once Proceso A/B are built)
+documentation consistency, but the actual code (once Venue Discovery/Event
+Crawler are built)
 can implement it in either English or Spanish — Claude handles both equally
 well when evaluating Spanish-language event descriptions. That's an
 implementation detail to decide when the curator code is written, not a

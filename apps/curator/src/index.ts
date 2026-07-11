@@ -1,3 +1,3 @@
-import { run } from "./proceso-a/run.js";
+import { run } from "./venue-discovery/run.js";
 
 await run();

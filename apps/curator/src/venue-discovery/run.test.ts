@@ -10,7 +10,7 @@ const hasLocalSupabase = Boolean(
 );
 
 test(
-  "proceso-a run integration (requires local Supabase)",
+  "venue-discovery run integration (requires local Supabase)",
   { skip: !hasLocalSupabase && "SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set" },
   async (t) => {
     const { getRegionsDueForRun, runRegion } = await import("./run.js");
@@ -75,7 +75,7 @@ test(
           .select("*")
           .eq("region_id", region.id);
         assert.equal(usageRows?.length, 1);
-        assert.equal(usageRows?.[0].purpose, "proceso_a_discovery");
+        assert.equal(usageRows?.[0].purpose, "venue_discovery");
 
         const updated = await refetchRegion(region.id);
         assert.equal(updated.consecutive_zero_yield_runs, 0);

@@ -8,9 +8,10 @@ Done: pnpm workspace, core schema deployed to production
 system shipped (`system_config`/`api_usage_log`, budget ceiling, region cap,
 change-detection foundation).
 
-Not yet built: Proceso A (discovery) and Proceso B (crawl) business logic
-itself — see [region-discovery.md](region-discovery.md) for the design both
-will implement against. Frontend (`apps/web`) hasn't been started.
+Venue Discovery is implemented (`apps/curator/src/venue-discovery/`,
+manual-trigger only for now). The Event Crawler hasn't been built yet — see
+[region-discovery.md](region-discovery.md) for the design both implement
+against. Frontend (`apps/web`) hasn't been started.
 
 ## Phase 0 — Definition (complete)
 
@@ -18,12 +19,12 @@ Closed out the initial project brief, moved into a dedicated repo.
 
 ## Phase 1a — Core loop (no inbound-mail flows yet)
 
-- First Proceso A run scoped to **all of Chile** (several active regions,
-  weekly from day one) instead of hand-seeding venues — see
+- First Venue Discovery run scoped to **all of Chile** (several active
+  regions, weekly from day one) instead of hand-seeding venues — see
   [region-discovery.md](region-discovery.md) for the full expansion-ranking
   and saturation logic.
-- Daily GitHub Actions cron walks the already-discovered venues (Proceso B /
-  "crawl").
+- Daily GitHub Actions cron walks the already-discovered venues (the Event
+  Crawler).
 - A deterministic scraper extracts HTML + image candidates
   (`<img src/alt/dimensions>`).
 - Claude Haiku 4.5 evaluates each candidate event against the five curation
@@ -57,7 +58,7 @@ Closed out the initial project brief, moved into a dedicated repo.
   token, webhook signature verification, `ngrok` tunneling to test locally)
   that shouldn't block getting the core loop working and demonstrable first.
 
-## Phase 1c — Proceso A, venue discovery at scale
+## Phase 1c — Venue Discovery at scale
 
 - Not blocking for 1a/1b — grows the venue list in the background, at a
   lower frequency than the daily crawl. This is where the full global

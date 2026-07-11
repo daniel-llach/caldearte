@@ -68,7 +68,7 @@ looked up:
 - If one exists: "No openings [period] in [city]. The next one is on
   [date] — [title]" + a button to jump to that date.
 - If none exists at all (a city with no events yet, e.g. a region just added
-  by Proceso A with no results yet): "We don't have any openings for [city]
+  by Venue Discovery with no results yet): "We don't have any openings for [city]
   yet. Know one we should add?" + a contact button — this should connect to
   the public mailbox (Flow 2) on the backend.
 

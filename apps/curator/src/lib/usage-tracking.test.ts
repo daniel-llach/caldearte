@@ -25,7 +25,7 @@ test(
       const before = await getCurrentMonthSpend();
 
       await recordUsage({
-        purpose: "proceso_b_crawl",
+        purpose: "event_crawl",
         model: "claude-haiku-4-5",
         usage: { inputTokens: 1_000_000, outputTokens: 1_000_000 },
       });
@@ -37,7 +37,7 @@ test(
       await getSupabaseClient()
         .from("api_usage_log")
         .delete()
-        .eq("purpose", "proceso_b_crawl")
+        .eq("purpose", "event_crawl")
         .eq("model", "claude-haiku-4-5");
     });
 
@@ -46,14 +46,14 @@ test(
       assert.equal(await isOverBudget(), false, "shouldn't be over budget before seeding a spike");
 
       await recordUsage({
-        purpose: "proceso_a_discovery",
+        purpose: "venue_discovery",
         model: "claude-sonnet-5",
         usage: { inputTokens: (budget + 5) * 1_000_000, outputTokens: 0 },
       });
 
       assert.equal(await isOverBudget(), true);
 
-      await getSupabaseClient().from("api_usage_log").delete().eq("purpose", "proceso_a_discovery");
+      await getSupabaseClient().from("api_usage_log").delete().eq("purpose", "venue_discovery");
       assert.equal(await isOverBudget(), false, "should clear after cleanup");
     });
 
