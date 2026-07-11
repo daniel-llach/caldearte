@@ -13,16 +13,16 @@
 **3. Cuenta de Supabase.** ✅ Completado.
 - Proyecto creado: nombre `caldearte`, región `us-west-2` (Oregon).
 - Decisión consciente: no se priorizó cercanía a Sudamérica — el proyecto va a expandirse a más países (ver "Descubrimiento de fuentes" en `project-brief.md`), así que no tenía sentido optimizar latencia para una sola región de entrada.
-- No hace falta configurar tablas todavía, eso lo hace Claude Code (con el MCP o con SQL) una vez conectado.
+- Schema core (`regions`, `venues`, `events`) ya aplicado a producción (2026-07-11). Nota: el primer merge a `main` con la migración (#6) no la desplegó — no había ningún mecanismo de deploy conectado todavía, pese a lo que asumía una versión anterior de este checklist y del `CLAUDE.md`. Se resolvió agregando `.github/workflows/deploy-migrations.yml`, que corre `supabase db push` contra producción en cada push a `main` que toque `supabase/migrations/` (#7, #8).
 
 **4. API key de Anthropic para el proyecto.** ✅ Completado.
 - Key generada en console.anthropic.com y guardada en gestor de contraseñas. Todavía no cargada en `.env.local` ni en secrets de GitHub — eso se hace cuando arranquemos a escribir el curador (paso 10, Parte B).
 
-**5. Cuenta de Resend.**
-- Creá cuenta en resend.com. Por ahora no hace falta más — la verificación del dominio viene en la Parte B.
+**5. Cuenta de Resend.** ✅ Completado.
+- Cuenta creada en resend.com. La verificación del dominio sigue pendiente para la Parte B.
 
-**6. Cuenta de Vercel.**
-- Creá cuenta en vercel.com (podés loguearte directo con tu cuenta de GitHub, es lo más simple). No importes el repo todavía — eso se hace cuando ya haya un primer commit de la app Next.js, más adelante con Claude Code.
+**6. Cuenta de Vercel.** ✅ Completado.
+- Cuenta creada en vercel.com. Todavía no se importó el repo — eso se hace cuando haya un primer commit de la app Next.js.
 
 **7. Herramientas locales en tu Mac.**
 Instalar (ver el detalle completo en `caldearte-project-brief.md`, sección "Setup local"):
@@ -35,8 +35,8 @@ Instalar (ver el detalle completo en `caldearte-project-brief.md`, sección "Set
 - `ngrok` (para probar los webhooks de Resend en local más adelante, no urgente ahora) — pendiente
 
 **8. MCPs a conectar en Claude Code.**
-- Conectá el MCP de Supabase (`claude mcp add`, vas a necesitar loguearte a tu cuenta de Supabase desde ahí).
-- Opcional: MCP de GitHub.
+- ✅ MCP de Supabase conectado.
+- ✅ MCP de GitHub conectado.
 - El MCP de Figma es una conexión aparte de la que usaste acá en Cowork — conectalo también en Claude Code si vas a seguir iterando el diseño desde ahí.
 
 **9. Preparar el contexto para Claude Code.**
@@ -82,9 +82,10 @@ Pausá y preguntame antes de:
 
 No las hagas ahora, no tenés los datos todavía — pero sabé que van a aparecer:
 
-**10. Cargar los secrets reales en GitHub.** Una vez que el repo tenga el workflow de Actions armado, Claude Code te va a decir exactamente qué secrets crear. Vos los cargás a mano en GitHub → Settings → Secrets and variables → Actions (nunca se los pases a Claude Code en texto plano):
-- `ANTHROPIC_API_KEY` (la que generaste en el paso 4)
-- `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` (los sacás del dashboard de tu proyecto Supabase, en Settings → API)
+**10. Cargar los secrets reales en GitHub.** Cuando el repo tenga cada workflow armado, Claude Code te va a decir exactamente qué secrets crear. Vos los cargás a mano en GitHub → Settings → Secrets and variables → Actions (nunca se los pases a Claude Code en texto plano):
+- ✅ `SUPABASE_ACCESS_TOKEN` y `SUPABASE_DB_PASSWORD` — cargados el 2026-07-11 para `deploy-migrations.yml` (#7). Llegaron antes de lo previsto en este checklist: hicieron falta para el deploy de migraciones, no para el curador.
+- `ANTHROPIC_API_KEY` (la que generaste en el paso 4) — pendiente, para cuando arranque el curador.
+- `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` (los sacás del dashboard de tu proyecto Supabase, en Settings → API) — pendiente.
 - `RESEND_API_KEY` (cuando llegues a Fase 1b)
 - `RESEND_WEBHOOK_SECRET` (Fase 1b)
 - `APPROVAL_TOKEN_SECRET` (te lo va a sugerir Claude Code, es un string random que generás vos o él)
