@@ -45,6 +45,8 @@ Instalar (ver el detalle completo en `caldearte-project-brief.md`, sección "Set
 - Creá una carpeta `docs/` adentro y copiá ahí los tres documentos que armamos: `project-brief.md`, `mockup-description.md`, `figma-make-prompt.md` (y el mockup `caldearte-mockup.jsx` si querés que Claude Code lo tenga como referencia de código, no solo de descripción).
 - Escribí un `CLAUDE.md` corto en la raíz que le diga a Claude Code que lea esos documentos antes de arrancar. Algo simple alcanza, por ejemplo:
 
+> Nota: este es el CLAUDE.md original con el que arrancó el proyecto. Puede haber quedado desactualizado — el archivo `CLAUDE.md` real en la raíz del repo es siempre la fuente de verdad vigente, no esta copia.
+
 ```
 # Caldearte
 
