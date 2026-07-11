@@ -15,9 +15,8 @@
 - Decisión consciente: no se priorizó cercanía a Sudamérica — el proyecto va a expandirse a más países (ver "Descubrimiento de fuentes" en `project-brief.md`), así que no tenía sentido optimizar latencia para una sola región de entrada.
 - No hace falta configurar tablas todavía, eso lo hace Claude Code (con el MCP o con SQL) una vez conectado.
 
-**4. API key de Anthropic para el proyecto.**
-- Andá a console.anthropic.com (**no** es lo mismo que tu login de Claude Code/Pro) y generá una API key nueva, dedicada a Caldearte.
-- Esta es la key que factura por uso — la que va a `ANTHROPIC_API_KEY` en los secrets de GitHub y en tu `.env.local`. No la confundas con tu suscripción Pro de Claude Code, son cosas separadas (ya lo charlamos).
+**4. API key de Anthropic para el proyecto.** ✅ Completado.
+- Key generada en console.anthropic.com y guardada en gestor de contraseñas. Todavía no cargada en `.env.local` ni en secrets de GitHub — eso se hace cuando arranquemos a escribir el curador (paso 10, Parte B).
 
 **5. Cuenta de Resend.**
 - Creá cuenta en resend.com. Por ahora no hace falta más — la verificación del dominio viene en la Parte B.
@@ -27,13 +26,13 @@
 
 **7. Herramientas locales en tu Mac.**
 Instalar (ver el detalle completo en `caldearte-project-brief.md`, sección "Setup local"):
-- Node.js LTS + pnpm
-- Docker Desktop
-- Supabase CLI
-- GitHub CLI (`gh`), y corré `gh auth login`
-- Vercel CLI
-- `act` (opcional, para probar GitHub Actions en local)
-- `ngrok` (para probar los webhooks de Resend en local más adelante, no urgente ahora)
+- ✅ Node.js LTS + pnpm
+- ✅ Docker Desktop (instalado y corriendo)
+- ✅ Supabase CLI (`brew install supabase/tap/supabase`, v2.109.1)
+- ✅ GitHub CLI (`gh`), autenticado
+- Vercel CLI — pendiente, no urgente (recién hace falta con el primer deploy de `apps/web`)
+- `act` (opcional, para probar GitHub Actions en local) — pendiente
+- `ngrok` (para probar los webhooks de Resend en local más adelante, no urgente ahora) — pendiente
 
 **8. MCPs a conectar en Claude Code.**
 - Conectá el MCP de Supabase (`claude mcp add`, vas a necesitar loguearte a tu cuenta de Supabase desde ahí).
