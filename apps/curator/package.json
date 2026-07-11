@@ -3,7 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "node --import tsx --test src/**/*.test.ts"
+  },
   "dependencies": {
-    "@caldearte/shared-types": "workspace:*"
+    "@anthropic-ai/sdk": "^0.111.0",
+    "@caldearte/shared-types": "workspace:*",
+    "@supabase/supabase-js": "^2.110.2"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.0"
   }
 }
