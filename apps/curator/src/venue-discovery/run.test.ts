@@ -102,6 +102,26 @@ test(
         assert.equal(updated.search_frequency, "monthly");
       });
 
+      await t.test("runRegion passes existing venue names to discover", async () => {
+        // Seed one venue so this region is no longer "empty."
+        await client.from("venues").insert({
+          region_id: region.id,
+          name: "Already Known Gallery",
+        });
+
+        let capturedNames: string[] | undefined;
+        await runRegion(await refetchRegion(region.id), {
+          discover: async (_region, _client, existingVenueNames) => {
+            capturedNames = existingVenueNames;
+            return { candidates: [], usage: { inputTokens: 10, outputTokens: 5 } };
+          },
+        });
+
+        assert.ok(capturedNames?.includes("Already Known Gallery"));
+
+        await client.from("venues").delete().eq("name", "Already Known Gallery");
+      });
+
       await t.test("runRegion un-saturates a region once it yields again", async () => {
         const saturatedRegion = await refetchRegion(region.id);
         await runRegion(saturatedRegion, {

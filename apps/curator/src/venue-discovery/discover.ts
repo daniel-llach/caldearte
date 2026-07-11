@@ -15,6 +15,7 @@ export interface DiscoverUsage {
   outputTokens: number;
   cacheCreationInputTokens?: number;
   cacheReadInputTokens?: number;
+  webSearchRequests?: number;
 }
 
 export interface DiscoverResult {
@@ -22,21 +23,34 @@ export interface DiscoverResult {
   usage: DiscoverUsage;
 }
 
+interface MessagesResponseContentBlock {
+  type: string;
+  text?: string;
+  name?: string;
+  input?: { query?: string };
+}
+
 // Narrow structural interface instead of the full Anthropic SDK class, so
 // tests can inject a stub without hitting the real API.
 export interface MessagesClient {
   messages: {
     create(params: Record<string, unknown>): Promise<{
-      content: Array<{ type: string; text?: string }>;
+      content: MessagesResponseContentBlock[];
       usage: {
         input_tokens: number;
         output_tokens: number;
         cache_creation_input_tokens?: number | null;
         cache_read_input_tokens?: number | null;
+        server_tool_use?: { web_search_requests?: number } | null;
       };
     }>;
   };
 }
+
+// Caps worst-case cost per call — a backstop, not the primary lever. The
+// search-economy prompt instructions below are what's meant to keep actual
+// usage well under this in normal operation.
+const MAX_WEB_SEARCH_USES = 20;
 
 const QUERY_TEMPLATES: Record<string, (city: string) => string[]> = {
   es: (city) => [
@@ -63,7 +77,18 @@ const VENUE_FILTER_POLICY = `Classify each venue's "category" using this rule:
 - "art_space": a recognizable, legitimate art or community space — this includes not just museums and galleries but cultural centers, community centers, neighborhood associations, and spaces known for street art or public interventions.
 - "needs_review": anything that is neither clearly a legitimate art/community space nor clearly one of the hard-excluded categories above. Do not guess — use this category when unsure.`;
 
-function buildSystemPrompt(region: Region, queries: string[]): string {
+const SEARCH_ECONOMY_POLICY = `Be economical with searches: rely on the information already present in your initial broad search results whenever possible. Only perform an additional, targeted search for a specific candidate when the initial results didn't already give you enough to confirm it's a real, active space or to extract its address/contact details — don't search individually for every candidate as a default. If you're still unsure about a candidate after a reasonable effort, classify it "needs_review" rather than spending more searches to resolve it.`;
+
+export function buildSystemPrompt(
+  region: Region,
+  queries: string[],
+  existingVenueNames: string[] = [],
+): string {
+  const knownVenuesSection =
+    existingVenueNames.length > 0
+      ? `\n\nVenues already known for this region (do not re-search or re-validate these — only report genuinely new candidates not on this list):\n${existingVenueNames.map((n) => `- ${n}`).join("\n")}\n`
+      : "";
+
   return `You are researching art and community venues for the city/metro "${region.name}, ${region.country}" as part of Caldearte, a curated calendar of art opening nights.
 
 Use the web_search tool to research using queries like:
@@ -71,17 +96,19 @@ ${queries.map((q) => `- "${q}"`).join("\n")}
 
 For each result, validate it is a real, currently active art or community space — not a stale blog post, a news article, or a dead/defunct result. Extract: name, address (if available), website or social media URL, and a public contact email if visible.
 
+${SEARCH_ECONOMY_POLICY}
+${knownVenuesSection}
 ${VENUE_FILTER_POLICY}
 
 When you are done researching, respond with ONLY a fenced JSON code block (\`\`\`json ... \`\`\`) containing an array of objects with this exact shape, and nothing else before or after it:
 [{ "name": string, "address": string | null, "websiteOrSocial": string | null, "contactEmail": string | null, "category": "art_space" | "hard_excluded" | "needs_review" }]
 
-If you find no legitimate venues, respond with an empty array: \`\`\`json
+If you find no legitimate new venues, respond with an empty array: \`\`\`json
 []
 \`\`\``;
 }
 
-function extractText(content: Array<{ type: string; text?: string }>): string {
+function extractText(content: MessagesResponseContentBlock[]): string {
   let text = "";
   for (const block of content) {
     if (block.type === "text" && block.text) {
@@ -91,7 +118,15 @@ function extractText(content: Array<{ type: string; text?: string }>): string {
   return text;
 }
 
-function parseCandidates(content: Array<{ type: string; text?: string }>): VenueCandidate[] {
+function logSearchQueries(region: Region, content: MessagesResponseContentBlock[]): void {
+  for (const block of content) {
+    if (block.type === "server_tool_use" && block.name === "web_search" && block.input?.query) {
+      console.log(`[venue-discovery] ${region.name} search: "${block.input.query}"`);
+    }
+  }
+}
+
+function parseCandidates(content: MessagesResponseContentBlock[]): VenueCandidate[] {
   const fullText = extractText(content);
   const match = fullText.match(/```json\s*([\s\S]*?)```/);
 
@@ -110,14 +145,15 @@ function parseCandidates(content: Array<{ type: string; text?: string }>): Venue
 export async function discoverVenues(
   region: Region,
   client: MessagesClient,
+  existingVenueNames: string[] = [],
 ): Promise<DiscoverResult> {
   const queries = buildQueries(region);
 
   const response = await client.messages.create({
     model: "claude-sonnet-5",
     max_tokens: 8000,
-    system: buildSystemPrompt(region, queries),
-    tools: [{ type: "web_search_20260209", name: "web_search" }],
+    system: buildSystemPrompt(region, queries, existingVenueNames),
+    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: MAX_WEB_SEARCH_USES }],
     output_config: { effort: "medium" },
     messages: [
       {
@@ -127,6 +163,7 @@ export async function discoverVenues(
     ],
   });
 
+  logSearchQueries(region, response.content);
   const candidates = parseCandidates(response.content);
 
   const usage: DiscoverUsage = {
@@ -134,6 +171,7 @@ export async function discoverVenues(
     outputTokens: response.usage.output_tokens,
     cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? undefined,
     cacheReadInputTokens: response.usage.cache_read_input_tokens ?? undefined,
+    webSearchRequests: response.usage.server_tool_use?.web_search_requests ?? undefined,
   };
 
   return { candidates, usage };

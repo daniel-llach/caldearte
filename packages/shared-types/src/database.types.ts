@@ -27,6 +27,7 @@ export type Database = {
           purpose: string
           region_id: string | null
           venue_id: string | null
+          web_search_requests: number
         }
         Insert: {
           cache_creation_input_tokens?: number
@@ -40,6 +41,7 @@ export type Database = {
           purpose: string
           region_id?: string | null
           venue_id?: string | null
+          web_search_requests?: number
         }
         Update: {
           cache_creation_input_tokens?: number
@@ -53,6 +55,7 @@ export type Database = {
           purpose?: string
           region_id?: string | null
           venue_id?: string | null
+          web_search_requests?: number
         }
         Relationships: [
           {

@@ -1,11 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { discoverVenues, type MessagesClient } from "./discover.js";
+import { discoverVenues, buildSystemPrompt, type MessagesClient } from "./discover.js";
 
-function stubClient(text: string, usage: Partial<Record<string, number>> = {}): MessagesClient {
-  return {
+interface StubOptions {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  web_search_requests?: number;
+}
+
+function stubClient(
+  text: string,
+  usage: StubOptions = {},
+): MessagesClient & { lastParams?: Record<string, unknown> } {
+  const client: MessagesClient & { lastParams?: Record<string, unknown> } = {
     messages: {
-      async create() {
+      async create(params) {
+        client.lastParams = params;
         return {
           content: [{ type: "text", text }],
           usage: {
@@ -13,11 +25,16 @@ function stubClient(text: string, usage: Partial<Record<string, number>> = {}): 
             output_tokens: usage.output_tokens ?? 50,
             cache_creation_input_tokens: usage.cache_creation_input_tokens ?? null,
             cache_read_input_tokens: usage.cache_read_input_tokens ?? null,
+            server_tool_use:
+              usage.web_search_requests !== undefined
+                ? { web_search_requests: usage.web_search_requests }
+                : null,
           },
         };
       },
     },
   };
+  return client;
 }
 
 const region = {
@@ -66,7 +83,7 @@ test("discoverVenues: returns an empty array when the model finds nothing", asyn
   assert.deepEqual(result.candidates, []);
 });
 
-test("discoverVenues: maps usage fields, treating missing cache fields as undefined", async () => {
+test("discoverVenues: maps usage fields, treating missing cache/search fields as undefined", async () => {
   const text = "```json\n[]\n```";
   const result = await discoverVenues(
     region,
@@ -77,6 +94,15 @@ test("discoverVenues: maps usage fields, treating missing cache fields as undefi
   assert.equal(result.usage.outputTokens, 567);
   assert.equal(result.usage.cacheCreationInputTokens, undefined);
   assert.equal(result.usage.cacheReadInputTokens, undefined);
+  assert.equal(result.usage.webSearchRequests, undefined);
+});
+
+test("discoverVenues: extracts web_search_requests from server_tool_use", async () => {
+  const result = await discoverVenues(
+    region,
+    stubClient("```json\n[]\n```", { web_search_requests: 12 }),
+  );
+  assert.equal(result.usage.webSearchRequests, 12);
 });
 
 test("discoverVenues: throws a clear error when no fenced JSON block is present", async () => {
@@ -91,4 +117,29 @@ test("discoverVenues: falls back to English query templates for a non-es region"
   // rather than throwing on an unrecognized language key.
   const result = await discoverVenues(enRegion, stubClient("```json\n[]\n```"));
   assert.deepEqual(result.candidates, []);
+});
+
+test("discoverVenues: caps the web_search tool at MAX_WEB_SEARCH_USES", async () => {
+  const client = stubClient("```json\n[]\n```");
+  await discoverVenues(region, client);
+
+  const tools = client.lastParams?.tools as Array<Record<string, unknown>>;
+  assert.equal(tools[0].max_uses, 20);
+});
+
+test("buildSystemPrompt: lists existing venues and instructs the model to skip them", () => {
+  const prompt = buildSystemPrompt(region, ["query one"], ["Galería A", "Centro B"]);
+  assert.match(prompt, /Galería A/);
+  assert.match(prompt, /Centro B/);
+  assert.match(prompt, /do not re-search or re-validate these/);
+});
+
+test("buildSystemPrompt: omits the known-venues section when none are passed", () => {
+  const prompt = buildSystemPrompt(region, ["query one"], []);
+  assert.doesNotMatch(prompt, /already known for this region/);
+});
+
+test("buildSystemPrompt: always includes the search-economy instruction", () => {
+  const prompt = buildSystemPrompt(region, ["query one"]);
+  assert.match(prompt, /Be economical with searches/);
 });
