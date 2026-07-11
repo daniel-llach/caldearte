@@ -1,0 +1,17 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  apps/curator:
+    dependencies:
+      '@caldearte/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
+
+  packages/shared-types: {}
