@@ -38,7 +38,7 @@ Instalar (ver el detalle completo en `caldearte-project-brief.md`, sección "Set
 **8. MCPs a conectar en Claude Code.**
 - Conectá el MCP de Supabase (`claude mcp add`, vas a necesitar loguearte a tu cuenta de Supabase desde ahí).
 - Opcional: MCP de GitHub.
-- El MCP de Figma es una conexión aparte de la que usaste acá en Cowork — conectala también en Claude Code si vas a seguir iterando el diseño desde ahí.
+- El MCP de Figma es una conexión aparte de la que usaste acá en Cowork — conectalo también en Claude Code si vas a seguir iterando el diseño desde ahí.
 
 **9. Preparar el contexto para Claude Code.**
 - Cloná el repo vacío a tu máquina.
