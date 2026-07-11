@@ -1,39 +1,40 @@
 # Caldearte
 
-Antes de hacer cualquier cambio, leé:
-- docs/project-brief.md — definición completa del proyecto, fases, schema, políticas de curatoria
-- docs/mockup-description.md — cómo funciona el prototipo de interfaz
-- docs/figma-make-prompt.md — copy de curatoria y dirección visual ya definida
-- docs/checklist-setup.md — qué está configurado y qué falta configurar sobre la marcha
+Before making any change, read:
+- [docs/overview.md](docs/overview.md) — vision, scope, what counts as a valid event
+- [docs/roadmap.md](docs/roadmap.md) — phases and current status
+- [docs/curation-policy.md](docs/curation-policy.md) — required before touching Proceso A/B or any curation logic
+- [docs/region-discovery.md](docs/region-discovery.md) — required before touching Proceso A/B: discovery, ranking, crawling, cost governance
+- `docs/` also has `architecture.md`, `data-model.md`, `testing-strategy.md`, `risks.md`, `ui-prototype.md`, `figma-make-brief.md`, and `setup-checklist.md` — read the relevant one for the area you're touching
 
-Estamos en Fase 1a: loop central (scraper, curatoria, Supabase, calendario), sin los flujos de mail entrante todavía.
+We're in Phase 1a: the core loop (scraper, curation, Supabase, calendar) — inbound-mail flows aren't built yet.
 
-## Modo de trabajo — qué hacer solo vs. qué pausar
+## Working mode — what to do solo vs. what to pause for
 
-Hacé esto sin pedir permiso, de punta a punta:
-- Escribir código, refactorizar, instalar dependencias, correr tests.
-- Commits locales.
-- Migraciones de base de datos contra Supabase LOCAL (`supabase start`), no producción.
-- Correr el scraper/curador contra datos de prueba o la base local.
-- Iterar el frontend, corregir bugs que detectes vos mismo corriendo la app.
-- Abrir pull requests (si el MCP de GitHub está conectado).
-- Mergear a `main` un PR propio, siempre que pase CI y no toque `supabase/migrations/`, `.github/workflows/` ni la política de curatoria (`packages/curation-policy` cuando exista, o donde vivan las reglas/prompt de curatoria) — para código, frontend, tests o docs no hace falta que yo lo revise antes de mergear.
+Do this without asking, start to finish:
+- Write code, refactor, install dependencies, run tests.
+- Local commits.
+- Database migrations against LOCAL Supabase (`supabase start`), not production.
+- Run the scraper/curator against test data or the local database.
+- Iterate on the frontend, fix bugs you find yourself by running the app.
+- Open pull requests (if the GitHub MCP is connected).
+- Merge your own PR to `main`, as long as CI passes and it doesn't touch `supabase/migrations/`, `.github/workflows/`, or the curation policy (`docs/curation-policy.md`, or `packages/curation-policy` once it exists as code) — for code, frontend, tests, or docs, I don't need to review before merging.
 
-Pausá y preguntame antes de:
-- Pushear directo a `main` sin pasar por un PR — eso saltea CI y esta lista entera de excepciones.
-- Mergear un PR que toque `supabase/migrations/`. **Ojo acá en particular:** hay un workflow (`.github/workflows/deploy-migrations.yml`) que corre `supabase db push` contra producción en cada push a `main` que toque `supabase/migrations/` — el merge *es* el deploy, no hay paso separado después. Revisalo con el mismo cuidado que le pondrías a aplicarlo a mano (¿borra o transforma datos existentes? ¿es reversible?).
-- Mergear un PR que toque `.github/workflows/` — cambia el pipeline de CI/CD, incluyendo lo que dispara deploys o crons.
-- Mergear un PR que toque la política de curatoria — esas reglas son decisión editorial nuestra, no algo para "mejorar" por tu cuenta.
-- Deploy a producción en Vercel (preview deploys están bien, prod no).
-- Cualquier cosa que toque secrets reales — ni siquiera los muestres, decime qué falta cargar y yo lo hago en la UI.
-- Cualquier gasto — pasar de un tier gratis a uno pago, comprar algo.
-- Mandar la app a review de Meta/TikTok (Fase 4).
+Pause and ask me before:
+- Pushing directly to `main` without going through a PR — that skips CI and this entire list of exceptions.
+- Merging a PR that touches `supabase/migrations/`. **Pay special attention here:** there's a workflow (`.github/workflows/deploy-migrations.yml`) that runs `supabase db push` against production on every push to `main` that touches `supabase/migrations/` — the merge *is* the deploy, there's no separate step after. Review it with the same care you'd apply to running it by hand (does it delete or transform existing data? is it reversible?).
+- Merging a PR that touches `.github/workflows/` — it changes the CI/CD pipeline, including whatever triggers deploys or crons.
+- Merging a PR that touches the curation policy — those rules are our editorial decision, not something to "improve" on your own.
+- Deploying to production on Vercel (preview deploys are fine, prod isn't).
+- Anything that touches real secrets — don't even display them, tell me what needs to be loaded and I'll do it in the UI.
+- Any spend — moving from a free tier to a paid one, buying anything.
+- Submitting the app for Meta/TikTok review (Phase 4).
 
-## Chequeo de datos sensibles — este repo es público
+## Sensitive-data check — this repo is public
 
-Antes de cualquier commit o push (incluso los que hacés sin pedir permiso más arriba), revisá que no se cuele:
-- Secrets reales: API keys, tokens, contraseñas, connection strings, ni en contenido de archivos ni en nombres de archivo.
-- Datos personales míos o de terceros: nombre completo, email personal, teléfono, dirección — ni en el contenido de los docs/código, ni en mensajes de commit.
-- Si algo de esto está a punto de subirse, pará y avisame en vez de commitear/pushear igual — no lo resuelvas vos solo (por ejemplo reescribiendo historial) sin que te lo pida explícitamente.
+Before any commit or push (even the ones you make without asking permission above), check that none of the following slips in:
+- Real secrets: API keys, tokens, passwords, connection strings — neither in file content nor in file names.
+- Personal data, mine or anyone else's: full name, personal email, phone, address — neither in doc/code content nor in commit messages.
+- If any of this is about to go in, stop and tell me instead of committing/pushing anyway — don't resolve it yourself (e.g. by rewriting history) unless I explicitly ask you to.
 
-Nota: el 2026-07-11 auditamos todo el historial de git y confirmamos que el contenido de los docs está limpio. Sí quedó expuesto el nombre real y el gmail personal en los metadatos de autor de varios commits (por default de git/GitHub) — decisión consciente: lo dejamos así, no es algo para "arreglar" de nuevo por tu cuenta.
+Note: on 2026-07-11 we audited the full git history and confirmed the docs' content is clean. The real name and personal Gmail address are exposed in several commits' author metadata (git/GitHub's default) — a conscious decision to leave as-is, not something to "fix" again on your own.
