@@ -6,13 +6,13 @@
 
 **1. Dominio.** Ya comprado en GoDaddy (`caldearte.com`). Todavía no toques la configuración de DNS — esperá a la Parte B, porque Vercel y Resend te van a dar los registros exactos a cargar.
 
-**2. Cuenta de GitHub.**
-- Si no tenés cuenta, creála (esto sí es 100% manual, no hay forma de delegarlo).
-- El repo en sí (`caldearte`, público) **no hace falta crearlo a mano**: si conectás y autorizás el MCP de GitHub en Claude Code (paso 8), Claude Code puede crearlo él mismo como primera acción, junto con el primer commit. Autorizar el MCP igual requiere que vos completes el login OAuth — eso no se puede automatizar. Si no vas a usar el MCP de GitHub para nada más, también podés simplemente crear el repo vacío a mano en github.com en 30 segundos y ahorrarte la autorización del MCP.
+**2. Cuenta de GitHub.** ✅ Completado.
+- Repo `caldearte` creado y con el primer commit.
+- Transferido a la organización `caldearte` — ahora vive en `github.com/caldearte/caldearte`.
 
-**3. Cuenta de Supabase.**
-- Andá a supabase.com, creá cuenta.
-- Creá un proyecto nuevo: elegís nombre, región (elegí una cercana a Chile si está disponible, si no la más cercana a Sudamérica) y una contraseña de base de datos — **guardá esa contraseña en un gestor de contraseñas**, no la vas a necesitar seguido pero es la master password del proyecto.
+**3. Cuenta de Supabase.** ✅ Completado.
+- Proyecto creado: nombre `caldearte`, región `us-west-2` (Oregon).
+- Decisión consciente: no se priorizó cercanía a Sudamérica — el proyecto va a expandirse a más países (ver "Descubrimiento de fuentes" en `project-brief.md`), así que no tenía sentido optimizar latencia para una sola región de entrada.
 - No hace falta configurar tablas todavía, eso lo hace Claude Code (con el MCP o con SQL) una vez conectado.
 
 **4. API key de Anthropic para el proyecto.**

@@ -19,8 +19,7 @@ Hacé esto sin pedir permiso, de punta a punta:
 - Abrir pull requests (si el MCP de GitHub está conectado) — no los mergees solo, eso lo reviso yo.
 
 Pausá y preguntame antes de:
-- Mergear a `main` o pushear directo a `main`.
-- Aplicar una migración contra Supabase de producción, sobre todo si borra o transforma datos existentes.
+- Mergear a `main` o pushear directo a `main`. **Ojo con esto en particular:** la integración de GitHub en Supabase está conectada, así que cualquier cosa en `supabase/migrations/` que se mergea a `main` se aplica automáticamente contra producción — ya no hay un paso separado de "aplicar la migración" después del merge, el merge *es* el deploy. Antes de aprobar el merge de cualquier PR que toque `supabase/migrations/`, revisá la migración con el mismo cuidado que le pondrías a aplicarla a mano contra producción (¿borra o transforma datos existentes? ¿es reversible?) — no la trates como un merge cualquiera.
 - Deploy a producción en Vercel (preview deploys están bien, prod no).
 - Cualquier cosa que toque secrets reales — ni siquiera los muestres, decime qué falta cargar y yo lo hago en la UI.
 - Cambiar la política de curatoria — esas reglas son decisión editorial nuestra, no algo para "mejorar" por tu cuenta.
