@@ -61,8 +61,11 @@ api_usage_log
   purpose (venue_discovery | event_crawl),
   model, region_id (fk, nullable), venue_id (fk, nullable),
   input_tokens, output_tokens, cache_creation_input_tokens,
-  cache_read_input_tokens, estimated_cost_usd
-  -- self-tracked spend ledger, see region-discovery.md#cost-governance
+  cache_read_input_tokens, web_search_requests, estimated_cost_usd
+  -- self-tracked spend ledger, see region-discovery.md#cost-governance.
+  -- web_search_requests was added after the first real run: web search is
+  -- billed separately from tokens ($10/1,000 searches) and wasn't tracked
+  -- at all before, so isOverBudget() was blind to roughly half of real spend.
 
 curation_policy (versioned in the repo, not in the DB)
 ```

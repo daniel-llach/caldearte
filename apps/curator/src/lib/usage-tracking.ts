@@ -25,6 +25,7 @@ export async function recordUsage(input: RecordUsageInput): Promise<void> {
       output_tokens: input.usage.outputTokens,
       cache_creation_input_tokens: input.usage.cacheCreationInputTokens ?? 0,
       cache_read_input_tokens: input.usage.cacheReadInputTokens ?? 0,
+      web_search_requests: input.usage.webSearchRequests ?? 0,
       estimated_cost_usd: estimatedCostUsd,
     });
 

@@ -17,11 +17,18 @@ const PRICING: Record<ModelId, ModelPricing> = {
 const CACHE_READ_MULTIPLIER = 0.1;
 const CACHE_WRITE_MULTIPLIER = 1.25; // 5-minute TTL cache writes
 
+// Web search is billed separately from tokens: $10 per 1,000 searches,
+// reported as response.usage.server_tool_use.web_search_requests. Missing
+// this was a real bug — isOverBudget() was blind to roughly half of real
+// Venue Discovery spend until this was added.
+const WEB_SEARCH_COST_PER_REQUEST = 0.01;
+
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
   cacheCreationInputTokens?: number;
   cacheReadInputTokens?: number;
+  webSearchRequests?: number;
 }
 
 export function estimateCostUsd(model: ModelId, usage: Usage): number {
@@ -38,6 +45,7 @@ export function estimateCostUsd(model: ModelId, usage: Usage): number {
     CACHE_WRITE_MULTIPLIER;
   const cacheReadCost =
     ((usage.cacheReadInputTokens ?? 0) / 1_000_000) * pricing.inputPerMtok * CACHE_READ_MULTIPLIER;
+  const webSearchCost = (usage.webSearchRequests ?? 0) * WEB_SEARCH_COST_PER_REQUEST;
 
-  return inputCost + outputCost + cacheWriteCost + cacheReadCost;
+  return inputCost + outputCost + cacheWriteCost + cacheReadCost + webSearchCost;
 }

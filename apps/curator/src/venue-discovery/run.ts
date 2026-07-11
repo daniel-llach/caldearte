@@ -71,7 +71,11 @@ async function updateRegionAfterRun(region: Region, insertedCount: number): Prom
 }
 
 export interface RunRegionDeps {
-  discover?: (region: Region, client: MessagesClient) => ReturnType<typeof discoverVenues>;
+  discover?: (
+    region: Region,
+    client: MessagesClient,
+    existingVenueNames: string[],
+  ) => ReturnType<typeof discoverVenues>;
   messagesClient?: MessagesClient;
 }
 
@@ -83,15 +87,10 @@ export async function runRegion(
   const discover = deps.discover ?? discoverVenues;
   const messagesClient = deps.messagesClient ?? new Anthropic();
 
-  const { candidates, usage } = await discover(region, messagesClient);
-
-  await recordUsage({
-    purpose: "venue_discovery",
-    model: MODEL,
-    regionId: region.id,
-    usage,
-  });
-
+  // Fetched before discovery (not just for dedup afterward) so we can tell
+  // the model what's already known and skip re-searching/re-validating it —
+  // this is what makes a region's second and later runs cheaper than its
+  // first. See docs/region-discovery.md#cost-governance.
   const { data: existingVenues, error: existingError } = await client
     .from("venues")
     .select("name, source_domain")
@@ -102,6 +101,17 @@ export async function runRegion(
       `Failed to load existing venues for region ${region.id}: ${existingError.message}`,
     );
   }
+
+  const existingVenueNames = (existingVenues ?? []).map((v) => v.name);
+
+  const { candidates, usage } = await discover(region, messagesClient, existingVenueNames);
+
+  await recordUsage({
+    purpose: "venue_discovery",
+    model: MODEL,
+    regionId: region.id,
+    usage,
+  });
 
   const newCandidates = candidates.filter((c) => !isDuplicate(c, existingVenues ?? []));
 

@@ -41,6 +41,25 @@ test("estimateCostUsd: combines all four token types", () => {
   assert.equal(cost, expected);
 });
 
+test("estimateCostUsd: web search is billed separately at $10/1,000 searches", () => {
+  const cost = estimateCostUsd("claude-sonnet-5", {
+    inputTokens: 0,
+    outputTokens: 0,
+    webSearchRequests: 37,
+  });
+  assert.equal(cost, 0.37);
+});
+
+test("estimateCostUsd: web search cost combines with token costs", () => {
+  const cost = estimateCostUsd("claude-sonnet-5", {
+    inputTokens: 136_571,
+    outputTokens: 4_935,
+    webSearchRequests: 37,
+  });
+  const expected = (136_571 / 1_000_000) * 2 + (4_935 / 1_000_000) * 10 + 37 * 0.01;
+  assert.equal(cost, expected);
+});
+
 test("estimateCostUsd: throws on an unknown model", () => {
   assert.throws(() => {
     // @ts-expect-error deliberately invalid model id

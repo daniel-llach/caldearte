@@ -201,11 +201,14 @@ with a quality checkpoint before expanding further.
 ## Cost governance
 
 Confirmed with the user after modeling real dollar costs: the **daily venue
-crawl (the Event Crawler), not the discovery search (Venue Discovery), is
-what actually drives spend**, because it runs indefinitely regardless of a
-region's status. The project now has a self-enforced, self-tracked **$10/month
-ceiling**, plus the specific cost-reduction techniques below, all shipped in
-`supabase/migrations/` + `apps/curator/src/lib/` (PR #12).
+crawl (the Event Crawler)** drives spend over the long run, because it runs
+indefinitely regardless of a region's status — but the first real production
+run also showed **Venue Discovery's own weekly searches are a major
+near-term cost driver**, not a rounding error, during the bootstrap phase
+when several regions are still on a weekly cadence (see "Venue Discovery
+search cost" below). The project now has a self-enforced, self-tracked
+**$10/month ceiling**, plus the specific cost-reduction techniques below, all
+shipped in `supabase/migrations/` + `apps/curator/src/lib/` (PR #12).
 
 ### The self-tracked ledger
 
@@ -260,21 +263,80 @@ secret needed.
 - **Batching multiple venues per call**, amortizing the fixed
   "explain the task" overhead across more venues per request.
 
-**Deferred to later: the Batch API** (50% discount on Haiku calls). It adds
-real complexity — a batch job can take up to ~1 hour to complete, which
-means splitting a cron into a submit step and a separate poll-for-results
-step. Given change-detection alone already projects comfortably under
-$10/month at the current region count, this is worth revisiting only once
-actual volume justifies the added complexity.
+**Deferred to later: the Batch API** (50% discount, **tokens only — it does
+not discount web search's $10/1,000-searches charge**, per Anthropic's
+pricing docs). Also adds real complexity — a batch job can take up to ~1
+hour to complete, which means splitting a cron into a submit step and a
+separate poll-for-results step. Given change-detection alone already
+projects comfortably under $10/month at the current region count, this is
+worth revisiting only once actual volume justifies the added complexity —
+and worth remembering that it wouldn't touch Venue Discovery's search cost
+at all even if adopted.
+
+### Venue Discovery search cost (found on the first real run, fixed in PR #14's follow-up)
+
+The first production run (Santiago + Valparaíso) cost **$1.36** in real
+Anthropic billing — `api_usage_log` only recorded **$0.62**. The gap: **web
+search is billed separately from tokens** ($10 per 1,000 searches, reported
+in `response.usage.server_tool_use.web_search_requests`), and
+`pricing.ts` never accounted for it. That's not just an estimation gap —
+`isOverBudget()` was blind to roughly half of real spend, which defeats the
+point of having a self-tracked ceiling at all. Fixed by adding
+`web_search_requests` to `api_usage_log` and to `pricing.ts`'s cost
+calculation.
+
+Inferring from that gap, the model made roughly ~37 searches per region —
+far more than the 3 template queries suggested, because it defaulted to one
+follow-up validation search per candidate venue, and (since nothing told it
+otherwise) would repeat that validation work on every subsequent weekly run
+of the same region. Modeled out, unoptimized weekly Venue Discovery across 5
+regions could cost **~$27/month** on its own — comfortably over the
+ceiling. Three fixes, in `apps/curator/src/venue-discovery/discover.ts`:
+
+- **Search-economy instruction:** the system prompt now tells the model to
+  rely on its initial broad-query results first, and only search again for a
+  specific candidate when those results didn't already confirm it's real/
+  active or give its address/contact — not as a default per-candidate step.
+- **Pass already-known venues, skip them:** `discoverVenues` takes the
+  region's existing venue names and instructs the model not to re-search or
+  re-validate them — only report genuinely new candidates. This is what
+  should make a region's second and later weekly runs much cheaper than its
+  first (the first run has nothing to skip, since nothing is known yet).
+- **`max_uses: 20` on the web_search tool** as a backstop, not the primary
+  lever — caps worst-case cost on a pathological run without being the thing
+  actually doing the cost reduction.
+
+Every search query the model issues is also logged (region name + query
+text) specifically so future runs give an *observed* search count instead of
+one inferred from a cost gap, the way the ~37/region figure above was.
+
+Two ideas considered and set aside, for the record:
+
+- **Searching at region/state level instead of city/metro level** — would
+  only save on the 3 broad initial queries (~8% of the total), not the
+  per-candidate validation searches that actually dominate cost, and risks
+  reintroducing the big-city bias the log-ranking fix above exists to
+  prevent (a broad regional query surfaces the biggest city's results, not
+  small towns within it).
+- **Doing our own web search/fetching instead of Anthropic's tool** — would
+  eliminate the $10/1,000 charge, but reopens a vendor decision the project
+  deliberately avoided (see "Stack" in architecture.md — no separate search
+  service like SerpAPI), adds real ongoing maintenance (HTML parsing,
+  fetch resilience, rate limiting), and Google's own search results page
+  cannot be scraped directly (against their ToS, actively detected/blocked).
+  Worth revisiting only if the prompt-level fixes above turn out not to be
+  enough once measured for real.
 
 ### Rough cost model (for context, not a live estimate)
 
 At 5–10 active regions (roughly today's scale), modeled cost — Venue
 Discovery (Sonnet + web search) plus the Event Crawler (Haiku daily crawl,
 pre-optimization) — lands in the **$10–25/month** range under pessimistic
-assumptions (5–20 venues discovered per region, no change-detection yet).
-With change-detection, adaptive cadence, and prompt caching in place, the
-realistic figure drops well under $10/month at this scale. This was
-modeled, not measured — validate against `api_usage_log` once Venue
-Discovery/the Event Crawler are actually running, and don't treat this
-paragraph as a live number.
+assumptions (5–20 venues discovered per region, no change-detection or
+search-economy optimizations). With change-detection, adaptive cadence,
+prompt caching, and the Venue Discovery search-cost fixes above all in
+place, the realistic figure drops to roughly **$9–10/month** at this scale —
+still worth watching closely, since it's close to the ceiling rather than
+comfortably under it. This was modeled, not measured — validate against
+`api_usage_log` once a few more real runs have happened, and don't treat
+this paragraph as a live number.
