@@ -21,7 +21,7 @@ Hacé esto sin pedir permiso, de punta a punta:
 
 Pausá y preguntame antes de:
 - Pushear directo a `main` sin pasar por un PR — eso saltea CI y esta lista entera de excepciones.
-- Mergear un PR que toque `supabase/migrations/`. **Ojo acá en particular:** la integración de GitHub en Supabase está conectada, así que eso se aplica automáticamente contra producción apenas se mergea — el merge *es* el deploy, no hay paso separado después. Revisalo con el mismo cuidado que le pondrías a aplicarlo a mano (¿borra o transforma datos existentes? ¿es reversible?).
+- Mergear un PR que toque `supabase/migrations/`. **Ojo acá en particular:** hay un workflow (`.github/workflows/deploy-migrations.yml`) que corre `supabase db push` contra producción en cada push a `main` que toque `supabase/migrations/` — el merge *es* el deploy, no hay paso separado después. Revisalo con el mismo cuidado que le pondrías a aplicarlo a mano (¿borra o transforma datos existentes? ¿es reversible?).
 - Mergear un PR que toque `.github/workflows/` — cambia el pipeline de CI/CD, incluyendo lo que dispara deploys o crons.
 - Mergear un PR que toque la política de curatoria — esas reglas son decisión editorial nuestra, no algo para "mejorar" por tu cuenta.
 - Deploy a producción en Vercel (preview deploys están bien, prod no).
