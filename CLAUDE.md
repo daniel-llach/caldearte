@@ -28,3 +28,12 @@ Pausá y preguntame antes de:
 - Cualquier cosa que toque secrets reales — ni siquiera los muestres, decime qué falta cargar y yo lo hago en la UI.
 - Cualquier gasto — pasar de un tier gratis a uno pago, comprar algo.
 - Mandar la app a review de Meta/TikTok (Fase 4).
+
+## Chequeo de datos sensibles — este repo es público
+
+Antes de cualquier commit o push (incluso los que hacés sin pedir permiso más arriba), revisá que no se cuele:
+- Secrets reales: API keys, tokens, contraseñas, connection strings, ni en contenido de archivos ni en nombres de archivo.
+- Datos personales míos o de terceros: nombre completo, email personal, teléfono, dirección — ni en el contenido de los docs/código, ni en mensajes de commit.
+- Si algo de esto está a punto de subirse, pará y avisame en vez de commitear/pushear igual — no lo resuelvas vos solo (por ejemplo reescribiendo historial) sin que te lo pida explícitamente.
+
+Nota: el 2026-07-11 auditamos todo el historial de git y confirmamos que el contenido de los docs está limpio. Sí quedó expuesto el nombre real y el gmail personal en los metadatos de autor de varios commits (por default de git/GitHub) — decisión consciente: lo dejamos así, no es algo para "arreglar" de nuevo por tu cuenta.
