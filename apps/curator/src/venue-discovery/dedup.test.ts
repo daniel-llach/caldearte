@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isDuplicate, extractDomain, deriveListingUrl, findMatchingVenue } from "./dedup.js";
+import { isDuplicate, extractDomain, deriveListingUrl, findMatchingVenue, consolidateCandidates } from "./dedup.js";
 import type { VenueCandidate } from "./discover.js";
 
 function candidate(overrides: Partial<VenueCandidate> = {}): VenueCandidate {
@@ -92,4 +92,30 @@ test("findMatchingVenue: returns null when nothing matches", () => {
   const existing = [{ id: "v1", name: "Centro Cultural Municipal", source_domain: "ccmarica.cl" }];
   const c = candidate({ name: "Galería del Puerto", websiteOrSocial: "https://otrodominio.cl" });
   assert.equal(findMatchingVenue(c, existing), null);
+});
+
+test("consolidateCandidates: merges same-domain candidates reported under different names (the MAC case)", () => {
+  const candidates = [
+    candidate({ name: "Colección MAC: Modulaciones de la imagen fotográfica", websiteOrSocial: "https://mac.uchile.cl" }),
+    candidate({ name: "Colección MAC: Modulaciones de la imagen fotográfica (Quinta Normal)", websiteOrSocial: "https://mac.uchile.cl" }),
+  ];
+  assert.equal(consolidateCandidates(candidates).length, 1);
+});
+
+test("consolidateCandidates: prefers an oficial source over a difusion source when merging", () => {
+  const candidates = [
+    candidate({ name: "Some Venue", websiteOrSocial: "https://venue.cl", sourceUrl: "https://newsite.com/a", sourceType: "difusion" }),
+    candidate({ name: "Some Venue", websiteOrSocial: "https://venue.cl", sourceUrl: "https://venue.cl/agenda/x", sourceType: "oficial" }),
+  ];
+  const [merged] = consolidateCandidates(candidates);
+  assert.equal(merged.sourceType, "oficial");
+  assert.equal(merged.sourceUrl, "https://venue.cl/agenda/x");
+});
+
+test("consolidateCandidates: leaves genuinely distinct venues untouched", () => {
+  const candidates = [
+    candidate({ name: "Galería A", websiteOrSocial: "https://a.cl" }),
+    candidate({ name: "Galería B", websiteOrSocial: "https://b.cl" }),
+  ];
+  assert.equal(consolidateCandidates(candidates).length, 2);
 });

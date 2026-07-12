@@ -164,6 +164,8 @@ ${queries.map((q) => `- "${q}"`).join("\n")}
 
 For each exhibition or intervention you find, identify the venue hosting it (or note that it has no fixed venue, if it's a standalone street intervention) and validate it's real and currently active — not a stale blog post, a dead result, or something that already closed. Extract: venue name, address (if available), the venue's general website or social media URL, the specific page URL where you found this exhibition/intervention (sourceUrl — not just the venue's homepage), and a public contact email if visible.
 
+"name" must be the institution itself (the gallery, museum, or cultural center — e.g. "Museo Nacional de Bellas Artes"), never the exhibition or intervention's own title (not "Valentina Cruz. De amor, humor y muerte"). If you find more than one exhibition at the same institution, report that institution once, not once per exhibition.
+
 Today's date is ${todayIso}. Only report candidates whose exhibition/intervention falls between today and ${cutoffIso} (roughly the next 2 months) — discard anything that has already ended and anything further out (dates that far ahead are typically unconfirmed).
 
 ${SEARCH_ECONOMY_POLICY}

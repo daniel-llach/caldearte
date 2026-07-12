@@ -10,7 +10,7 @@ import {
 } from "../lib/usage-tracking.js";
 import { flagBudgetExceeded } from "../lib/notify.js";
 import { discoverVenues, type MessagesClient } from "./discover.js";
-import { findMatchingVenue, extractDomain, deriveListingUrl } from "./dedup.js";
+import { findMatchingVenue, extractDomain, deriveListingUrl, consolidateCandidates } from "./dedup.js";
 
 type Region = Tables<"regions">;
 
@@ -115,7 +115,11 @@ export async function runRegion(
 
   const newCandidates: typeof candidates = [];
 
-  for (const candidate of candidates) {
+  // Consolidate against the batch itself first — a single discover() call
+  // can report the same institution more than once (e.g. once per
+  // exhibition it hosts), which existingVenues-based matching alone
+  // wouldn't catch since it only compares against rows from before this run.
+  for (const candidate of consolidateCandidates(candidates)) {
     const match = findMatchingVenue(candidate, existingVenues ?? []);
 
     if (!match) {

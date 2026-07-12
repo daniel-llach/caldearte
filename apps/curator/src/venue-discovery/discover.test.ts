@@ -177,6 +177,12 @@ test("buildSystemPrompt: states today's date and a 2-month cutoff", () => {
   assert.match(prompt, /discard anything that has already ended/);
 });
 
+test("buildSystemPrompt: clarifies name means the institution, not the exhibition title", () => {
+  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
+  assert.match(prompt, /never the exhibition or intervention's own title/);
+  assert.match(prompt, /report that institution once, not once per exhibition/);
+});
+
 test("buildSystemPrompt: asks for sourceUrl in the output shape", () => {
   const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
   assert.match(prompt, /"sourceUrl"/);
