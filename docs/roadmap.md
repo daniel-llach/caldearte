@@ -9,9 +9,10 @@ system shipped (`system_config`/`api_usage_log`, budget ceiling, region cap,
 change-detection foundation).
 
 Venue Discovery is implemented (`apps/curator/src/venue-discovery/`,
-manual-trigger only for now). The Event Crawler hasn't been built yet — see
-[region-discovery.md](region-discovery.md) for the design both implement
-against. Frontend (`apps/web`) hasn't been started.
+manual-trigger only for now). The Event Crawler is now implemented too
+(`apps/curator/src/event-crawler/`, also manual-trigger only) — see
+[region-discovery.md](region-discovery.md) for the actual design. Frontend
+(`apps/web`) hasn't been started.
 
 ## Phase 0 — Definition (complete)
 
@@ -30,8 +31,12 @@ Closed out the initial project brief, moved into a dedicated repo.
 - Claude Haiku 4.5 evaluates each candidate event against the five curation
   axes + venue filter (text), picks the featured image, and runs the Axis 5
   vision check (explicit aggression) plus `sensitivity_tags` tagging.
-- Ambiguous cases → an email with two buttons (include/don't include) via a
-  Supabase Edge Function with a one-time-use token.
+- Ambiguous cases → originally designed as an email with two buttons
+  (include/don't include) via a Supabase Edge Function with a one-time-use
+  token. **v1 ships without it** (cost-driven: a second Resend domain needs
+  their paid plan) — ambiguous events land as `pending_review`, resolved
+  manually in Supabase. See
+  [region-discovery.md](region-discovery.md#no-email-approval-flow-yet-cost-driven-not-a-design-gap).
 - Writes land in Supabase (Postgres).
 - An additional daily cleanup cron deletes events more than 7 days past
   `opening_datetime`.

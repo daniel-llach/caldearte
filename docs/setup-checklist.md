@@ -39,6 +39,10 @@ done — it should always reflect reality, not the original plan.
   Triggered manually via `.github/workflows/venue-discovery.yml` (`workflow_dispatch`)
   or locally with `pnpm --filter @caldearte/curator run discover-venues` — no
   automatic schedule yet, see [region-discovery.md](region-discovery.md).
+- **Event Crawler** — implemented in `apps/curator/src/event-crawler/`, same
+  manual-trigger posture (`.github/workflows/event-crawler.yml` /
+  `pnpm --filter @caldearte/curator run crawl-events`). Ships without the
+  email-approval flow for ambiguous events — see below.
 
 ## Pending
 
@@ -54,9 +58,15 @@ done — it should always reflect reality, not the original plan.
   used in a Cowork session; connect it here too if continuing design
   iteration from Claude Code.
 - **Remaining GitHub secrets:**
-  - `RESEND_API_KEY` / `RESEND_WEBHOOK_SECRET` — Phase 1b.
-  - `APPROVAL_TOKEN_SECRET` — a random string, generated when the
-    email-approval flow gets built (Phase 1a's ambiguous-case emails).
+  - `RESEND_API_KEY` / `RESEND_WEBHOOK_SECRET` — Phase 1b, **and now also
+    blocked on cost, not just sequencing**: adding `caldearte.com` as a
+    second verified domain needs Resend's paid plan (~$20/month), since the
+    user's free-tier domain slot is already used by another project.
+    Revisit once genuinely mandatory.
+  - `APPROVAL_TOKEN_SECRET` — a random string, would be generated if/when
+    the email-approval flow gets built (Phase 1a's ambiguous-case emails,
+    deferred for the same reason — Event Crawler v1 uses `pending_review`
+    without it instead).
 - **Connect the domain to Vercel** — once there's a first frontend deploy,
   add `caldearte.com` as a custom domain in the Vercel project; Vercel then
   provides the exact DNS record to load in GoDaddy.

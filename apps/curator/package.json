@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --import tsx --test src/**/*.test.ts",
-    "discover-venues": "node --import tsx src/index.ts"
+    "discover-venues": "node --import tsx src/index.ts",
+    "crawl-events": "node --import tsx src/crawl-events.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
