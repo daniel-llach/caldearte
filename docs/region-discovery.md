@@ -181,6 +181,17 @@ Walks the already-known list of `venues` with Claude **Haiku** (cheap, high
 volume, no need for the web search tool since the exact URL to visit is
 already known), looking for new opening announcements at each one.
 
+### Handling `needs_review` venues
+
+**Decided:** the Event Crawler skips any venue with `category =
+'needs_review'` by default — it only crawls `art_space`. There's no
+confirmation flow built for venues yet (unlike events, which already have
+the email-with-two-buttons design) — today the only way a `needs_review`
+venue gets resolved is manually, either updating `venues.category` directly
+in Supabase, or in an ad-hoc review session with Claude going case by case.
+Worth revisiting once the `needs_review` backlog grows enough that manual
+resolution stops being cheap — not before.
+
 ### Sequencing: Venue Discovery doesn't block the Event Crawler
 
 Not sequential in the sense that the Event Crawler *waits* for Venue
