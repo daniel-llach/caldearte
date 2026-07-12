@@ -1,5 +1,5 @@
 // Shared verbatim policy text, used by both event-crawler/curate.ts (known
-// venues, cheap Haiku pass over a fetched page) and venue-discovery/discover.ts
+// venues, cheap Haiku pass over a fetched page) and event-discovery/discover.ts
 // (search-based discovery, full curation applied at find-time). Single
 // source so the two don't drift out of sync with docs/curation-policy.md
 // and docs/overview.md.

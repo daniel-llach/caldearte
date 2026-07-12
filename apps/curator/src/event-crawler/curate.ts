@@ -34,7 +34,7 @@ interface MessagesResponseContentBlock {
   text?: string;
 }
 
-// Same structural interface shape as venue-discovery/discover.ts's
+// Same structural interface shape as event-discovery/discover.ts's
 // MessagesClient — no web search tool used here, so no server_tool_use.
 // Also satisfies lib/vision-check.ts's narrower VisionMessagesClient shape.
 export interface MessagesClient {

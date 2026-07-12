@@ -1,3 +1,3 @@
-import { run } from "./venue-discovery/run.js";
+import { run } from "./event-discovery/run.js";
 
 await run();

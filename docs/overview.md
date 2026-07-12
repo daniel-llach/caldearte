@@ -21,29 +21,43 @@ there is real learning along the way.
 
 ## What counts as a valid event
 
-### Opening nights only, not exhibitions already running
+### The full exhibition run, with openings as the star (revised — was "openings only")
 
-The calendar exists to capture the one moment where artist, work, and
-audience intersect — the opening night, not the exhibition run as a whole.
+**Decision, superseding the original "opening nights only" design**: Caldearte
+is a calendar of art, not exclusively of opening nights. An exhibition is
+shown for its **entire run** — from the day it starts to the day it ends —
+not discarded just because its opening has already passed. Opening nights
+remain the most valuable, most highlighted moment when one is known (that's
+still what makes an event "a star" in the UI), but their absence or passing
+is no longer a reason to exclude an otherwise-real, currently-running
+exhibition. This directly reverses the original policy below, after the
+project's real search data (Tavily + Haiku, see
+[region-discovery.md](region-discovery.md)) showed the majority of real,
+legitimate exhibitions found don't have an explicit, confirmed opening-night
+date/time at all — only a run's start and end dates. Discarding those would
+have discarded most of what's actually out there.
 
-- If the opening date has already passed by scrape time, the candidate is
-  discarded outright — it is never added.
-- An added event stays visible until **1 month** after its opening date
-  (revised from an initial 7-day figure), then it is deleted from the
-  database — not archived. The calendar should always feel alive and in
-  motion, not like a historical record.
-  - Architectural implication: a second daily cron job (separate from the
-    scraping cron) deletes `events` rows more than 1 month past
-    `opening_datetime`. It's a single lightweight `DELETE` query — **not
-    yet built**, this is the policy it should use once it is.
-- Schema implication: the date field is explicitly named `opening_datetime`
-  (date **and** time of the opening), not a generic `event_date` — many
-  sources only give an exhibition date range ("July 10 – August 30") without
-  distinguishing the opening night. When a source gives an explicit opening
-  time, that's used with high confidence (`opening_date_confidence = 'alta'`);
-  when only a range is given, the start date is used as a proxy with low
-  confidence (`'baja'`) — a candidate for escalation when there's no
-  certainty the range's start date is actually the opening night.
+- A candidate is discarded only if its run has **already fully ended**
+  before the current month (see the region-discovery.md date rule) — not
+  merely because its opening, if any, already passed.
+- **Retention: ~1 year**, not 1 month (revised from the original 1-month
+  figure, itself a revision from an initial 7-day figure). Storage cost for
+  this is negligible at this project's scale (a few hundred bytes of text
+  per event) — the real reason for the earlier short retention wasn't
+  storage, it was "the calendar should feel alive," which no longer applies
+  once the calendar is showing full runs rather than only fresh openings.
+  - Architectural implication: a cleanup cron (still not built) should
+    delete `events` rows roughly a year past their run's end, not their
+    opening date.
+- Schema implication: an event needs its run's start and end dates as two
+  separate fields (`runStartDate`/`runEndDate` in the current design,
+  distinct from the exhibition's overall duration), plus a separate,
+  independently-nullable `openingDatetime` (date **and** time) that's only
+  populated when a source explicitly confirms a real opening night — no
+  longer a "confidence" flag on a single overloaded date field
+  (`opening_date_confidence`, the original approach), since the run's own
+  start/end dates now carry that information directly instead of being
+  inferred as a low-confidence proxy for an opening.
 
 ### What counts as art
 

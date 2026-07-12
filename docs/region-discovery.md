@@ -2,328 +2,313 @@
 
 Two distinct processes, run at different frequencies with different models,
 plus the cost-governance system that keeps both bounded. This document is
-required reading before touching either process — it supersedes the original
-draft's pure population/distance ranking (which had a real bias problem, see
-below) and is the only place the cost-governance system is documented outside
-the code itself.
+required reading before touching either process.
 
-## Event Discovery (research) — formerly "Venue Discovery"
+**Status note (this revision):** Event Discovery's search/curation design
+below reflects a real, validated proof-of-concept
+(`apps/curator/scripts/poc-tavily-discover.ts`) — extensively tested with
+real Tavily + Anthropic calls, but **not yet wired into the real production
+code** (`apps/curator/src/venue-discovery/discover.ts` and `run.ts` still
+run the older Anthropic-`web_search` + venue-first design described lower in
+this doc's history). Read this document for the *intended* design; check
+the actual source files for what's deployed today.
 
-Uses Claude **Haiku** (switched from Sonnet — see below) with the
-**Anthropic API's native web search tool** ($10 per 1,000 searches +
-tokens — no separate search service like SerpAPI needed).
+## Event Discovery (research) — Tavily + Haiku, events only, no venues
 
-### Events are the primary output; venues are a byproduct (revised again after three empty runs)
+**Superseded design decision:** Event Discovery no longer produces or
+touches venues at all. Events have a `location` (always freeform text) —
+there is no venue-matching, no venue category gating, nothing. This is a
+further step past the earlier "venues are a byproduct" pivot: venues turned
+out to be pure overhead once the goal is capturing *events*, not building a
+venue directory. (The Event Crawler, described lower down, is unaffected —
+it still walks a `venues` table populated separately, unrelated to this.)
 
-Three real production runs of the venue-first design produced venues but
-**zero events** — the mechanism deferred all event-capture to a later
-Event Crawler pass that only checks venues already resolved cleanly. The
-user's explicit direction: a recognized museum is exactly as important as
-an exhibition at a school, in the street, at someone's home, or in a plaza
-— stop treating venue resolution as a prerequisite for saving anything.
+### Search: Tavily, not Anthropic's web_search tool
 
-**What changed:** this pass now extracts full, curated **events** directly
-— title, artist, date (with confidence), medium, sensitivity tags,
-curation decision, and (when available) an image — applying the exact same
-policies proven in the Event Crawler (`docs/overview.md`'s art-scope
-filter, the four content axes, Axis 5 vision), moved into a shared module
-(`apps/curator/src/lib/curation-policy.ts`, `lib/vision-check.ts`) so both
-mechanisms stay in sync. A venue gets matched or created **only when one is
-identifiable** — `venue_id` is nullable and `freeform_location` exists in
-the schema specifically for this (a street intervention, a show at
-someone's house), and had sat unused until now.
+**Why the switch:** real side-by-side comparison showed Anthropic's
+`web_search` returning mostly title/URL with no real content, and missing
+social media coverage entirely — which matters directly since informal/
+street events are often *only* announced on Instagram/Facebook. Tavily's
+results include substantial page content (sometimes full article text) and
+do surface Instagram/Facebook posts directly, with real dates/addresses in
+the result content itself.
 
-**Venue-category gating**, applied per candidate:
-- `hard_excluded` (a church/temple or far-right party HQ) → the event is
-  dropped entirely, no exceptions.
-- `needs_review` → the event's `curation_status` is forced to
-  `pending_review` regardless of its own content-based decision — an
-  institution that isn't confirmed legitimate can't produce a confidently
-  included event.
-- `art_space` (or no venue at all) → uses the event's own curation
-  decision as computed.
+**Real API-level finding:** the official `@tavily/core` npm SDK (v0.7.6)
+silently drops per-result `images` even when `includeImages`/
+`includeImageDescriptions` are requested — confirmed by comparing the SDK's
+parsed response against a raw REST call to the same endpoint with identical
+parameters, which does return them. Per-result images are the whole point
+here (see "Images" below), so the design bypasses the SDK and calls the
+REST API directly with plain `fetch`.
 
-**Within-batch venue dedup**: a `knownVenues` list starts as the region's
-existing venues and grows as new ones are created during the same run — a
-second event at a newly-created venue later in the same batch matches it
-instead of creating a duplicate. This replaced an earlier
-`consolidateCandidates` approach that merged whole candidates sharing a
-venue — correct when a candidate meant one venue, wrong once a candidate
-started meaning one *event* (two different exhibitions at the same
-institution must both survive, not get merged away).
+**Three fixed queries per unit**, in the region's language, with the
+current month/year substituted:
+- `inauguracion arte <unidad> <mes año>`
+- `exposicion arte <unidad> <mes año>`
+- `intervencion artistica <unidad> <mes año>`
 
-Confirmed with a real pilot run (Arica): a single call found "Residuos al
-borde" by Víctor Doblege, correctly matched/created its venue (Casa
-Cultural Yanulaque), tagged `opening_date_confidence: 'baja'` with an
-explicit note that the exact date wasn't published, and saved the curated
-event directly — the first real event this mechanism has ever produced,
-for $0.20.
+Tested empirically whether 2 of the 3 would suffice (reusing already-logged
+data, no extra Tavily cost): dropping any one query loses 20-32% of unique
+results across real test units, including titles that were genuine,
+otherwise-approved candidates. All 3 stay.
 
-The existing Event Crawler (cheap, no search, revisits a known venue's
-`listing_url` every 3 days) is unchanged and still valuable — a fast, free
-top-up for institutions this pass has already resolved cleanly.
+**Tavily request parameters** (validated real shape):
+`search_depth: "advanced"` (tested `"basic"` manually — noticeably worse
+results, not worth the cost difference, which turned out to be
+negligible anyway), `country: "chile"` (costs 2 credits instead of 1, but
+eliminates wrong-country noise — worth it, see "Location" below),
+`max_results: 20` (confirmed via Tavily's own docs: a fixed API ceiling,
+not plan-dependent — no paid tier removes it), `start_date` (first day of
+the target month), `chunks_per_source: 1`, `exclude_domains` (known bright
+sources — see below, avoids paying to re-discover what's fetched directly),
+`include_images` + `include_image_descriptions` (both real, load-bearing —
+see "Images").
 
-### Cadence: monthly, not weekly (revised at the same time)
+**Cost filter, confirmed with real data:** results with Tavily's own
+`score < 0.15` are dropped before ever reaching Haiku. Checked directly
+against real logged data (180 raw results, 25 below this threshold) — none
+of the 25 ever became a candidate Haiku reported, meaning it was already
+ignoring this content on its own. Pure token savings, no observed loss.
 
-The user's call: a single monthly search that actually saves curated
-events beats frequent-ish searches that only ever produced an institution-
-biased venue list. All 5 Chile regions were reset to
-`search_frequency = 'monthly'` as part of this rollout (a data change via
-manual `UPDATE`, not a migration).
+**Within-run dedup:** by URL across a unit's 3 queries (the same result
+often surfaces under more than one query template — wasteful to send twice
+with zero new information), and by normalized title (accents/quotes
+stripped) across *all* of a run's curate() calls combined (every unit plus
+the separate bright-sources pass) — real duplicate found and fixed this
+way: "Poética de las aguas" reported once via a unit's own search and once
+via a bright source, same event.
 
-### Model: Haiku, not Sonnet (revised after real cost data)
+### Curation: a single non-agentic Haiku call per unit
 
-Originally Sonnet, on the assumption that classification judgment here
-needed a bigger model. Revised after: (1) a manual dry run using Claude
-Code's own web search, then the same run for real via the Anthropic API,
-both showed Haiku reaching the *same* correct classification decisions as
-Sonnet on identical search results (same venue found, same correct
-exclusions); (2) real production data showed **token volume, not search
-count, dominates cost** (e.g. Antofagasta: 306k input tokens vs. $0.12 of
-actual search fees) — and Haiku's per-token rate is half Sonnet's ($1/$5
-vs $2/$10 per Mtok). Measured real-run comparison for Antofagasta: **$0.776
-(Sonnet, 12 searches) → $0.12-0.19 (Haiku, 5-7 searches)**, roughly a
-75-85% reduction, with equivalent or better result quality (see below).
+No `tools`/`web_search` — the concatenated search-results block *is* the
+user message; Haiku only curates what's already given, one plain
+`messages.create` call per unit (plus one more for the bright-sources
+batch, see below). Applies the shared `ART_SCOPE_POLICY` +
+`TEXT_CURATION_POLICY` (`apps/curator/src/lib/curation-policy.ts`, kept in
+sync with [curation-policy.md](curation-policy.md)), plus:
 
-One real technical gotcha: `web_search_20260209` defaults to
-`allowed_callers: ["code_execution_20260120"]` (programmatic/dynamic-filtering
-calling), which **Haiku doesn't support** — confirmed via a real API call
-(400: "does not support programmatic tool calling"). Fixed by explicitly
-setting `allowed_callers: ["direct"]` on the tool definition, which also
-means no dynamic filtering — acceptable here since the search-economy
-prompt instructions (not the tool's own filtering) are what keep result
-volume down.
+- **Excludes convocatorias (open calls) and talleres (workshops)
+  explicitly** — neither is an event happening, they're invitations to a
+  future submission or a participatory class.
+- **Location: whitelist, not blocklist, plus a country-name override.**
+  Originally a blocklist of foreign countries — too narrow (misses any
+  country not explicitly listed, e.g. an event that only says "Lima", never
+  "Perú"). Switched to requiring the location text name a recognizable
+  Chilean region/city/comuna (a ~100-entry reference list) or the word
+  "Chile" itself — since a real event's whole point is telling people where
+  to go, this should hold true ~90%+ of the time and doesn't penalize
+  genuinely freeform locations (a plaza, a street corner), only ones that
+  never identify anywhere checkable. **Real bug found and fixed:**
+  "Recoleta" is both a real Santiago comuna and part of "Centro Cultural
+  Recoleta, Buenos Aires, Argentina" — a pure whitelist let 3 real Argentine
+  candidates through on a substring match. Fixed by checking an explicit
+  foreign-country-name blocklist *first*, as an override, before the
+  whitelist — belt and suspenders, not either/or. Also a deterministic
+  **code-level backstop**, not just a prompt instruction — the prompt alone
+  already failed once (same Recoleta case) before this was added.
+- **Date rule: month-level, not day-level.** A candidate is discarded only
+  if its run has already fully ended (by `runEndDate`, or `runStartDate` if
+  no end is given) in a month *before* the target month — never simply
+  because a specific date within the target month has already passed
+  relative to today, and never because an opening lands in a later month
+  (a real future event found incidentally is still valid). Real bug fixed:
+  an August exhibition found via a July search was wrongly rejected for
+  "falling outside the searched month" before this rule existed.
+- **`status` is binary** (`approved`/`rejected`) — no `pending_review`
+  escalation tier in this design (a simplification vs. the venue-era
+  design's `ESCALATION_SIGNALS`).
 
-### Exhibition-first, not venue-first (revised after the pilot)
+**Output shape** (validated in the PoC, not yet migrated — see
+[data-model.md](data-model.md)): `title`, `description`, `artist`,
+`runStartDate`/`runEndDate` (the exhibition's actual run), `openingDatetime`
+(only when a real opening is confirmed), `mediumType`, `sensitivityTags`,
+`curationReasoning`, `imageUrl`, `status`, `location` (freeform, always),
+`sourceUrl`.
 
-The original design searched for venues directly ("art galleries in
-[city]", "cultural centers [city]") and assumed a venue's homepage would
-list its current exhibitions. The pilot proved that assumption wrong: GAM's
-real listing lives at `/es/que-hacer-en-gam/artesvisuales/`, not the
-homepage — a venue list with nothing to show for it is exactly the failure
-mode this predicts. **Venues are now a byproduct of finding actual
-exhibitions/interventions, not the primary search target:**
+### Images
 
-1. Search for the content directly, anchored to real month names computed
-   at run time (not the literal words "this month" — the web_search tool
-   doesn't do date arithmetic on query text, that's backend-dependent; a
-   literal month name matches what real pages actually say): "exhibiciones
-   de arte [city] [mes actual] [mes siguiente] [año]", "muestras
-   artísticas [city] [...]", "intervención artística [city] [...]" —
-   queries generated in the region's local language.
-2. **Temporal window: today through +2 months, nothing before or beyond.**
-   The system prompt states today's actual date explicitly (Claude has no
-   reliable notion of "now" otherwise) and instructs discarding anything
-   already past or too far out (unconfirmed that far ahead anyway). This is
-   a first filter at the search stage — the Event Crawler's own past-date
-   check remains the deterministic backstop for whatever gets through.
-3. For each exhibition/intervention found, extract the full event (title,
-   date, curation decision — see "Events are the primary output" above)
-   and identify the venue hosting it, if any, plus the **specific page
-   URL** it was found at (`sourceUrl`) — distinct from the venue's general
-   website. **`venueName` must be the institution itself, never the
-   exhibition's own title** — a real production run confused the two
-   ("Valentina Cruz. De amor, humor y muerte" stored as a venue name
-   instead of "Museo Nacional de Bellas Artes"). Two different exhibitions
-   at the same institution are reported as two separate candidates (they're
-   different events) — deduping the *venue* they share is handled in code
-   (see the `knownVenues` accumulator above), not by merging the candidates
-   themselves.
-4. **Classify each candidate's source**: `"oficial"` (the venue's own site
-   or social account) or `"difusion"` (news, a cultural-agenda aggregator,
-   or a municipal listing — not the venue's own site). If the same
-   exhibition surfaces via both, consolidate into one candidate, preferring
-   the official source. If it only has a diffusion source, still report it
-   (real coverage shouldn't be dropped for lacking an official site) — just
-   mark it as such. Confirmed with real data: a live run for Antofagasta
-   found FME and two SACO/ISLA candidates, all correctly tagged
-   `"difusion"` (news/open-call sites, not fme.cl or bienalsaco.com
-   themselves).
-5. Derive `venues.listing_url` by truncating `sourceUrl` to its parent
-   directory (`.../artesvisuales/mundo-pepo/` → `.../artesvisuales/`) —
-   **only when `sourceType` is `"oficial"`**. A diffusion source doesn't
-   update when the venue's own exhibitions change, and often covers many
-   venues at once — deriving a "listing page" from one would misattribute
-   whatever the Event Crawler later finds there back to a single venue.
-   This is exactly the bug the first real run surfaced (MAC's two locations
-   and MNBA/Casa Museo Santa Rosa ended up sharing another institution's or
-   an aggregator's URL) — fixed by gating on source classification, not
-   just a same-domain check after the fact. Done in code
-   (`dedup.ts`'s `deriveListingUrl`), not left to the model's judgment,
-   since the truncation itself is deterministic string manipulation.
-6. Match the candidate's venue (when it has one) against `knownVenues`
-   (`dedup.ts`'s `findMatchingVenue`, by name or domain): if it matches a
-   venue that doesn't have a `listing_url` yet, backfill it (only from an
-   `"oficial"` source, same rule as above) — this is how venues found
-   before this feature existed get resolved gradually, not just new ones.
-   If it matches nothing, insert a new venue and push it onto
-   `knownVenues` (see "Events are the primary output" above) — same
-   category classification (`art_space` / `hard_excluded` /
-   `needs_review`) as before, now driving the gating rules there rather
-   than just being stored for later.
+Tavily's `includeImages`/`includeImageDescriptions` return per-result image
+URLs with alt text when available — real find: Instagram's own
+auto-generated alt text is often genuinely descriptive ("Photo by Casa
+Cultural Yanulaque... May be an illustration of poster and text that says
+'CONFLUENCIAS II...'"), letting Haiku correctly distinguish a real flyer
+photo from a profile picture or generic site asset. Filtering, in order:
+drop obvious junk by filename (`logo`/`icon`/`favicon`/`footer`/`.svg`),
+**require a non-null description** (images without alt text were almost
+always unusable noise — profile pictures, generic assets — and this alone
+cut token volume roughly 60% with no observed quality loss), cap to 4
+images per search result (bright sources are exempt from this cap — their
+image URLs are cheap, short, first-party paths, unlike long CDN URLs from
+social platforms).
 
-**Standalone interventions with no venue are now captured directly** —
-`events.venue_id = null` + `freeform_location` (a street performance, a
-show at someone's home), no longer deferred; this was the whole point of
-the pivot above.
+**Vision check (Axis 5)** reuses `lib/vision-check.ts` unchanged. Measured
+real cost: ~$0.0003-0.0011 per image — negligible, applying it to every
+event with an image would barely move the budget. Two real bugs found and
+fixed in `defaultImageFetcher` (shared code, not just this flow):
+(1) some servers append parameters to `Content-Type`
+(`image/jpeg;charset=UTF-8`), which Anthropic's API rejects outright —
+fixed by stripping everything after the first `;`; (2) Instagram's CDN
+sometimes returns 403 on a direct server-side fetch (hotlink protection) —
+not fixed (would need a different fetch strategy/headers), but the vision
+step now falls back to the next available candidate image instead of
+failing the whole run.
 
-**Still explicitly deferred:** using the Axis 5 vision call to also tag
-nudity/eroticism for the family-mode blur filter — only the DB column
-(`events.image_url`) exists so far, to not block it later.
+### Prompt caching — implemented, currently inactive
 
-**Geographic scope: global by design** (leveraging the `.com`), but expanding
-into a new region is an **explicit editorial decision** by the curators, same
-as content curation — not something the model decides on its own. The search
-unit is **region** (city/state/metro), not country: a large country is
-handled from the start as several regions (e.g. "Brazil / São Paulo",
-"Brazil / Rio de Janeiro") with no separate rule needed for when to split it
-up — the granularity is a curator decision made when each region is added.
+`cache_control` is set on the system prompt in every curate() call. Real
+measured result: `cache_write`/`cache_read` both come back 0 on every call
+— the system prompt (~600-900 tokens) is below Haiku's minimum cacheable
+prefix (2048 tokens), so Anthropic silently skips caching, no premium, no
+discount, no-op either way. Not worth padding the prompt artificially to
+cross that threshold. Would start working automatically, no code change
+needed, if the prompt naturally grows past it later (e.g. if a large
+location-reference list gets embedded directly in it).
 
-## Ranking & expansion
+### Real cost, measured
 
-**Bootstrap:** starts with all of Chile's named regions (Santiago,
-Valparaíso, Concepción, Antofagasta, Arica) active simultaneously on a
-**weekly** cadence from day one — not a single city.
+A full test run (3 units + the bright-sources pass) costs roughly
+**$0.10-0.15** in Anthropic spend, plus a handful of Tavily credits (well
+under its 1,000/month free tier even at the ~100-unit target scale
+discussed below, run once a month). Enabling per-result images roughly
+doubled token cost in one measured comparison (~$0.10 → ~$0.20 for the same
+3 units) before the description-required image filter brought it back down
+close to the original baseline. **Budget ceiling relaxed**: the original
+$10/month self-imposed ceiling (see "Cost governance" below) is no longer a
+hard cap — the user is comfortable spending up to **$50/month** if quality
+justifies it, given real per-run costs are far below that even at
+meaningfully larger scale.
 
-Saturation (no longer finding new venues) is what triggers moving to the next
-region, following a precalculated ranking:
+### Cadence — simplified, not yet implemented in production code
 
-- **Ranking by population + proximity ("gravitational model"):** a single
-  global list of cities/metros is precalculated once (using public
-  population data, e.g. GeoNames or the World Cities Database), ordered by a
-  score that weighs population against distance from Santiago — so a bigger
-  but farther city can rank ahead of a smaller, closer one.
-- **Automatic expansion on saturation:** once **all** currently active
-  regions are saturated (2 consecutive runs with no new venues — see cadence
-  below), the system automatically activates the next region(s) from the
-  ranking. The curators don't have to manually approve each activation step —
-  the editorial control that's preserved is the **exclusion list** (below),
-  not each individual activation.
-- **Manual exclusion list**, separate from the automatic ranking: for cases
-  that should never activate regardless of rank (see the North
-  Korea/Russia/China note below).
+**Decided:** a fixed monthly search per unit, no adaptive weekly cadence,
+no saturation state machine, no automatic region expansion. The existing
+production `run.ts` still has all of that machinery (`status`:
+`active`/`saturated`/`excluded`, `search_frequency`, `consecutive_zero_yield_runs`,
+and a real, still-unfixed bug where `maybeExpandToNextRegion` only ever
+triggers when zero regions are active) — none of it has been removed yet,
+since this whole design hasn't been wired into production. No migration
+is needed to simplify this later — the columns just go unread once the
+application code stops using them.
 
-### Fixing the big-city bias in the ranking formula
+### The ~100-unit list — designed, deferred
 
-The original score formula (`population / distance^k`, raw population) has a
-real problem: as the project expands globally, a big city somewhere far away
-will always be able to "jump the queue" ahead of a small town, and because
-it's a strict ordered queue consumed top-down, small towns can end up
-**permanently stuck at the bottom of a list that keeps growing from above** —
-never getting a turn. Left uncorrected, this produces exactly the outcome the
-curation policy argues against elsewhere: the calendar would end up implying
-"art only happens in big cities," when the project explicitly values street
-murals and community-center shows as much as an established gallery opening
-(see [curation-policy.md](curation-policy.md#venue-type-filter-independent-of-content)).
+**Decided scope, not yet built:** ~50 Chilean cities treated as single
+units, plus Gran Santiago/Valparaíso/Concepción split by comuna (~34+6+11)
+where a single city-level query would blur together genuinely distinct
+neighborhood art scenes — roughly 100 units total, covering all 16
+administrative regions so none is excluded. Never verified against INE
+data. **Deliberately deferred** until the mechanisms above are fully
+implemented and validated in production — building the list is the last
+step before actually spending real, ongoing money at scale, not a
+prerequisite for finishing everything else first.
 
-Two corrections, applied together:
+## Fuentes brillantes (bright sources)
 
-1. **Log-compressed score:** `score = log(population) / distance^k` instead
-   of raw population. This compresses the gap between a big city and a small
-   one — Buenos Aires still outranks a small town, but doesn't crowd it out
-   as aggressively.
-2. **Diversity quota:** every Nth expansion is guaranteed to pull from a
-   separate "low-population" queue, rather than strictly the highest global
-   score. This guarantees small regions eventually get a turn no matter how
-   many new, bigger cities get added elsewhere over time — it prevents the
-   permanent starvation the pure-ranking model allowed, though it doesn't
-   guarantee a *short* wait if the candidate pool keeps growing faster than
-   it's consumed.
+A "fuente brillante" is a URL that reliably lists several real events in
+one place — fetched **directly** (plain `fetch`, not via Tavily search)
+every run, and excluded from regular Tavily searches for that domain (via
+`exclude_domains`) so the search budget isn't spent re-discovering what's
+already covered directly.
 
-The ranking itself is still precalculated **once**, not recomputed on every
-saturation event — the inputs (population, distance) don't change run to
-run, so recalculating would be wasted work. The diversity quota and
-log-compression are properties of how the *existing* precalculated list is
-consumed, not a reason to regenerate it.
+**Two source types**, `apps/curator/src/lib/known-sources.ts`:
+- `"html"` — scrape the page: extract `<img src/alt>` pairs *before*
+  stripping tags (a real bug — the original crude tag-strip threw away
+  real per-exhibition thumbnails that were sitting right in the HTML,
+  fixed by pulling images out first), resolve relative image URLs against
+  the page's own origin.
+- `"json-api"` — structured data already, no HTML parsing or image-to-
+  event matching needed. Example: Parque Cultural Valparaíso's events
+  widget is JS-rendered (invisible to a plain `fetch` — confirmed the raw
+  HTML response never contains the widget's real content anywhere, even
+  though the browser's DevTools shows it after JavaScript runs), but the
+  widget itself calls a clean WordPress REST endpoint
+  (`/wp-json/wp/v2/events_list`) found via the browser's Network tab —
+  hitting that directly gives real, structured title/image/description/
+  date fields per event, no guessing required. One real find worth noting:
+  its `hora_de_inicio`/`hora_de_termino` fields are the *venue's* daily
+  opening hours, not the actual inauguración time — the real opening time,
+  when there is one, is only in the free-text description field, so Haiku
+  still needs to read that rather than trust the structured hour fields
+  blindly.
 
-**Why region-level search, not country-level, matters for this same bias:**
-a single broad query like "art in Chile" would surface mostly Santiago
-results and likely miss Arica or Antofagasta entirely — not because there's
-no art there, but because a generic country-wide query gets swamped by
-whatever is biggest/best-indexed. Keeping the search unit at
-city/metro-level (as already seeded for Chile) is what actually guarantees a
-small city's visibility — that's a property of the *search granularity*, not
-the *expansion ranking*. The right pattern per country: a small country
-(e.g. Uruguay, with less population than metro Santiago alone) can be loaded
-as a single region with one query; a large country (e.g. Brazil) should be
-loaded as several metro-level regions, each roughly the scope already used
-for Chile's cities — not one query for the whole country.
+**Curated once per run, separately from any single unit's search** — not
+attached to each unit's own prompt. Real bug found and fixed: when
+attached to every unit's prompt, Haiku inconsistently decided whether to
+report the bright source's content at all (sometimes reported it fully,
+sometimes not at all, run to run) — running it through its own dedicated
+curate() call makes its yield deterministic instead of depending on which
+unit's call happened to surface it.
 
-### Adaptive frequency within each active region
+**Auto-promotion, not manual-only:** a domain (never a social platform —
+`instagram.com`/`facebook.com`/`tiktok.com`/`twitter.com`/`x.com`, shared
+by thousands of unrelated accounts — and not already known) that
+contributes **2+ "complete" events** in one run — image + title + a start
+date within the current month — gets auto-added to a persisted
+`detected-sources.json`, merged with the hand-curated `KNOWN_SOURCES` list
+at the start of every run. No source file gets rewritten by the script;
+`known-sources.ts` stays the manually-reviewed list, detection just grows
+a separate file alongside it. **`description` is deliberately not
+required** for "complete" — a real test against arteinformado.com (a
+genuinely rich source, 10 real Chilean exhibitions, 2 within the current
+month, all with real images) showed Haiku correctly leaves `description`
+null when a source only lists structured facts with no prose per event;
+requiring it would have disqualified a legitimately good source.
 
-- A newly activated region starts on a **weekly** cadence for its first 4
-  runs (bootstrap).
-- After 2 consecutive runs with no new venues, it's marked `saturated` and
-  drops to a **monthly** cadence (it stops counting as "active" for the
-  expansion trigger, though it still gets a monthly maintenance pass).
-- If it starts yielding results again, it can return to `active`/weekly.
+**Known, accepted limitation:** JS-rendered pages whose real content only
+exists after client-side execution are invisible both to a plain `fetch`
+and, apparently, to Tavily's own indexing (a real test: Tavily searching
+"Valparaíso" never surfaced Parque Cultural's JS-only listing page at all).
+No algorithm currently discovers these — a human has to notice the real
+content in a browser and point to the underlying source (as happened here,
+via DevTools → Network tab → the actual JSON endpoint). Tested and
+rejected as a general fix: inferring a "parent listing" URL by truncating
+an individual event's URL path — doesn't work reliably (confirmed on this
+exact site: neither the naive parent path nor Tavily's own top-scored
+result for this domain matched where the real content actually lived).
+What *does* work automatically, confirmed with a real search: Tavily
+sometimes independently finds a different, genuinely scrapable listing
+page for the same domain (e.g. a WordPress category-archive page,
+`/events/categories/exposicion/`, whose snippet already showed 2+ distinct
+exhibitions) — when that happens, the existing domain-based auto-detection
+above picks it up on its own, no new engineering needed. The expectation
+going forward: most useful bright sources will keep surfacing this way,
+supplemented by occasional manual additions when a human notices something
+the pipeline structurally can't see (JS-only pages).
 
-This means a region is never permanently dropped — discovery just slows down
-to monthly maintenance indefinitely, and speeds back up if it starts
-producing results again.
+## Ranking & expansion (superseded, kept for historical reference)
 
-### North Korea, Russia, and China — not the same case
+The original design below — a precalculated global population/distance
+ranking with automatic expansion on saturation — predates the decision to
+use a fixed, hand-curated ~100-unit list (see above) and simplified
+monthly-only cadence. It is **not in active use** and won't be built out;
+kept here only so the reasoning (particularly the big-city bias problem)
+isn't lost if a future automatic-expansion need re-emerges at a much larger
+scale than currently planned.
 
-- Not having user accounts doesn't exempt anything — the ToS that matters
-  here is the *scraped site's*, not Caldearte's. That risk is already
-  general (see [risks.md](risks.md)) and applies to any country, not
-  specific to these three.
-- **North Korea is a genuinely different case and is excluded outright:**
-  it's under comprehensive US economic sanctions (OFAC), and all of the
-  project's infrastructure is US-based (GitHub, Vercel, Supabase, Anthropic).
-  Running automation specifically targeted at that country would put those
-  providers in a sanctions-compliance gray zone that isn't worth it for a
-  free project — and the practical coverage value there is close to zero
-  anyway. Added directly to the exclusion list, no need to wait its turn in
-  the ranking. (Not legal advice — a reasonable operational precaution, not
-  a formal compliance analysis.)
-- **Russia and China don't have that same sanctions problem**, but a more
-  practical limitation: the Anthropic web search tool likely has weak
-  coverage of Russian/Chinese-language sources, and various sites there may
-  not be normally reachable due to national firewalls — so even without
-  upfront exclusion, they're expected to perform poorly whenever their turn
-  comes. Since the population/distance-from-Santiago ranking places them
-  fairly far down the activation order, this isn't a decision that needs
-  making now — revisit when they actually come up, with more context than
-  exists today.
+The core problem it solved: a naive `population / distance^k` ranking lets
+a big, distant city permanently "jump the queue" ahead of a small town,
+which — left uncorrected — would have produced exactly the outcome the
+curation policy argues against (implying "art only happens in big cities").
+The fix, if ever revived, was a log-compressed score
+(`log(population) / distance^k`) plus a diversity quota guaranteeing every
+Nth expansion pulls from a low-population queue regardless of raw score.
 
-### Multi-language
+North Korea remains excluded outright regardless of any ranking (OFAC
+sanctions; all of the project's infrastructure — GitHub, Vercel, Supabase,
+Anthropic — is US-based). Russia and China have no such sanctions issue but
+are expected to perform poorly under Tavily too (weak coverage of Russian/
+Chinese-language sources, national firewalls) — not a decision that needs
+making until they'd actually come up in a real expansion, which isn't
+planned right now anyway.
 
-Not a separate technical component — Claude already operates natively across
-languages, no "support" needs to be added. What does need generating per
-region is the search query in that region's local language. Pending for
-when non-Spanish-speaking regions activate: the Flujo 1/2 emails (Phase 1b)
-are currently designed in Spanish and will need localizing to each venue's
-language.
-
-### Capturing events with no recurring venue
-
-A real case the "recurring venue" model doesn't cover well: one-off
-interventions in the street or non-institutional spaces, with no venue that
-will show up again — not worth creating a persistent `venues` row for, but
-worth capturing the event anyway.
-
-When Venue Discovery finds one of these during research (not a venue), it creates
-a row directly in `events` with `venue_id` null and a freeform location
-(`freeform_location`), instead of forcing it through the venues table. It
-still goes through the same curation pipeline — the five axes plus the
-venue filter, the latter applied to the location description instead of a
-formal venue.
-
-**Honest limitation worth assuming upfront:** neither the weekly/monthly
-regional research nor the daily known-venue crawl are reliable mechanisms
-for this kind of event — by definition they're short-notice, with no fixed
-distribution channel. What actually works for this is the public mailbox
-(Flujo 2, Phase 1b) and, later, some monitoring of local social media
-sources (already flagged as a risk — see [risks.md](risks.md)). Don't expect
-Venue Discovery to catch these interventions consistently — it'll catch some by
-having run at the right moment, not by reliable design.
-
-## Event Crawler (implemented, manual-trigger only for now)
+## Event Crawler (implemented, manual-trigger only for now, unchanged this session)
 
 Walks the already-known list of `venues` with Claude **Haiku** (cheap, high
-volume, no need for the web search tool since the exact URL to visit is
-already known), looking for new opening announcements at each one.
+volume, no need for a search tool since the exact URL to visit is already
+known), looking for new opening announcements at each one. This is
+completely separate from Event Discovery above — it still uses the
+`venues` table and venue-matching logic that Event Discovery no longer
+touches.
 
 ### v1 implementation (`apps/curator/src/event-crawler/`)
 
@@ -365,8 +350,7 @@ catch this kind of gap; running it against real data does.
 - **Adaptive per-venue cadence**: mirrors the region-level saturation logic
   above — no new events on a check → `consecutive_zero_yield_checks`
   increments; after 3 consecutive, `check_frequency_days` extends from 3 to
-  7; a yield resets both. This is what the original cost-governance design
-  flagged as "still to be implemented."
+  7; a yield resets both.
 - **`events.opening_datetime` is `NOT NULL`**: a candidate the model can't
   pin to any date isn't stored — there's no Flow 1 (automatic date inquiry)
   built yet to resolve it. Dropped, not half-persisted.
@@ -391,7 +375,7 @@ way), not before.
 
 ### Venues without a crawlable site
 
-14 of the 55 venues Venue Discovery has found so far have no real website —
+Some venues Event Discovery has found have no real website —
 `source_domain` is `facebook.com`/`instagram.com`, or null (mostly small
 community spaces and neighborhood associations whose only channel is a
 social account). Scraping social platforms directly carries ToS risk
@@ -412,186 +396,85 @@ in Supabase, or in an ad-hoc review session with Claude going case by case.
 Worth revisiting once the `needs_review` backlog grows enough that manual
 resolution stops being cheap — not before.
 
-### Sequencing: Venue Discovery doesn't block the Event Crawler
-
-Not sequential in the sense that the Event Crawler *waits* for Venue
-Discovery on every run — but to get started, running Venue Discovery first
-(instead of hand-seeding venues) is preferred, since it'll be more thorough.
-Agreed in general, with one adjustment: scope Venue Discovery to a single
-region first (the curators' own) before activating it across multiple
-countries/languages at once. This validates detection quality — false
-positives ("this isn't really an art space"), deduplication, category
-classification — against a case that can be checked by hand, before scaling
-to regions with no easy way to notice if the model got something wrong.
-Phase 1a ends up depending on Venue Discovery's first run in that region
-instead of a hand-seeded list — same practical result, less manual work,
-with a quality checkpoint before expanding further.
-
 ---
 
 ## Cost governance
 
-Confirmed with the user after modeling real dollar costs: the **daily venue
-crawl (the Event Crawler)** drives spend over the long run, because it runs
-indefinitely regardless of a region's status — but the first real production
-run also showed **Venue Discovery's own weekly searches are a major
-near-term cost driver**, not a rounding error, during the bootstrap phase
-when several regions are still on a weekly cadence (see "Venue Discovery
-search cost" below). The project now has a self-enforced, self-tracked
-**$10/month ceiling**, plus the specific cost-reduction techniques below, all
-shipped in `supabase/migrations/` + `apps/curator/src/lib/` (PR #12).
+A self-tracked ledger keeps both processes bounded, without depending on
+Anthropic's billing API.
 
 ### The self-tracked ledger
 
-Rather than depend on Anthropic's billing API, every paid call records its
-own estimated cost:
-
-- **`system_config`** table — a plain key/value config table, editable
-  directly (no redeploy needed): `monthly_budget_usd = 10`,
-  `max_total_regions = 200`.
-- **`api_usage_log`** table — one row per paid call: model, purpose
-  (`venue_discovery` | `event_crawl`), token counts (including cache
-  read/write), and an estimated cost computed from a hardcoded per-model
-  $/Mtok table (`apps/curator/src/lib/pricing.ts` — needs manual updates if
-  Anthropic pricing changes; there's no API to fetch it live).
+- **`system_config`** table — plain key/value config, editable directly (no
+  redeploy needed): `monthly_budget_usd`, `max_total_regions = 200`.
+  **Ceiling relaxed:** the original $10/month figure is no longer a hard
+  cap — up to **$50/month** is acceptable if real event quality/coverage
+  justifies it, confirmed against real measured Event Discovery costs (see
+  above) that stay far under that even at meaningfully larger scale.
+- **`api_usage_log`** table — one row per paid Anthropic call: model,
+  purpose, token counts (including cache read/write), estimated cost from a
+  hardcoded per-model $/Mtok table (`apps/curator/src/lib/pricing.ts`).
+  **Tavily spend is not tracked here** — it's a separate provider/billing
+  relationship, tracked on Tavily's own dashboard instead of force-fit into
+  a schema built around Anthropic's pricing shape.
 - `apps/curator/src/lib/usage-tracking.ts` exposes `recordUsage()`,
   `getCurrentMonthSpend()`, `getConfigNumber()`, `isOverBudget()`, and
-  `isOverRegionCap()` — any future Venue Discovery/Event Crawler code must
-  route spend through these, not add a call path that bypasses the ledger.
+  `isOverRegionCap()` — any future code touching Anthropic spend should
+  route through these.
 
 ### What happens when the ceiling is hit
 
-**Confirmed behavior:** hitting `monthly_budget_usd` blocks **new region
-activation only** (Venue Discovery). The Event Crawler's daily crawl of
-already-known venues keeps running — the calendar doesn't go stale just
-because expansion paused. `max_total_regions` is a secondary sanity check
-(catches runaway growth, e.g. a bug), not the primary control.
+Hitting `monthly_budget_usd` blocks **new region activation only** — under
+the simplified, fixed ~100-unit design above, this specific mechanism is
+less relevant (there's no automatic expansion to block), but the ledger and
+ceiling still apply generally as a spend guardrail. The Event Crawler's
+daily crawl of already-known venues is unaffected either way. Raising the
+ceiling is a one-line SQL update, no redeploy required.
+`apps/curator/src/lib/notify.ts` opens a GitHub issue (labeled
+`budget-alert`, deduplicated) the moment the ceiling is hit.
 
-Raising the ceiling is a one-line SQL update
-(`update system_config set value = '25' where key = 'monthly_budget_usd';`)
-— no code change or redeploy required. Visibility: `apps/curator/src/lib/notify.ts`
-opens a GitHub issue (labeled `budget-alert`, deduplicated so it doesn't spam)
-the moment the ceiling is hit, using the Action's own `GITHUB_TOKEN` — no new
-secret needed.
+### Cost-reduction techniques
 
-### Cost-reduction techniques (why $10/month is realistic)
+- **Tavily's own `score < 0.15` filter** — dropped before reaching Haiku,
+  confirmed zero observed event loss against real logged data.
+- **Image filtering** (require alt text, cap per result, drop obvious
+  chrome) — cut token volume roughly 60% in a real before/after comparison
+  with no observed quality loss.
+- **Bright sources curated once per run, not once per unit** — avoids
+  paying to re-curate the same aggregator's content N times, one per unit,
+  which was the original (wasteful, and inconsistent — see above) design.
+- **Change-detection before spending on an LLM call** (Event Crawler).
+  `content-hash.ts` hashes a venue's fetched page content;
+  `venues.content_hash` + `last_checked_at` skip the Haiku call entirely
+  when nothing changed.
+- **Adaptive per-venue check cadence** (Event Crawler): `check_frequency_days`
+  defaults to 3, extends to 7 after 3 zero-yield checks.
+- **Prompt caching** — implemented on Event Discovery's system prompt via
+  `cache_control`, currently a no-op (prompt is under Haiku's 2048-token
+  minimum cacheable prefix — see above). Not worth padding the prompt
+  artificially just to cross that threshold.
 
-- **Change-detection before spending on an LLM call.** `content-hash.ts`
-  hashes a venue's fetched page content (after whitespace normalization);
-  `venues.content_hash` + `last_checked_at` let the Event Crawler skip the
-  Haiku call entirely when nothing changed since the last check — fetching a page to
-  hash it costs nothing, only evaluating a real change costs tokens.
-- **Adaptive per-venue check cadence.** `venues.check_frequency_days`
-  defaults to **3, not daily** — openings are normally announced with more
-  than a day or two's notice, so this trades a little freshness for
-  materially less operational overhead. `consecutive_zero_yield_checks`
-  is the foundation for eventually slowing down (or speeding back up) a
-  specific venue's cadence, mirroring the region-level saturation logic
-  above but one level down — the actual adaptive algorithm is still to be
-  implemented in the Event Crawler's code.
-- **Prompt caching** on the shared curation-policy instructions, since
-  that text is identical across every daily call.
-- **Batching multiple venues per call**, amortizing the fixed
-  "explain the task" overhead across more venues per request.
+**Deferred: the Batch API** (50% discount on tokens only — doesn't apply to
+Tavily's separate billing, and adds real complexity, submit-then-poll
+instead of a single synchronous call). Worth revisiting only once real
+volume at the ~100-unit scale justifies it.
 
-**Deferred to later: the Batch API** (50% discount, **tokens only — it does
-not discount web search's $10/1,000-searches charge**, per Anthropic's
-pricing docs). Also adds real complexity — a batch job can take up to ~1
-hour to complete, which means splitting a cron into a submit step and a
-separate poll-for-results step. Given change-detection alone already
-projects comfortably under $10/month at the current region count, this is
-worth revisiting only once actual volume justifies the added complexity —
-and worth remembering that it wouldn't touch Venue Discovery's search cost
-at all even if adopted.
+### Real cost, measured (Event Discovery, current Tavily+Haiku design)
 
-### Venue Discovery search cost (found on the first real run, fixed in PR #14's follow-up)
-
-The first production run (Santiago + Valparaíso) cost **$1.36** in real
-Anthropic billing — `api_usage_log` only recorded **$0.62**. The gap: **web
-search is billed separately from tokens** ($10 per 1,000 searches, reported
-in `response.usage.server_tool_use.web_search_requests`), and
-`pricing.ts` never accounted for it. That's not just an estimation gap —
-`isOverBudget()` was blind to roughly half of real spend, which defeats the
-point of having a self-tracked ceiling at all. Fixed by adding
-`web_search_requests` to `api_usage_log` and to `pricing.ts`'s cost
-calculation.
-
-Inferring from that gap, the model made roughly ~37 searches per region —
-far more than the 3 template queries suggested, because it defaulted to one
-follow-up validation search per candidate venue, and (since nothing told it
-otherwise) would repeat that validation work on every subsequent weekly run
-of the same region. Modeled out, unoptimized weekly Venue Discovery across 5
-regions could cost **~$27/month** on its own — comfortably over the
-ceiling. Three fixes, in `apps/curator/src/venue-discovery/discover.ts`:
-
-- **Search-economy instruction:** the system prompt now tells the model to
-  rely on its initial broad-query results first, and only search again for a
-  specific candidate when those results didn't already confirm it's real/
-  active or give its address/contact — not as a default per-candidate step.
-- **Pass already-known venues, skip them:** `discoverVenues` takes the
-  region's existing venue names and instructs the model not to re-search or
-  re-validate them — only report genuinely new candidates. This is what
-  should make a region's second and later weekly runs much cheaper than its
-  first (the first run has nothing to skip, since nothing is known yet).
-- **`max_uses: 12` on the web_search tool** as a backstop, not the primary
-  lever — caps worst-case cost on a pathological run without being the thing
-  actually doing the cost reduction. (Lowered from 20 after the first
-  optimized run measured 5-16 real searches/region.)
-
-Every search query the model issues is also logged (region name + query
-text) specifically so future runs give an *observed* search count instead of
-one inferred from a cost gap, the way the ~37/region figure above was.
-
-**Measured result (Concepción, Antofagasta, Arica — first optimized run):**
-27 searches total for 3 regions (avg ~9/region, vs. the ~37/region inferred
-before), real cost **$0.81** for the 3 regions combined (`api_usage_log`'s
-own tracked total for these 3: $0.88 — the two now agree closely, confirming
-the tracking fix works). That's from the search-economy instruction alone —
-none of these 3 regions had existing venues to skip yet, since it was each
-region's first run; the "skip already-known venues" saving is still
-unmeasured and should show up starting each region's second weekly run.
-
-One anomaly this run's logging caught: Arica issued the same 4 queries
-twice (8 of its 16 searches were exact repeats). Nothing in the prompt told
-the model not to re-run a query it had already made — fixed by adding that
-instruction directly to `SEARCH_ECONOMY_POLICY`.
-
-**Prompt caching, considered and skipped for now:** the stable parts of the
-system prompt (`VENUE_FILTER_POLICY` + `SEARCH_ECONOMY_POLICY` + the generic
-instructions) come to roughly 400-500 tokens — under Sonnet's ~1024-token
-minimum cacheable prefix. Marking that block with `cache_control` today
-would be a no-op (Anthropic silently skips caching below the minimum, no
-error, no savings either). Worth revisiting once the system prompt grows
-past that threshold (e.g. if event-capture support, below, gets built into
-the same prompt), not before.
-
-Two ideas considered and set aside, for the record:
-
-- **Searching at region/state level instead of city/metro level** — would
-  only save on the 3 broad initial queries (~8% of the total), not the
-  per-candidate validation searches that actually dominate cost, and risks
-  reintroducing the big-city bias the log-ranking fix above exists to
-  prevent (a broad regional query surfaces the biggest city's results, not
-  small towns within it).
-- **Doing our own web search/fetching instead of Anthropic's tool** — would
-  eliminate the $10/1,000 charge, but reopens a vendor decision the project
-  deliberately avoided (see "Stack" in architecture.md — no separate search
-  service like SerpAPI), adds real ongoing maintenance (HTML parsing,
-  fetch resilience, rate limiting), and Google's own search results page
-  cannot be scraped directly (against their ToS, actively detected/blocked).
-  Worth revisiting only if the prompt-level fixes above turn out not to be
-  enough once measured for real.
+A full PoC run (3 test units + the bright-sources pass): **~$0.10-0.15** in
+Anthropic spend per run, plus Tavily credits comfortably inside its free
+1,000/month tier even projected out to ~100 units run once a month. See
+"Real cost, measured" under Event Discovery above for the fuller breakdown,
+including the image-token-cost tradeoff and why prompt caching doesn't
+apply yet.
 
 ### Rough cost model (for context, not a live estimate)
 
-At 5–10 active regions (roughly today's scale), modeled cost — Venue
-Discovery (Sonnet + web search) plus the Event Crawler (Haiku daily crawl,
-pre-optimization) — lands in the **$10–25/month** range under pessimistic
-assumptions (5–20 venues discovered per region, no change-detection or
-search-economy optimizations). With change-detection, adaptive cadence,
-prompt caching, and the Venue Discovery search-cost fixes above all in
-place, the realistic figure drops to roughly **$9–10/month** at this scale —
-still worth watching closely, since it's close to the ceiling rather than
-comfortably under it. This was modeled, not measured — validate against
-`api_usage_log` once a few more real runs have happened, and don't treat
-this paragraph as a live number.
+The Event Crawler's own cost model (change-detection + adaptive cadence,
+Haiku) was estimated pre-optimization at $9-25/month depending on venue
+volume, and hasn't been re-measured against real production data recently.
+Combined with Event Discovery's real measured cost above, total spend
+across both processes is expected to land well under the relaxed
+$50/month ceiling even once the ~100-unit list is live — but this
+combination hasn't been measured together in production yet, only
+projected from each process's own real data separately.

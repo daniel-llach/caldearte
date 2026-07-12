@@ -7,3 +7,7 @@ dist/
 .turbo/
 supabase/.branches/
 supabase/.temp/
+# Throwaway outputs of the Event Discovery PoC script (apps/curator/scripts/)
+apps/curator/poc-*.json
+apps/curator/poc-eventos.md
+apps/curator/detected-sources.json
