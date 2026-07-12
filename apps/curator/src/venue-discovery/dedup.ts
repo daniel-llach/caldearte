@@ -1,10 +1,18 @@
-import type { VenueCandidate } from "./discover.js";
-
 export interface ExistingVenue {
   id: string;
   name: string;
   source_domain: string | null;
   listing_url?: string | null;
+}
+
+// Narrower than any specific candidate type — decouples venue matching from
+// exactly what a "candidate" looks like. A venue is identified by its own
+// name/site, regardless of which fields an event-discovery candidate
+// happens to carry alongside it.
+export interface VenueIdentity {
+  name: string;
+  websiteOrSocial: string | null;
+  sourceUrl: string | null;
 }
 
 function normalizeName(name: string): string {
@@ -44,7 +52,7 @@ export function deriveListingUrl(sourceUrl: string): string | null {
 }
 
 export function findMatchingVenue(
-  candidate: VenueCandidate,
+  candidate: VenueIdentity,
   existingVenues: ExistingVenue[],
 ): ExistingVenue | null {
   const candidateName = normalizeName(candidate.name);
@@ -61,48 +69,6 @@ export function findMatchingVenue(
   );
 }
 
-export function isDuplicate(candidate: VenueCandidate, existingVenues: ExistingVenue[]): boolean {
+export function isDuplicate(candidate: VenueIdentity, existingVenues: ExistingVenue[]): boolean {
   return findMatchingVenue(candidate, existingVenues) !== null;
-}
-
-function candidatesMatch(a: VenueCandidate, b: VenueCandidate): boolean {
-  if (normalizeName(a.name) === normalizeName(b.name)) return true;
-  const domainA = extractDomain(a.websiteOrSocial) ?? extractDomain(a.sourceUrl);
-  const domainB = extractDomain(b.websiteOrSocial) ?? extractDomain(b.sourceUrl);
-  return Boolean(domainA && domainB && domainA === domainB);
-}
-
-function sourceRank(candidate: VenueCandidate): number {
-  return candidate.sourceType === "oficial" ? 2 : candidate.sourceType === "difusion" ? 1 : 0;
-}
-
-// A single discover() call can report the same institution more than once
-// - once per exhibition it's hosting, sometimes under a slightly different
-// name (a real run found "Colección MAC..." and "Colección MAC... (Quinta
-// Normal)" as separate candidates sharing one domain). existingVenues-based
-// matching alone doesn't catch this, since it only compares against rows
-// that existed *before* this run. Consolidate the batch against itself
-// first, keeping whichever candidate has the more trustworthy source
-// (oficial over difusion) and a non-null sourceUrl when ranks tie.
-export function consolidateCandidates(candidates: VenueCandidate[]): VenueCandidate[] {
-  const consolidated: VenueCandidate[] = [];
-
-  for (const candidate of candidates) {
-    const matchIndex = consolidated.findIndex((existing) => candidatesMatch(existing, candidate));
-
-    if (matchIndex === -1) {
-      consolidated.push(candidate);
-      continue;
-    }
-
-    const existing = consolidated[matchIndex];
-    const existingRank = sourceRank(existing);
-    const candidateRank = sourceRank(candidate);
-
-    if (candidateRank > existingRank || (candidateRank === existingRank && !existing.sourceUrl && candidate.sourceUrl)) {
-      consolidated[matchIndex] = candidate;
-    }
-  }
-
-  return consolidated;
 }

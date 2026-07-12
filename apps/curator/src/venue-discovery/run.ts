@@ -9,11 +9,17 @@ import {
   isOverRegionCap,
 } from "../lib/usage-tracking.js";
 import { flagBudgetExceeded } from "../lib/notify.js";
-import { discoverVenues, type MessagesClient } from "./discover.js";
-import { findMatchingVenue, extractDomain, deriveListingUrl, consolidateCandidates } from "./dedup.js";
+import { eventKey, isUpcomingDated } from "../lib/event-filters.js";
+import { discoverEvents, type MessagesClient, type EventDiscoveryCandidate } from "./discover.js";
+import { findMatchingVenue, extractDomain, deriveListingUrl, type ExistingVenue } from "./dedup.js";
 
 type Region = Tables<"regions">;
 
+// Kept as "venue_discovery" in api_usage_log even though this pass now
+// produces events directly — renaming the label needs a migration (a
+// CHECK constraint governs this column, see
+// 20260712000000_rename_usage_log_purpose_values.sql), not worth it just
+// for a name. See docs/region-discovery.md.
 const MODEL = "claude-haiku-4-5";
 const SATURATION_THRESHOLD = 2;
 const WEEKLY_MS = 7 * 24 * 60 * 60 * 1000;
@@ -39,9 +45,12 @@ export async function getRegionsDueForRun(): Promise<Region[]> {
   return (data ?? []).filter(isDueForRun);
 }
 
-async function updateRegionAfterRun(region: Region, insertedCount: number): Promise<void> {
+// Yield is now measured in events inserted, not venues — venues are a
+// byproduct, and the saturation/cadence logic should track what actually
+// matters (docs/region-discovery.md).
+async function updateRegionAfterRun(region: Region, insertedEventCount: number): Promise<void> {
   const client = getSupabaseClient();
-  const zeroYield = insertedCount === 0;
+  const zeroYield = insertedEventCount === 0;
   const consecutiveZeroYieldRuns = zeroYield ? region.consecutive_zero_yield_runs + 1 : 0;
 
   let status = region.status;
@@ -70,12 +79,85 @@ async function updateRegionAfterRun(region: Region, insertedCount: number): Prom
   }
 }
 
+async function isNewEvent(
+  venueId: string | null,
+  freeformLocation: string | null,
+  title: string,
+  openingDatetime: string | null,
+): Promise<boolean> {
+  const client = getSupabaseClient();
+  let query = client.from("events").select("title, opening_datetime");
+  query = venueId ? query.eq("venue_id", venueId) : query.eq("freeform_location", freeformLocation ?? "");
+
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(`Failed to check existing events: ${error.message}`);
+  }
+
+  const key = eventKey(title, openingDatetime);
+  return !(data ?? []).some((e) => eventKey(e.title, e.opening_datetime) === key);
+}
+
+// Matches or creates a venue for a candidate that identified one, keeping
+// `knownVenues` up to date so a second candidate for the same institution
+// later in this same batch matches it instead of creating a duplicate —
+// replaces the old whole-candidate consolidation, which was wrong once a
+// "candidate" started meaning one event rather than one venue (two
+// different exhibitions at the same institution must both survive).
+async function resolveVenue(
+  candidate: EventDiscoveryCandidate,
+  regionId: string,
+  knownVenues: ExistingVenue[],
+): Promise<ExistingVenue> {
+  const client = getSupabaseClient();
+  const identity = {
+    name: candidate.venueName as string,
+    websiteOrSocial: candidate.venueWebsiteOrSocial,
+    sourceUrl: candidate.sourceUrl,
+  };
+
+  const match = findMatchingVenue(identity, knownVenues);
+
+  if (match) {
+    if (!match.listing_url && candidate.sourceUrl && candidate.sourceType === "oficial") {
+      const listingUrl = deriveListingUrl(candidate.sourceUrl);
+      if (listingUrl) {
+        const { error } = await client.from("venues").update({ listing_url: listingUrl }).eq("id", match.id);
+        if (error) throw new Error(`Failed to backfill listing_url for venue ${match.id}: ${error.message}`);
+        match.listing_url = listingUrl;
+      }
+    }
+    return match;
+  }
+
+  const { data: inserted, error } = await client
+    .from("venues")
+    .insert({
+      region_id: regionId,
+      name: identity.name,
+      address: candidate.venueAddress,
+      source_domain: extractDomain(candidate.venueWebsiteOrSocial),
+      listing_url: candidate.sourceUrl && candidate.sourceType === "oficial" ? deriveListingUrl(candidate.sourceUrl) : null,
+      contact_email: candidate.contactEmail,
+      category: candidate.venueCategory ?? "needs_review",
+    })
+    .select("id, name, source_domain, listing_url")
+    .single();
+
+  if (error || !inserted) {
+    throw new Error(`Failed to insert venue for region ${regionId}: ${error?.message}`);
+  }
+
+  knownVenues.push(inserted);
+  return inserted;
+}
+
 export interface RunRegionDeps {
   discover?: (
     region: Region,
     client: MessagesClient,
     existingVenueNames: string[],
-  ) => ReturnType<typeof discoverVenues>;
+  ) => ReturnType<typeof discoverEvents>;
   messagesClient?: MessagesClient;
 }
 
@@ -84,13 +166,9 @@ export async function runRegion(
   deps: RunRegionDeps = {},
 ): Promise<{ inserted: number }> {
   const client = getSupabaseClient();
-  const discover = deps.discover ?? discoverVenues;
+  const discover = deps.discover ?? discoverEvents;
   const messagesClient = deps.messagesClient ?? new Anthropic();
 
-  // Fetched before discovery (not just for matching afterward) so we can
-  // tell the model what's already known — this is what makes a region's
-  // second and later runs cheaper than its first. See
-  // docs/region-discovery.md#cost-governance.
   const { data: existingVenues, error: existingError } = await client
     .from("venues")
     .select("id, name, source_domain, listing_url")
@@ -103,81 +181,61 @@ export async function runRegion(
   }
 
   const existingVenueNames = (existingVenues ?? []).map((v) => v.name);
-
   const { candidates, usage } = await discover(region, messagesClient, existingVenueNames);
 
-  await recordUsage({
-    purpose: "venue_discovery",
-    model: MODEL,
-    regionId: region.id,
-    usage,
-  });
-
-  const newCandidates: typeof candidates = [];
-
-  // Consolidate against the batch itself first — a single discover() call
-  // can report the same institution more than once (e.g. once per
-  // exhibition it hosts), which existingVenues-based matching alone
-  // wouldn't catch since it only compares against rows from before this run.
-  for (const candidate of consolidateCandidates(candidates)) {
-    const match = findMatchingVenue(candidate, existingVenues ?? []);
-
-    if (!match) {
-      newCandidates.push(candidate);
-      continue;
-    }
-
-    // Already-known venue: not a new discovery, but if this candidate
-    // surfaced via a specific exhibition/intervention page and we don't
-    // have a listing_url yet, backfill it — this is how venues found
-    // before this feature existed get resolved over time, not just new
-    // ones. Doesn't count toward insertedCount/saturation below.
-    //
-    // Only derived from an "oficial" source — a diffusion source (news,
-    // aggregator, municipal listing) doesn't update when the venue's own
-    // exhibitions change and often covers many venues at once, so deriving
-    // a "listing page" from it would misattribute whatever the Event
-    // Crawler later finds there (this is exactly the bug the first real
-    // run surfaced: MAC's two locations and MNBA/Casa Museo Santa Rosa all
-    // ended up sharing another institution's or an aggregator's URL).
-    if (!match.listing_url && candidate.sourceUrl && candidate.sourceType === "oficial") {
-      const listingUrl = deriveListingUrl(candidate.sourceUrl);
-      if (listingUrl) {
-        const { error: updateError } = await client
-          .from("venues")
-          .update({ listing_url: listingUrl })
-          .eq("id", match.id);
-
-        if (updateError) {
-          throw new Error(
-            `Failed to backfill listing_url for venue ${match.id}: ${updateError.message}`,
-          );
-        }
-      }
-    }
+  for (const u of usage) {
+    await recordUsage({ purpose: "venue_discovery", model: MODEL, regionId: region.id, usage: u });
   }
 
-  if (newCandidates.length > 0) {
-    const { error: insertError } = await client.from("venues").insert(
-      newCandidates.map((c) => ({
-        region_id: region.id,
-        name: c.name,
-        address: c.address,
-        source_domain: extractDomain(c.websiteOrSocial),
-        listing_url: c.sourceUrl && c.sourceType === "oficial" ? deriveListingUrl(c.sourceUrl) : null,
-        contact_email: c.contactEmail,
-        category: c.category,
-      })),
-    );
+  const knownVenues: ExistingVenue[] = [...(existingVenues ?? [])];
+  let insertedCount = 0;
+
+  for (const candidate of candidates) {
+    if (candidate.venueCategory === "hard_excluded") continue;
+    if (!isUpcomingDated({ title: candidate.title, openingDatetime: candidate.openingDatetime })) continue;
+
+    let venueId: string | null = null;
+    let freeformLocation: string | null = null;
+    let curationStatus = candidate.status;
+
+    if (candidate.venueName) {
+      const venue = await resolveVenue(candidate, region.id, knownVenues);
+      venueId = venue.id;
+      if (candidate.venueCategory === "needs_review") curationStatus = "pending_review";
+    } else {
+      freeformLocation = candidate.freeformLocation;
+    }
+
+    const isNew = await isNewEvent(venueId, freeformLocation, candidate.title, candidate.openingDatetime);
+    if (!isNew) continue;
+
+    const { error: insertError } = await client.from("events").insert({
+      venue_id: venueId,
+      freeform_location: freeformLocation,
+      title: candidate.title,
+      description: candidate.description,
+      artist: candidate.artist,
+      opening_datetime: candidate.openingDatetime as string,
+      opening_date_confidence: candidate.openingDateConfidence,
+      medium_type: candidate.mediumType,
+      sensitivity_tags: candidate.sensitivityTags,
+      source: "discovered",
+      source_url: candidate.sourceUrl,
+      image_url: candidate.imageUrl,
+      curation_status: curationStatus,
+      curation_reasoning: candidate.curationReasoning,
+    });
 
     if (insertError) {
-      throw new Error(`Failed to insert venues for region ${region.id}: ${insertError.message}`);
+      throw new Error(`Failed to insert event for region ${region.id}: ${insertError.message}`);
     }
+
+    insertedCount += 1;
   }
 
-  await updateRegionAfterRun(region, newCandidates.length);
+  await updateRegionAfterRun(region, insertedCount);
 
-  return { inserted: newCandidates.length };
+  return { inserted: insertedCount };
 }
 
 // Infrastructure for Phase 1c: with no `not_started` region carrying an
@@ -247,7 +305,7 @@ export async function run(): Promise<void> {
 
   for (const region of regions) {
     const { inserted } = await runRegion(region);
-    console.log(`[venue-discovery] ${region.name}: ${inserted} new venue(s)`);
+    console.log(`[event-discovery] ${region.name}: ${inserted} new event(s)`);
   }
 
   await maybeExpandToNextRegion();
