@@ -9,10 +9,32 @@ the code itself.
 
 ## Venue Discovery (research)
 
-Uses Claude **Sonnet** (not Haiku — here judgment matters more than cost, to
-avoid polluting the `venues` table with junk) with the **Anthropic API's
-native web search tool** ($10 per 1,000 searches + tokens — no separate
-search service like SerpAPI needed).
+Uses Claude **Haiku** (switched from Sonnet — see below) with the
+**Anthropic API's native web search tool** ($10 per 1,000 searches +
+tokens — no separate search service like SerpAPI needed).
+
+### Model: Haiku, not Sonnet (revised after real cost data)
+
+Originally Sonnet, on the assumption that classification judgment here
+needed a bigger model. Revised after: (1) a manual dry run using Claude
+Code's own web search, then the same run for real via the Anthropic API,
+both showed Haiku reaching the *same* correct classification decisions as
+Sonnet on identical search results (same venue found, same correct
+exclusions); (2) real production data showed **token volume, not search
+count, dominates cost** (e.g. Antofagasta: 306k input tokens vs. $0.12 of
+actual search fees) — and Haiku's per-token rate is half Sonnet's ($1/$5
+vs $2/$10 per Mtok). Measured real-run comparison for Antofagasta: **$0.776
+(Sonnet, 12 searches) → $0.12-0.19 (Haiku, 5-7 searches)**, roughly a
+75-85% reduction, with equivalent or better result quality (see below).
+
+One real technical gotcha: `web_search_20260209` defaults to
+`allowed_callers: ["code_execution_20260120"]` (programmatic/dynamic-filtering
+calling), which **Haiku doesn't support** — confirmed via a real API call
+(400: "does not support programmatic tool calling"). Fixed by explicitly
+setting `allowed_callers: ["direct"]` on the tool definition, which also
+means no dynamic filtering — acceptable here since the search-economy
+prompt instructions (not the tool's own filtering) are what keep result
+volume down.
 
 ### Exhibition-first, not venue-first (revised after the pilot)
 
@@ -41,18 +63,36 @@ exhibitions/interventions, not the primary search target:**
    (or note it has none, for a standalone street intervention) and capture
    the **specific page URL** it was found at (`sourceUrl`) — distinct from
    the venue's general website.
-4. Derive `venues.listing_url` by truncating `sourceUrl` to its parent
+4. **Classify each candidate's source**: `"oficial"` (the venue's own site
+   or social account) or `"difusion"` (news, a cultural-agenda aggregator,
+   or a municipal listing — not the venue's own site). If the same
+   exhibition surfaces via both, consolidate into one candidate, preferring
+   the official source. If it only has a diffusion source, still report it
+   (real coverage shouldn't be dropped for lacking an official site) — just
+   mark it as such. Confirmed with real data: a live run for Antofagasta
+   found FME and two SACO/ISLA candidates, all correctly tagged
+   `"difusion"` (news/open-call sites, not fme.cl or bienalsaco.com
+   themselves).
+5. Derive `venues.listing_url` by truncating `sourceUrl` to its parent
    directory (`.../artesvisuales/mundo-pepo/` → `.../artesvisuales/`) —
-   done in code (`dedup.ts`'s `deriveListingUrl`), not left to the model's
-   judgment, since this is deterministic string manipulation, not
-   reasoning.
-5. Match the candidate against existing venues (`dedup.ts`'s
+   **only when `sourceType` is `"oficial"`**. A diffusion source doesn't
+   update when the venue's own exhibitions change, and often covers many
+   venues at once — deriving a "listing page" from one would misattribute
+   whatever the Event Crawler later finds there back to a single venue.
+   This is exactly the bug the first real run surfaced (MAC's two locations
+   and MNBA/Casa Museo Santa Rosa ended up sharing another institution's or
+   an aggregator's URL) — fixed by gating on source classification, not
+   just a same-domain check after the fact. Done in code
+   (`dedup.ts`'s `deriveListingUrl`), not left to the model's judgment,
+   since the truncation itself is deterministic string manipulation.
+6. Match the candidate against existing venues (`dedup.ts`'s
    `findMatchingVenue`, by name or domain): if it matches a venue that
-   doesn't have a `listing_url` yet, backfill it — this is how venues found
-   before this feature existed get resolved gradually, not just new ones.
-   If it matches nothing, fall through to the existing insert path — same
-   category classification (`art_space` / `hard_excluded` / `needs_review`)
-   as before, with `listing_url` set at insert time if derivable.
+   doesn't have a `listing_url` yet, backfill it (only from an `"oficial"`
+   source, same rule as above) — this is how venues found before this
+   feature existed get resolved gradually, not just new ones. If it matches
+   nothing, fall through to the existing insert path — same category
+   classification (`art_space` / `hard_excluded` / `needs_review`) as
+   before.
 
 **Explicitly deferred, not built in this pass:**
 - Capturing a standalone intervention with no matching venue directly into
