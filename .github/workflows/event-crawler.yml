@@ -1,0 +1,30 @@
+name: Run Event Crawler
+
+# Manual trigger only, deliberately — same cautious rollout as Venue
+# Discovery's own first workflow. Run this a few times by hand (Actions tab
+# or `gh workflow run`) and check the resulting `events` rows for quality
+# before committing to a daily schedule.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run Event Crawler
+        run: pnpm --filter @caldearte/curator run crawl-events
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
