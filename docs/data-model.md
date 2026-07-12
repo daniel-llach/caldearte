@@ -47,8 +47,10 @@ events
   medium_type (tradicional | intervencion_no_tradicional),
   sensitivity_tags (array: desnudo_erotismo | guerra_violencia |
     memoria_dictadura),
-  source (scraped | submitted | discovered — "discovered" is what Venue
-    Discovery finds directly, with no venue),
+  source (scraped | submitted | discovered — "discovered" is everything
+    Event Discovery's search-based pass finds directly, whether or not a
+    venue got matched/created for it; "scraped" is the Event Crawler
+    revisiting a known venue's page),
   image_storage_path (reserved for a re-hosted copy, Phase 3 — not written
     yet), image_url (the raw external image URL, so it isn't silently
     dropped in the meantime), source_url,

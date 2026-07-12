@@ -8,9 +8,12 @@ Done: pnpm workspace, core schema deployed to production
 system shipped (`system_config`/`api_usage_log`, budget ceiling, region cap,
 change-detection foundation).
 
-Venue Discovery is implemented (`apps/curator/src/venue-discovery/`,
-manual-trigger only for now). The Event Crawler is now implemented too
-(`apps/curator/src/event-crawler/`, also manual-trigger only) — see
+Event Discovery is implemented (`apps/curator/src/venue-discovery/` —
+directory name predates the pivot, still accurate functionally: search +
+full curation, saving events directly with venues as a byproduct,
+manual-trigger only, monthly cadence). The Event Crawler is also
+implemented (`apps/curator/src/event-crawler/`, manual-trigger, revisits
+already-known venues every 3 days) — see
 [region-discovery.md](region-discovery.md) for the actual design. Frontend
 (`apps/web`) hasn't been started.
 
@@ -38,8 +41,9 @@ Closed out the initial project brief, moved into a dedicated repo.
   manually in Supabase. See
   [region-discovery.md](region-discovery.md#no-email-approval-flow-yet-cost-driven-not-a-design-gap).
 - Writes land in Supabase (Postgres).
-- An additional daily cleanup cron deletes events more than 7 days past
-  `opening_datetime`.
+- An additional daily cleanup cron deletes events more than 1 month past
+  `opening_datetime` (cron itself not built yet — see
+  [overview.md](overview.md)).
 - **★ Everything above can be built and tested with zero product/design
   decisions resolved** — verified by looking directly at the Supabase table
   (Studio or a query), no interface needed to confirm the scraper, curation,

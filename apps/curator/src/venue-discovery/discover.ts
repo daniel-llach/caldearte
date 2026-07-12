@@ -1,27 +1,48 @@
 import type { Tables } from "@caldearte/shared-types";
+import { ART_SCOPE_POLICY, TEXT_CURATION_POLICY, ESCALATION_SIGNALS, VENUE_FILTER_POLICY } from "../lib/curation-policy.js";
+import { runVisionCheck, defaultImageFetcher, type ImageFetcher } from "../lib/vision-check.js";
 
 type Region = Tables<"regions">;
 
-export interface VenueCandidate {
-  name: string;
-  address: string | null;
-  websiteOrSocial: string | null;
-  // The specific exhibition/intervention page this candidate was found at
-  // (not just the venue's general homepage) - lets run.ts derive a
-  // listing_url by truncating to the parent directory. Null when the
-  // search only turned up the venue's general site/social link.
+// The primary output of this pass is curated EVENTS, not venues — a venue
+// is matched or created as a byproduct only when one is identifiable.
+// Three real production runs of the venue-first design produced venues but
+// zero events; this merges what curation-policy already proves works in
+// event-crawler/curate.ts directly into the search pass, so a street
+// intervention, a school show, or someone's home is exactly as capturable
+// as a museum, instead of waiting on a venue to be resolved first.
+export interface EventDiscoveryCandidate {
+  title: string;
+  description: string | null;
+  artist: string | null;
+  openingDatetime: string | null;
+  openingDateConfidence: "alta" | "baja";
+  mediumType: "tradicional" | "intervencion_no_tradicional";
+  sensitivityTags: string[];
+  curationReasoning: string;
+  imageUrl: string | null;
+  status: "approved" | "rejected" | "pending_review";
+
+  // Venue is optional: null venueName means no fixed institution (a street
+  // corner, someone's home, a plaza, a school) — freeformLocation carries
+  // the description instead.
+  venueName: string | null;
+  venueAddress: string | null;
+  venueWebsiteOrSocial: string | null;
+  venueCategory: "art_space" | "hard_excluded" | "needs_review" | null;
+  freeformLocation: string | null;
+
+  // The specific page this candidate was found at, and whether that's the
+  // venue's own site ("oficial") or a third-party mention ("difusion") —
+  // only "oficial" sources are trustworthy enough to derive a venue's
+  // listing_url from (see venue-discovery/run.ts).
   sourceUrl: string | null;
-  // Whether sourceUrl is the venue's own site ("oficial") or a third-party
-  // mention (news, cultural agenda aggregator, municipal listing —
-  // "difusion"). Only "oficial" sources are trustworthy enough to derive
-  // listing_url from — a news article or aggregator page doesn't update
-  // when the venue's own exhibitions change, and an aggregator covers many
-  // venues at once, so deriving a "listing page" from it would misattribute
-  // whatever the Event Crawler later finds there. Null when sourceUrl
-  // itself is null.
   sourceType: "oficial" | "difusion" | null;
   contactEmail: string | null;
-  category: "art_space" | "hard_excluded" | "needs_review";
+}
+
+interface ProvisionalEventCandidate extends Omit<EventDiscoveryCandidate, "status"> {
+  provisionalStatus: "rejected" | "provisionally_approved" | "pending_review";
 }
 
 export interface DiscoverUsage {
@@ -33,8 +54,8 @@ export interface DiscoverUsage {
 }
 
 export interface DiscoverResult {
-  candidates: VenueCandidate[];
-  usage: DiscoverUsage;
+  candidates: EventDiscoveryCandidate[];
+  usage: DiscoverUsage[];
 }
 
 interface MessagesResponseContentBlock {
@@ -45,7 +66,8 @@ interface MessagesResponseContentBlock {
 }
 
 // Narrow structural interface instead of the full Anthropic SDK class, so
-// tests can inject a stub without hitting the real API.
+// tests can inject a stub without hitting the real API. Also satisfies
+// lib/vision-check.ts's narrower VisionMessagesClient shape.
 export interface MessagesClient {
   messages: {
     create(params: Record<string, unknown>): Promise<{
@@ -63,10 +85,7 @@ export interface MessagesClient {
 
 // Caps worst-case cost per call — a backstop, not the primary lever. The
 // search-economy prompt instructions below are what's meant to keep actual
-// usage well under this in normal operation. Lowered from 12 to 8 after the
-// exhibition-first run showed 3 of 4 regions hitting the old cap trying to
-// verify a single candidate — a manual dry run (same query templates, no
-// API) found a real, confirmed candidate in 4-5 searches total.
+// usage well under this in normal operation.
 const MAX_WEB_SEARCH_USES = 8;
 
 const ES_MONTHS = [
@@ -105,14 +124,6 @@ function addMonths(date: Date, months: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + months, date.getDate());
 }
 
-// Exhibition/intervention-first, not venue-first: the earlier version
-// searched for "galleries"/"cultural centers" as a proxy for finding
-// content, and it produced exactly the failure mode that assumption
-// predicts - a venue list with nothing to show for it, because the venue's
-// homepage often isn't where its current exhibitions are listed (proven
-// with GAM: real content lives at a subpage, not the homepage). Searching
-// for the actual exhibitions/interventions directly finds a specific page
-// we can derive a listing URL from, and treats venues as a byproduct.
 const QUERY_TEMPLATES: Record<string, (city: string, monthLabel: string) => string[]> = {
   es: (city, monthLabel) => [
     `exhibiciones de arte ${city} ${monthLabel}`,
@@ -132,16 +143,11 @@ function buildQueries(region: Region, now: Date): string[] {
   return templates(region.name, monthWindowLabel(now, language));
 }
 
-// Mirrors the venue-type filter in docs/curation-policy.md — kept in sync
-// with that doc, not re-derived independently.
-const VENUE_FILTER_POLICY = `Classify each venue's "category" using this rule:
-- "hard_excluded": the venue is a church/temple or house of worship of any religious cult, or the headquarters of a right-wing or far-right political party.
-- "art_space": a recognizable, legitimate art or community space — this includes not just museums and galleries but cultural centers, community centers, neighborhood associations, and spaces known for street art or public interventions.
-- "needs_review": anything that is neither clearly a legitimate art/community space nor clearly one of the hard-excluded categories above. Do not guess — use this category when unsure.`;
-
-const SEARCH_ECONOMY_POLICY = `Be economical with searches: aim for the 3 initial broad queries plus at most 1-3 targeted follow-ups total for the whole region — not one follow-up per candidate. Rely on the information already present in your initial broad search results whenever possible; classify source type (see below) using those same results, not a dedicated search for it. Only perform an additional, targeted search when the initial results didn't already give you enough to confirm a candidate is real, active, and in scope, or to extract its address/contact details. If you're still unsure about a candidate after a reasonable effort, classify it "needs_review" rather than spending more searches to resolve it. Never issue the same or a near-duplicate query more than once — if you already ran a search, reuse its results instead of repeating it.`;
+const SEARCH_ECONOMY_POLICY = `Be economical with searches: aim for the 3 initial broad queries plus at most 1-3 targeted follow-ups total for the whole region — not one follow-up per candidate. Rely on the information already present in your initial broad search results whenever possible; classify source type (see below) using those same results, not a dedicated search for it. Only perform an additional, targeted search when the initial results didn't already give you enough to confirm a candidate is real, active, and in scope, or to extract its address/contact details. If you're still unsure about a candidate after a reasonable effort, classify it "pending_review" rather than spending more searches to resolve it. Never issue the same or a near-duplicate query more than once — if you already ran a search, reuse its results instead of repeating it.`;
 
 const SOURCE_CLASSIFICATION_POLICY = `For each candidate, classify where sourceUrl was found: "oficial" (the venue's own website or social media account) or "difusion" (a news site, cultural agenda aggregator, or municipal events listing that isn't the venue's own site). If the same exhibition/intervention turns up via both an official source and a diffusion source in your search results, report it once — consolidate into a single candidate, using the official source for sourceUrl and sourceType. If it only appears via a diffusion source, still report it (don't omit real candidates just because there's no official site) — set sourceType to "difusion" and don't invent an official URL that wasn't actually found. Classify using the search results you already have; this is a judgment call about content already in front of you, not a reason for an extra search.`;
+
+const VENUE_OPTIONAL_POLICY = `A fixed venue is optional, not required. Many real exhibitions and interventions have no institution behind them at all: a street corner, a plaza, someone's home, a school, an empty lot. When you can identify a hosting institution, set venueName to its own name (never the exhibition's title) and fill in venueAddress/venueWebsiteOrSocial/venueCategory. When there is no institution — or you genuinely can't tell what it is — set venueName to null and instead describe the location in freeformLocation (e.g. "Plaza de Armas, Antofagasta" or "intervención callejera en el centro de Arica"). Never invent a venue to fill the field; a real event with no venue is exactly as valuable as one at a recognized museum — don't under-report informal or street events relative to institutional ones.`;
 
 export function buildSystemPrompt(
   region: Region,
@@ -162,20 +168,32 @@ export function buildSystemPrompt(
 Use the web_search tool to research using queries like:
 ${queries.map((q) => `- "${q}"`).join("\n")}
 
-For each exhibition or intervention you find, identify the venue hosting it (or note that it has no fixed venue, if it's a standalone street intervention) and validate it's real and currently active — not a stale blog post, a dead result, or something that already closed. Extract: venue name, address (if available), the venue's general website or social media URL, the specific page URL where you found this exhibition/intervention (sourceUrl — not just the venue's homepage), and a public contact email if visible.
+For each exhibition or intervention you find, extract: title, description, artist (if named), opening date/time, and whether the date confidence is "alta" or "baja". Use "alta" only when an explicit opening date/time is given. When the source only gives the exhibition's overall run (e.g. "Nov 12 - Dec 27"), not a specific opening night, use "baja" and set the date to the run's **start date** as a proxy — and say so explicitly in curationReasoning, so this is never presented as a confirmed opening.
 
-"name" must be the institution itself (the gallery, museum, or cultural center — e.g. "Museo Nacional de Bellas Artes"), never the exhibition or intervention's own title (not "Valentina Cruz. De amor, humor y muerte"). If you find more than one exhibition at the same institution, report that institution once, not once per exhibition.
+${VENUE_OPTIONAL_POLICY}
+
+"venueName" must be the institution itself (the gallery, museum, or cultural center — e.g. "Museo Nacional de Bellas Artes"), never the exhibition or intervention's own title (not "Valentina Cruz. De amor, humor y muerte"). If you find more than one exhibition at the same institution, still report each one as its own candidate (they're different events) — just reuse the same venueName/venueWebsiteOrSocial for both, don't invent variations.
 
 Today's date is ${todayIso}. Only report candidates whose exhibition/intervention falls between today and ${cutoffIso} (roughly the next 2 months) — discard anything that has already ended and anything further out (dates that far ahead are typically unconfirmed).
 
 ${SEARCH_ECONOMY_POLICY}
 ${knownVenuesSection}
-${VENUE_FILTER_POLICY}
+When a venue is identified, classify it: ${VENUE_FILTER_POLICY}
 
 ${SOURCE_CLASSIFICATION_POLICY}
 
-When you are done researching, respond with ONLY a fenced JSON code block (\`\`\`json ... \`\`\`) containing an array of objects with this exact shape, and nothing else before or after it:
-[{ "name": string, "address": string | null, "websiteOrSocial": string | null, "sourceUrl": string | null, "sourceType": "oficial" | "difusion" | null, "contactEmail": string | null, "category": "art_space" | "hard_excluded" | "needs_review" }]
+${ART_SCOPE_POLICY}
+
+${TEXT_CURATION_POLICY}
+
+${ESCALATION_SIGNALS}
+
+Also tag each event: \`mediumType\` is "tradicional" (gallery/museum-style exhibition) or "intervencion_no_tradicional" (street art, public intervention, non-traditional space); \`sensitivityTags\` is an array from ["desnudo_erotismo", "guerra_violencia", "memoria_dictadura"] (empty array if none apply). Write a short \`curationReasoning\` explaining your axis decision.
+
+If a genuine image for the event (the artwork/flyer itself, not a logo or unrelated photo) surfaced directly in your search results, set \`imageUrl\` to that exact URL — search results won't always include one, and that's fine, set it to null when they don't.
+
+Respond with ONLY a fenced JSON code block (\`\`\`json ... \`\`\`) containing an array of objects with this exact shape, and nothing else before or after it:
+[{ "title": string, "description": string | null, "artist": string | null, "openingDatetime": string | null, "openingDateConfidence": "alta" | "baja", "mediumType": "tradicional" | "intervencion_no_tradicional", "sensitivityTags": string[], "curationReasoning": string, "imageUrl": string | null, "status": "rejected" | "provisionally_approved" | "pending_review", "venueName": string | null, "venueAddress": string | null, "venueWebsiteOrSocial": string | null, "venueCategory": "art_space" | "hard_excluded" | "needs_review" | null, "freeformLocation": string | null, "sourceUrl": string | null, "sourceType": "oficial" | "difusion" | null, "contactEmail": string | null }]
 
 If you find nothing in scope, respond with an empty array: \`\`\`json
 []
@@ -195,45 +213,87 @@ function extractText(content: MessagesResponseContentBlock[]): string {
 function logSearchQueries(region: Region, content: MessagesResponseContentBlock[]): void {
   for (const block of content) {
     if (block.type === "server_tool_use" && block.name === "web_search" && block.input?.query) {
-      console.log(`[venue-discovery] ${region.name} search: "${block.input.query}"`);
+      console.log(`[event-discovery] ${region.name} search: "${block.input.query}"`);
     }
   }
 }
 
-function parseCandidates(content: MessagesResponseContentBlock[]): VenueCandidate[] {
+function parseProvisionalCandidates(content: MessagesResponseContentBlock[]): ProvisionalEventCandidate[] {
   const fullText = extractText(content);
   const match = fullText.match(/```json\s*([\s\S]*?)```/);
 
   if (!match) {
-    throw new Error("discoverVenues: no fenced JSON block found in the model's response");
+    throw new Error("discoverEvents: no fenced JSON block found in the model's response");
   }
 
   const parsed: unknown = JSON.parse(match[1]);
   if (!Array.isArray(parsed)) {
-    throw new Error("discoverVenues: parsed JSON is not an array");
+    throw new Error("discoverEvents: parsed JSON is not an array");
   }
 
-  return parsed as VenueCandidate[];
+  return (parsed as Array<Record<string, unknown>>).map((raw) => ({
+    title: raw.title as string,
+    description: (raw.description as string | null) ?? null,
+    artist: (raw.artist as string | null) ?? null,
+    openingDatetime: (raw.openingDatetime as string | null) ?? null,
+    openingDateConfidence: raw.openingDateConfidence as "alta" | "baja",
+    mediumType: raw.mediumType as "tradicional" | "intervencion_no_tradicional",
+    sensitivityTags: (raw.sensitivityTags as string[]) ?? [],
+    curationReasoning: raw.curationReasoning as string,
+    imageUrl: (raw.imageUrl as string | null) ?? null,
+    provisionalStatus: raw.status as ProvisionalEventCandidate["provisionalStatus"],
+    venueName: (raw.venueName as string | null) ?? null,
+    venueAddress: (raw.venueAddress as string | null) ?? null,
+    venueWebsiteOrSocial: (raw.venueWebsiteOrSocial as string | null) ?? null,
+    venueCategory: (raw.venueCategory as EventDiscoveryCandidate["venueCategory"]) ?? null,
+    freeformLocation: (raw.freeformLocation as string | null) ?? null,
+    sourceUrl: (raw.sourceUrl as string | null) ?? null,
+    sourceType: (raw.sourceType as EventDiscoveryCandidate["sourceType"]) ?? null,
+    contactEmail: (raw.contactEmail as string | null) ?? null,
+  }));
 }
 
-export async function discoverVenues(
+function toUsage(usage: {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  server_tool_use?: { web_search_requests?: number } | null;
+}): DiscoverUsage {
+  return {
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    cacheCreationInputTokens: usage.cache_creation_input_tokens ?? undefined,
+    cacheReadInputTokens: usage.cache_read_input_tokens ?? undefined,
+    webSearchRequests: usage.server_tool_use?.web_search_requests ?? undefined,
+  };
+}
+
+const MODEL = "claude-haiku-4-5";
+
+// Two-step curation, same design as event-crawler/curate.ts: a single
+// search-heavy text call applies the venue-optional identification, the
+// four content axes, and escalation signals; a vision call (Axis 5) then
+// runs only for candidates that would otherwise be included and have a
+// real image — so vision cost is paid only when it matters.
+export async function discoverEvents(
   region: Region,
   client: MessagesClient,
   existingVenueNames: string[] = [],
   now: Date = new Date(),
+  imageFetcher: ImageFetcher = defaultImageFetcher,
 ): Promise<DiscoverResult> {
   const queries = buildQueries(region, now);
+  const usages: DiscoverUsage[] = [];
 
   const response = await client.messages.create({
-    model: "claude-haiku-4-5",
+    model: MODEL,
     max_tokens: 8000,
     system: buildSystemPrompt(region, queries, now, existingVenueNames),
     // allowed_callers: ["direct"] is required — web_search_20260209 defaults
     // to programmatic/dynamic-filtering calling, which Haiku doesn't
     // support (confirmed via a real API call: 400 "does not support
-    // programmatic tool calling" without this). This also means no dynamic
-    // filtering, which is fine here — the search-economy prompt is what's
-    // meant to keep result volume down, not the tool's own filtering.
+    // programmatic tool calling" without this).
     tools: [
       {
         type: "web_search_20260209",
@@ -251,15 +311,28 @@ export async function discoverVenues(
   });
 
   logSearchQueries(region, response.content);
-  const candidates = parseCandidates(response.content);
+  usages.push(toUsage(response.usage));
+  const provisional = parseProvisionalCandidates(response.content);
 
-  const usage: DiscoverUsage = {
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-    cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? undefined,
-    cacheReadInputTokens: response.usage.cache_read_input_tokens ?? undefined,
-    webSearchRequests: response.usage.server_tool_use?.web_search_requests ?? undefined,
-  };
+  const candidates: EventDiscoveryCandidate[] = [];
+  for (const p of provisional) {
+    const { provisionalStatus, ...rest } = p;
 
-  return { candidates, usage };
+    if (provisionalStatus === "rejected" || provisionalStatus === "pending_review") {
+      candidates.push({ ...rest, status: provisionalStatus });
+      continue;
+    }
+
+    // provisionally_approved
+    if (!rest.imageUrl) {
+      candidates.push({ ...rest, status: "approved" });
+      continue;
+    }
+
+    const { status: visionStatus, usage: visionUsage } = await runVisionCheck(client, imageFetcher, rest.imageUrl);
+    usages.push(visionUsage);
+    candidates.push({ ...rest, status: visionStatus });
+  }
+
+  return { candidates, usage: usages };
 }

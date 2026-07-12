@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { discoverVenues, buildSystemPrompt, type MessagesClient } from "./discover.js";
+import { discoverEvents, buildSystemPrompt, type MessagesClient } from "./discover.js";
+import type { ImageFetcher } from "../lib/vision-check.js";
 
 interface StubOptions {
   input_tokens?: number;
@@ -10,32 +11,50 @@ interface StubOptions {
   web_search_requests?: number;
 }
 
-function stubClient(
-  text: string,
-  usage: StubOptions = {},
-): MessagesClient & { lastParams?: Record<string, unknown> } {
-  const client: MessagesClient & { lastParams?: Record<string, unknown> } = {
+function textResponse(text: string, usage: StubOptions = {}) {
+  return {
+    content: [{ type: "text", text }],
+    usage: {
+      input_tokens: usage.input_tokens ?? 100,
+      output_tokens: usage.output_tokens ?? 50,
+      cache_creation_input_tokens: usage.cache_creation_input_tokens ?? null,
+      cache_read_input_tokens: usage.cache_read_input_tokens ?? null,
+      server_tool_use:
+        usage.web_search_requests !== undefined ? { web_search_requests: usage.web_search_requests } : null,
+    },
+  };
+}
+
+function visionResponse(verdict: "APPROVE" | "REJECT") {
+  return {
+    content: [{ type: "text", text: verdict }],
+    usage: { input_tokens: 200, output_tokens: 5 },
+  };
+}
+
+function queuedClient(responses: unknown[]): MessagesClient & { lastParams?: Record<string, unknown>; calls: Record<string, unknown>[] } {
+  const queue = [...responses];
+  const calls: Record<string, unknown>[] = [];
+  const client: MessagesClient & { lastParams?: Record<string, unknown>; calls: Record<string, unknown>[] } = {
+    calls,
     messages: {
       async create(params) {
+        calls.push(params);
         client.lastParams = params;
-        return {
-          content: [{ type: "text", text }],
-          usage: {
-            input_tokens: usage.input_tokens ?? 100,
-            output_tokens: usage.output_tokens ?? 50,
-            cache_creation_input_tokens: usage.cache_creation_input_tokens ?? null,
-            cache_read_input_tokens: usage.cache_read_input_tokens ?? null,
-            server_tool_use:
-              usage.web_search_requests !== undefined
-                ? { web_search_requests: usage.web_search_requests }
-                : null,
-          },
-        };
+        const next = queue.shift();
+        if (!next) throw new Error("queuedClient: no more stubbed responses");
+        return next as never;
       },
     },
   };
   return client;
 }
+
+const stubImageFetcher: ImageFetcher = {
+  async fetch() {
+    return { base64: "ZmFrZQ==", mediaType: "image/jpeg" };
+  },
+};
 
 const region = {
   id: "region-1",
@@ -56,147 +75,184 @@ const region = {
 
 const FIXED_NOW = new Date("2026-07-11T12:00:00Z");
 
-test("discoverVenues: parses a fenced JSON block into candidates", async () => {
-  const text = [
-    "I searched for current exhibitions.",
-    "```json",
-    JSON.stringify([
-      {
-        name: "Galería Cerro Norte",
-        address: "Calle X 123, Arica",
-        websiteOrSocial: "https://instagram.com/galeriacerronorte",
-        sourceUrl: "https://galeriacerronorte.cl/exposiciones/obra-x/",
-        sourceType: "oficial",
-        contactEmail: null,
-        category: "art_space",
-      },
-    ]),
-    "```",
-  ].join("\n");
+const baseEventFields = {
+  description: "Una exhibición de pintura",
+  artist: "Artista X",
+  openingDatetime: "2026-08-01T19:00:00-04:00",
+  openingDateConfidence: "alta",
+  mediumType: "tradicional",
+  sensitivityTags: [],
+  curationReasoning: "Sin contenido problemático.",
+  imageUrl: null,
+  venueAddress: null,
+  venueWebsiteOrSocial: null,
+  sourceUrl: null,
+  sourceType: null,
+  contactEmail: null,
+};
 
-  const result = await discoverVenues(region, stubClient(text));
+test("discoverEvents: parses a fenced JSON block into candidates with venue info", async () => {
+  const client = queuedClient([
+    textResponse(
+      "```json\n" +
+        JSON.stringify([
+          {
+            title: "Residuos al borde",
+            ...baseEventFields,
+            venueName: "Casa Cultural Yanulaque",
+            venueCategory: "art_space",
+            freeformLocation: null,
+            status: "approved",
+          },
+        ]) +
+        "\n```",
+    ),
+  ]);
+
+  const result = await discoverEvents(region, client, [], FIXED_NOW, stubImageFetcher);
 
   assert.equal(result.candidates.length, 1);
-  assert.equal(result.candidates[0].name, "Galería Cerro Norte");
-  assert.equal(result.candidates[0].sourceUrl, "https://galeriacerronorte.cl/exposiciones/obra-x/");
-  assert.equal(result.candidates[0].sourceType, "oficial");
-  assert.equal(result.candidates[0].category, "art_space");
+  assert.equal(result.candidates[0].title, "Residuos al borde");
+  assert.equal(result.candidates[0].venueName, "Casa Cultural Yanulaque");
+  assert.equal(result.candidates[0].status, "approved");
 });
 
-test("discoverVenues: returns an empty array when the model finds nothing", async () => {
-  const text = "```json\n[]\n```";
-  const result = await discoverVenues(region, stubClient(text));
-  assert.deepEqual(result.candidates, []);
+test("discoverEvents: parses a freeform candidate with no venue", async () => {
+  const client = queuedClient([
+    textResponse(
+      "```json\n" +
+        JSON.stringify([
+          {
+            title: "Intervención en la plaza",
+            ...baseEventFields,
+            venueName: null,
+            venueCategory: null,
+            freeformLocation: "Plaza de Armas, Antofagasta",
+            status: "approved",
+          },
+        ]) +
+        "\n```",
+    ),
+  ]);
+
+  const result = await discoverEvents(region, client, [], FIXED_NOW, stubImageFetcher);
+
+  assert.equal(result.candidates[0].venueName, null);
+  assert.equal(result.candidates[0].freeformLocation, "Plaza de Armas, Antofagasta");
 });
 
-test("discoverVenues: maps usage fields, treating missing cache/search fields as undefined", async () => {
-  const text = "```json\n[]\n```";
-  const result = await discoverVenues(
-    region,
-    stubClient(text, { input_tokens: 1234, output_tokens: 567 }),
-  );
+test("discoverEvents: passes through rejected/pending_review without a vision call", async () => {
+  const client = queuedClient([
+    textResponse(
+      "```json\n" +
+        JSON.stringify([
+          { title: "A", ...baseEventFields, venueName: null, venueCategory: null, freeformLocation: null, status: "rejected" },
+          { title: "B", ...baseEventFields, venueName: null, venueCategory: null, freeformLocation: null, status: "pending_review" },
+        ]) +
+        "\n```",
+    ),
+  ]);
 
-  assert.equal(result.usage.inputTokens, 1234);
-  assert.equal(result.usage.outputTokens, 567);
-  assert.equal(result.usage.cacheCreationInputTokens, undefined);
-  assert.equal(result.usage.cacheReadInputTokens, undefined);
-  assert.equal(result.usage.webSearchRequests, undefined);
+  const result = await discoverEvents(region, client, [], FIXED_NOW, stubImageFetcher);
+
+  assert.equal(result.candidates[0].status, "rejected");
+  assert.equal(result.candidates[1].status, "pending_review");
+  assert.equal(result.usage.length, 1);
+  assert.equal(client.calls.length, 1);
 });
 
-test("discoverVenues: extracts web_search_requests from server_tool_use", async () => {
-  const result = await discoverVenues(
-    region,
-    stubClient("```json\n[]\n```", { web_search_requests: 12 }),
-  );
-  assert.equal(result.usage.webSearchRequests, 12);
+test("discoverEvents: approves provisionally_approved with no image, skipping the vision call", async () => {
+  const client = queuedClient([
+    textResponse(
+      "```json\n" +
+        JSON.stringify([
+          { title: "A", ...baseEventFields, venueName: null, venueCategory: null, freeformLocation: null, status: "provisionally_approved" },
+        ]) +
+        "\n```",
+    ),
+  ]);
+
+  const result = await discoverEvents(region, client, [], FIXED_NOW, stubImageFetcher);
+
+  assert.equal(result.candidates[0].status, "approved");
+  assert.equal(result.usage.length, 1);
 });
 
-test("discoverVenues: throws a clear error when no fenced JSON block is present", async () => {
-  const client = stubClient("I looked around but didn't format a JSON block.");
-  await assert.rejects(discoverVenues(region, client), /no fenced JSON block/);
+test("discoverEvents: runs a vision check and rejects when the image is explicit", async () => {
+  const client = queuedClient([
+    textResponse(
+      "```json\n" +
+        JSON.stringify([
+          {
+            title: "A",
+            ...baseEventFields,
+            imageUrl: "https://example.cl/art.jpg",
+            venueName: null,
+            venueCategory: null,
+            freeformLocation: null,
+            status: "provisionally_approved",
+          },
+        ]) +
+        "\n```",
+    ),
+    visionResponse("REJECT"),
+  ]);
+
+  const result = await discoverEvents(region, client, [], FIXED_NOW, stubImageFetcher);
+
+  assert.equal(result.candidates[0].status, "rejected");
+  assert.equal(result.usage.length, 2);
 });
 
-test("discoverVenues: falls back to English query templates for a non-es region", async () => {
-  const enRegion = { ...region, language: "en", name: "Portland" };
-  // No direct way to inspect the system prompt from the public API — this
-  // just confirms the call succeeds end-to-end for a non-Spanish region
-  // rather than throwing on an unrecognized language key.
-  const result = await discoverVenues(enRegion, stubClient("```json\n[]\n```"));
-  assert.deepEqual(result.candidates, []);
+test("discoverEvents: throws a clear error when no fenced JSON block is present", async () => {
+  const client = queuedClient([{ content: [{ type: "text", text: "no json here" }], usage: { input_tokens: 1, output_tokens: 1 } }]);
+  await assert.rejects(discoverEvents(region, client, [], FIXED_NOW, stubImageFetcher), /no fenced JSON block/);
 });
 
-test("discoverVenues: caps the web_search tool at MAX_WEB_SEARCH_USES", async () => {
-  const client = stubClient("```json\n[]\n```");
-  await discoverVenues(region, client);
+test("discoverEvents: uses claude-haiku-4-5 with allowed_callers direct", async () => {
+  const client = queuedClient([textResponse("```json\n[]\n```")]);
+  await discoverEvents(region, client, [], FIXED_NOW, stubImageFetcher);
 
+  assert.equal(client.lastParams?.model, "claude-haiku-4-5");
   const tools = client.lastParams?.tools as Array<Record<string, unknown>>;
   assert.equal(tools[0].max_uses, 8);
-});
-
-test("discoverVenues: sets allowed_callers to direct (Haiku doesn't support programmatic tool calling)", async () => {
-  const client = stubClient("```json\n[]\n```");
-  await discoverVenues(region, client);
-
-  const tools = client.lastParams?.tools as Array<Record<string, unknown>>;
   assert.deepEqual(tools[0].allowed_callers, ["direct"]);
 });
 
-test("discoverVenues: uses claude-haiku-4-5", async () => {
-  const client = stubClient("```json\n[]\n```");
-  await discoverVenues(region, client);
-  assert.equal(client.lastParams?.model, "claude-haiku-4-5");
-});
-
-test("buildSystemPrompt: lists existing venues without telling the model to skip them entirely", () => {
-  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW, ["Galería A", "Centro B"]);
-  assert.match(prompt, /Galería A/);
-  assert.match(prompt, /Centro B/);
-  assert.match(prompt, /no need to re-verify these are legitimate/);
-  assert.match(prompt, /still report it with its sourceUrl/);
-});
-
-test("buildSystemPrompt: omits the known-venues section when none are passed", () => {
-  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW, []);
-  assert.doesNotMatch(prompt, /already known for this region/);
-});
-
-test("buildSystemPrompt: always includes the search-economy instruction", () => {
+test("buildSystemPrompt: explains that a venue is optional, with concrete examples", () => {
   const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
-  assert.match(prompt, /Be economical with searches/);
+  assert.match(prompt, /A fixed venue is optional/);
+  assert.match(prompt, /street corner/);
+  assert.match(prompt, /someone's home/);
+  assert.match(prompt, /school/);
 });
 
-test("buildSystemPrompt: instructs the model not to repeat a query", () => {
+test("buildSystemPrompt: clarifies venueName means the institution, not the exhibition title", () => {
   const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
-  assert.match(prompt, /[Nn]ever issue the same or a near-duplicate query/);
+  assert.match(prompt, /never the exhibition or intervention's own title/);
+});
+
+test("buildSystemPrompt: includes the full curation policy (art scope, four axes, escalation)", () => {
+  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
+  assert.match(prompt, /conventional theater plays/);
+  assert.match(prompt, /default-exclusion policy across four axes/);
+  assert.match(prompt, /pending_review/);
+});
+
+test("buildSystemPrompt: includes source classification instructions", () => {
+  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
+  assert.match(prompt, /"oficial"/);
+  assert.match(prompt, /"difusion"/);
 });
 
 test("buildSystemPrompt: states today's date and a 2-month cutoff", () => {
   const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
   assert.match(prompt, /Today's date is 2026-07-11/);
   assert.match(prompt, /2026-09-11/);
-  assert.match(prompt, /discard anything that has already ended/);
 });
 
-test("buildSystemPrompt: clarifies name means the institution, not the exhibition title", () => {
-  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
-  assert.match(prompt, /never the exhibition or intervention's own title/);
-  assert.match(prompt, /report that institution once, not once per exhibition/);
-});
-
-test("buildSystemPrompt: asks for sourceUrl in the output shape", () => {
-  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
-  assert.match(prompt, /"sourceUrl"/);
-});
-
-test("buildSystemPrompt: includes source classification and consolidation instructions", () => {
-  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
-  assert.match(prompt, /"oficial"/);
-  assert.match(prompt, /"difusion"/);
-  assert.match(prompt, /consolidate into a single candidate/);
-  assert.match(prompt, /still report it/);
-});
-
-test("buildSystemPrompt: caps follow-up searches at a small explicit number", () => {
-  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
-  assert.match(prompt, /at most 1-3 targeted follow-ups/);
+test("buildSystemPrompt: lists existing venues without telling the model to skip them entirely", () => {
+  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW, ["Galería A"]);
+  assert.match(prompt, /Galería A/);
+  assert.match(prompt, /no need to re-verify these are legitimate/);
 });

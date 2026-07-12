@@ -7,11 +7,69 @@ draft's pure population/distance ranking (which had a real bias problem, see
 below) and is the only place the cost-governance system is documented outside
 the code itself.
 
-## Venue Discovery (research)
+## Event Discovery (research) — formerly "Venue Discovery"
 
 Uses Claude **Haiku** (switched from Sonnet — see below) with the
 **Anthropic API's native web search tool** ($10 per 1,000 searches +
 tokens — no separate search service like SerpAPI needed).
+
+### Events are the primary output; venues are a byproduct (revised again after three empty runs)
+
+Three real production runs of the venue-first design produced venues but
+**zero events** — the mechanism deferred all event-capture to a later
+Event Crawler pass that only checks venues already resolved cleanly. The
+user's explicit direction: a recognized museum is exactly as important as
+an exhibition at a school, in the street, at someone's home, or in a plaza
+— stop treating venue resolution as a prerequisite for saving anything.
+
+**What changed:** this pass now extracts full, curated **events** directly
+— title, artist, date (with confidence), medium, sensitivity tags,
+curation decision, and (when available) an image — applying the exact same
+policies proven in the Event Crawler (`docs/overview.md`'s art-scope
+filter, the four content axes, Axis 5 vision), moved into a shared module
+(`apps/curator/src/lib/curation-policy.ts`, `lib/vision-check.ts`) so both
+mechanisms stay in sync. A venue gets matched or created **only when one is
+identifiable** — `venue_id` is nullable and `freeform_location` exists in
+the schema specifically for this (a street intervention, a show at
+someone's house), and had sat unused until now.
+
+**Venue-category gating**, applied per candidate:
+- `hard_excluded` (a church/temple or far-right party HQ) → the event is
+  dropped entirely, no exceptions.
+- `needs_review` → the event's `curation_status` is forced to
+  `pending_review` regardless of its own content-based decision — an
+  institution that isn't confirmed legitimate can't produce a confidently
+  included event.
+- `art_space` (or no venue at all) → uses the event's own curation
+  decision as computed.
+
+**Within-batch venue dedup**: a `knownVenues` list starts as the region's
+existing venues and grows as new ones are created during the same run — a
+second event at a newly-created venue later in the same batch matches it
+instead of creating a duplicate. This replaced an earlier
+`consolidateCandidates` approach that merged whole candidates sharing a
+venue — correct when a candidate meant one venue, wrong once a candidate
+started meaning one *event* (two different exhibitions at the same
+institution must both survive, not get merged away).
+
+Confirmed with a real pilot run (Arica): a single call found "Residuos al
+borde" by Víctor Doblege, correctly matched/created its venue (Casa
+Cultural Yanulaque), tagged `opening_date_confidence: 'baja'` with an
+explicit note that the exact date wasn't published, and saved the curated
+event directly — the first real event this mechanism has ever produced,
+for $0.20.
+
+The existing Event Crawler (cheap, no search, revisits a known venue's
+`listing_url` every 3 days) is unchanged and still valuable — a fast, free
+top-up for institutions this pass has already resolved cleanly.
+
+### Cadence: monthly, not weekly (revised at the same time)
+
+The user's call: a single monthly search that actually saves curated
+events beats frequent-ish searches that only ever produced an institution-
+biased venue list. All 5 Chile regions were reset to
+`search_frequency = 'monthly'` as part of this rollout (a data change via
+manual `UPDATE`, not a migration).
 
 ### Model: Haiku, not Sonnet (revised after real cost data)
 
@@ -59,21 +117,18 @@ exhibitions/interventions, not the primary search target:**
    already past or too far out (unconfirmed that far ahead anyway). This is
    a first filter at the search stage — the Event Crawler's own past-date
    check remains the deterministic backstop for whatever gets through.
-3. For each exhibition/intervention found, identify the venue hosting it
-   (or note it has none, for a standalone street intervention) and capture
-   the **specific page URL** it was found at (`sourceUrl`) — distinct from
-   the venue's general website. **`name` must be the institution itself,
-   never the exhibition's own title** — a real production run confused the
-   two ("Valentina Cruz. De amor, humor y muerte" stored as a venue name
-   instead of "Museo Nacional de Bellas Artes"), and the same institution
-   sometimes came back as two separate candidates (once per exhibition it
-   was hosting, e.g. "Colección MAC..." and "Colección MAC... (Quinta
-   Normal)" sharing one domain). Fixed two ways: the prompt is now explicit
-   about what "name" means, and `dedup.ts`'s `consolidateCandidates` merges
-   same-batch candidates against each other (by name or domain) *before*
-   matching against existing venues — existingVenues-based matching alone
-   only catches duplicates against rows from before this run, not
-   duplicates within the same run's own results.
+3. For each exhibition/intervention found, extract the full event (title,
+   date, curation decision — see "Events are the primary output" above)
+   and identify the venue hosting it, if any, plus the **specific page
+   URL** it was found at (`sourceUrl`) — distinct from the venue's general
+   website. **`venueName` must be the institution itself, never the
+   exhibition's own title** — a real production run confused the two
+   ("Valentina Cruz. De amor, humor y muerte" stored as a venue name
+   instead of "Museo Nacional de Bellas Artes"). Two different exhibitions
+   at the same institution are reported as two separate candidates (they're
+   different events) — deduping the *venue* they share is handled in code
+   (see the `knownVenues` accumulator above), not by merging the candidates
+   themselves.
 4. **Classify each candidate's source**: `"oficial"` (the venue's own site
    or social account) or `"difusion"` (news, a cultural-agenda aggregator,
    or a municipal listing — not the venue's own site). If the same
@@ -96,23 +151,25 @@ exhibitions/interventions, not the primary search target:**
    just a same-domain check after the fact. Done in code
    (`dedup.ts`'s `deriveListingUrl`), not left to the model's judgment,
    since the truncation itself is deterministic string manipulation.
-6. Match the candidate against existing venues (`dedup.ts`'s
-   `findMatchingVenue`, by name or domain): if it matches a venue that
-   doesn't have a `listing_url` yet, backfill it (only from an `"oficial"`
-   source, same rule as above) — this is how venues found before this
-   feature existed get resolved gradually, not just new ones. If it matches
-   nothing, fall through to the existing insert path — same category
-   classification (`art_space` / `hard_excluded` / `needs_review`) as
-   before.
+6. Match the candidate's venue (when it has one) against `knownVenues`
+   (`dedup.ts`'s `findMatchingVenue`, by name or domain): if it matches a
+   venue that doesn't have a `listing_url` yet, backfill it (only from an
+   `"oficial"` source, same rule as above) — this is how venues found
+   before this feature existed get resolved gradually, not just new ones.
+   If it matches nothing, insert a new venue and push it onto
+   `knownVenues` (see "Events are the primary output" above) — same
+   category classification (`art_space` / `hard_excluded` /
+   `needs_review`) as before, now driving the gating rules there rather
+   than just being stored for later.
 
-**Explicitly deferred, not built in this pass:**
-- Capturing a standalone intervention with no matching venue directly into
-  `events` (`venue_id = null`) — this search is more likely to surface
-  exactly that case (a street performance with no institutional site), but
-  wiring that path is separate work.
-- Using the Axis 5 vision call (Event Crawler) to also tag nudity/eroticism
-  for the family-mode blur filter — only the DB column (`events.image_url`)
-  shipped, to not block it later.
+**Standalone interventions with no venue are now captured directly** —
+`events.venue_id = null` + `freeform_location` (a street performance, a
+show at someone's home), no longer deferred; this was the whole point of
+the pivot above.
+
+**Still explicitly deferred:** using the Axis 5 vision call to also tag
+nudity/eroticism for the family-mode blur filter — only the DB column
+(`events.image_url`) exists so far, to not block it later.
 
 **Geographic scope: global by design** (leveraging the `.com`), but expanding
 into a new region is an **explicit editorial decision** by the curators, same

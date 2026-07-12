@@ -1,29 +1,24 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isDuplicate, extractDomain, deriveListingUrl, findMatchingVenue, consolidateCandidates } from "./dedup.js";
-import type { VenueCandidate } from "./discover.js";
+import { isDuplicate, extractDomain, deriveListingUrl, findMatchingVenue, type VenueIdentity } from "./dedup.js";
 
-function candidate(overrides: Partial<VenueCandidate> = {}): VenueCandidate {
+function identity(overrides: Partial<VenueIdentity> = {}): VenueIdentity {
   return {
     name: "Galería del Puerto",
-    address: null,
     websiteOrSocial: null,
     sourceUrl: null,
-    sourceType: null,
-    contactEmail: null,
-    category: "art_space",
     ...overrides,
   };
 }
 
 test("isDuplicate: same name, different casing/whitespace, is a duplicate", () => {
   const existing = [{ id: "v1", name: "  Galería   del Puerto ", source_domain: null }];
-  assert.equal(isDuplicate(candidate({ name: "galería del puerto" }), existing), true);
+  assert.equal(isDuplicate(identity({ name: "galería del puerto" }), existing), true);
 });
 
 test("isDuplicate: same domain, different path, is a duplicate", () => {
   const existing = [{ id: "v1", name: "Some Other Name", source_domain: "galeriadelpuerto.cl" }];
-  const c = candidate({
+  const c = identity({
     name: "Completely Different Name",
     websiteOrSocial: "https://www.galeriadelpuerto.cl/eventos/agosto",
   });
@@ -32,12 +27,12 @@ test("isDuplicate: same domain, different path, is a duplicate", () => {
 
 test("isDuplicate: a genuinely different venue is not a duplicate", () => {
   const existing = [{ id: "v1", name: "Centro Cultural Municipal", source_domain: "ccmarica.cl" }];
-  const c = candidate({ name: "Galería del Puerto", websiteOrSocial: "https://otrodominio.cl" });
+  const c = identity({ name: "Galería del Puerto", websiteOrSocial: "https://otrodominio.cl" });
   assert.equal(isDuplicate(c, existing), false);
 });
 
 test("isDuplicate: no existing venues means never a duplicate", () => {
-  assert.equal(isDuplicate(candidate(), []), false);
+  assert.equal(isDuplicate(identity(), []), false);
 });
 
 test("extractDomain: strips www and scheme, keeps bare host", () => {
@@ -75,13 +70,13 @@ test("deriveListingUrl: returns null for an unparseable URL", () => {
 
 test("findMatchingVenue: matches by name and returns the existing row", () => {
   const existing = [{ id: "v1", name: "Galería del Puerto", source_domain: null, listing_url: null }];
-  const match = findMatchingVenue(candidate({ name: "galería del puerto" }), existing);
+  const match = findMatchingVenue(identity({ name: "galería del puerto" }), existing);
   assert.equal(match?.id, "v1");
 });
 
 test("findMatchingVenue: matches by domain extracted from sourceUrl when websiteOrSocial is absent", () => {
   const existing = [{ id: "v1", name: "Some Other Name", source_domain: "gam.cl", listing_url: null }];
-  const c = candidate({
+  const c = identity({
     name: "Completely Different Name",
     sourceUrl: "https://gam.cl/es/que-hacer-en-gam/artesvisuales/mundo-pepo/",
   });
@@ -90,32 +85,6 @@ test("findMatchingVenue: matches by domain extracted from sourceUrl when website
 
 test("findMatchingVenue: returns null when nothing matches", () => {
   const existing = [{ id: "v1", name: "Centro Cultural Municipal", source_domain: "ccmarica.cl" }];
-  const c = candidate({ name: "Galería del Puerto", websiteOrSocial: "https://otrodominio.cl" });
+  const c = identity({ name: "Galería del Puerto", websiteOrSocial: "https://otrodominio.cl" });
   assert.equal(findMatchingVenue(c, existing), null);
-});
-
-test("consolidateCandidates: merges same-domain candidates reported under different names (the MAC case)", () => {
-  const candidates = [
-    candidate({ name: "Colección MAC: Modulaciones de la imagen fotográfica", websiteOrSocial: "https://mac.uchile.cl" }),
-    candidate({ name: "Colección MAC: Modulaciones de la imagen fotográfica (Quinta Normal)", websiteOrSocial: "https://mac.uchile.cl" }),
-  ];
-  assert.equal(consolidateCandidates(candidates).length, 1);
-});
-
-test("consolidateCandidates: prefers an oficial source over a difusion source when merging", () => {
-  const candidates = [
-    candidate({ name: "Some Venue", websiteOrSocial: "https://venue.cl", sourceUrl: "https://newsite.com/a", sourceType: "difusion" }),
-    candidate({ name: "Some Venue", websiteOrSocial: "https://venue.cl", sourceUrl: "https://venue.cl/agenda/x", sourceType: "oficial" }),
-  ];
-  const [merged] = consolidateCandidates(candidates);
-  assert.equal(merged.sourceType, "oficial");
-  assert.equal(merged.sourceUrl, "https://venue.cl/agenda/x");
-});
-
-test("consolidateCandidates: leaves genuinely distinct venues untouched", () => {
-  const candidates = [
-    candidate({ name: "Galería A", websiteOrSocial: "https://a.cl" }),
-    candidate({ name: "Galería B", websiteOrSocial: "https://b.cl" }),
-  ];
-  assert.equal(consolidateCandidates(candidates).length, 2);
 });

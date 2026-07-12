@@ -3,6 +3,7 @@ import type { Tables } from "@caldearte/shared-types";
 import { getSupabaseClient } from "../lib/supabase-client.js";
 import { hashContent } from "../lib/content-hash.js";
 import { recordUsage } from "../lib/usage-tracking.js";
+import { eventKey, isUpcomingDated } from "../lib/event-filters.js";
 import { defaultPageFetcher, type PageFetcher } from "./fetch-page.js";
 import { extractImageCandidates } from "./extract-images.js";
 import { curateVenuePage, defaultImageFetcher, type EventCandidate, type ImageFetcher, type MessagesClient } from "./curate.js";
@@ -73,20 +74,6 @@ async function updateVenueAfterCheck(
   }
 }
 
-function normalizeTitle(title: string): string {
-  return title.trim().toLowerCase();
-}
-
-// Compares by parsed instant, not raw string — Postgres normalizes
-// timestamptz to UTC on storage, so a candidate re-evaluated later can
-// come back from the model with a different (but equivalent) ISO offset
-// than what's already stored. Comparing text would treat that as "new"
-// and re-insert the same event under a different curation_status.
-function eventKey(title: string, openingDatetime: string | null): string {
-  const time = openingDatetime ? new Date(openingDatetime).getTime() : Number.NaN;
-  return `${normalizeTitle(title)}|${Number.isNaN(time) ? "invalid" : time}`;
-}
-
 async function filterNewEvents(
   venueId: string,
   candidates: EventCandidate[],
@@ -145,18 +132,11 @@ export async function crawlVenue(
 
   // events.opening_datetime is NOT NULL — a candidate the model couldn't
   // pin to any date isn't a storable event yet (no Flow 1 date-inquiry
-  // mechanism exists until Phase 1b). Dropped, not stored.
-  //
-  // Also drop anything whose opening date has already passed by scrape
-  // time (docs/overview.md: "the calendar exists to capture the opening
-  // night... never added" if already past) — checked in code, not left to
-  // the model, same reasoning as the null-date filter above.
-  const now = Date.now();
-  const datedCandidates = candidates.filter((c) => {
-    if (!c.openingDatetime || c.title.trim().length === 0) return false;
-    const openingTime = new Date(c.openingDatetime).getTime();
-    return !Number.isNaN(openingTime) && openingTime >= now;
-  });
+  // mechanism exists until Phase 1b). Dropped, not stored. Also drop
+  // anything whose opening date has already passed by scrape time
+  // (docs/overview.md: never added if already past) — checked in code,
+  // not left to the model.
+  const datedCandidates = candidates.filter(isUpcomingDated);
   const newCandidates = await filterNewEvents(venue.id, datedCandidates);
 
   if (newCandidates.length > 0) {
