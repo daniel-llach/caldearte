@@ -84,6 +84,7 @@ export type Database = {
           freeform_location: string | null
           id: string
           image_storage_path: string | null
+          image_url: string | null
           medium_type: string | null
           opening_date_confidence: string
           opening_datetime: string
@@ -103,6 +104,7 @@ export type Database = {
           freeform_location?: string | null
           id?: string
           image_storage_path?: string | null
+          image_url?: string | null
           medium_type?: string | null
           opening_date_confidence?: string
           opening_datetime: string
@@ -122,6 +124,7 @@ export type Database = {
           freeform_location?: string | null
           id?: string
           image_storage_path?: string | null
+          image_url?: string | null
           medium_type?: string | null
           opening_date_confidence?: string
           opening_datetime?: string
@@ -224,6 +227,7 @@ export type Database = {
           id: string
           last_checked_at: string | null
           lat: number | null
+          listing_url: string | null
           lng: number | null
           name: string
           region_id: string
@@ -241,6 +245,7 @@ export type Database = {
           id?: string
           last_checked_at?: string | null
           lat?: number | null
+          listing_url?: string | null
           lng?: number | null
           name: string
           region_id: string
@@ -258,6 +263,7 @@ export type Database = {
           id?: string
           last_checked_at?: string | null
           lat?: number | null
+          listing_url?: string | null
           lng?: number | null
           name?: string
           region_id?: string

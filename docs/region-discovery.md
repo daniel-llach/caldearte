@@ -14,18 +14,54 @@ avoid polluting the `venues` table with junk) with the **Anthropic API's
 native web search tool** ($10 per 1,000 searches + tokens — no separate
 search service like SerpAPI needed).
 
-1. Search by region: "art galleries in [city]", "cultural centers [city]",
-   "neighborhood associations with cultural activities [city]" — queries
-   generated in the region's local language.
-2. For each result, validate it's a legitimate art/community space (not a
-   stale blog, not a news article, not a dead result) before accepting it.
-3. Extract name, address, website or social account, and contact email if
-   publicly visible.
-4. Classify `venues.category` (`art_space` / `hard_excluded` / `needs_review`)
-   at creation time — this resolves how the category gets decided the first
-   time a new venue appears.
-5. Insert into `venues`, deduplicating against existing entries (by name +
-   address, or by domain).
+### Exhibition-first, not venue-first (revised after the pilot)
+
+The original design searched for venues directly ("art galleries in
+[city]", "cultural centers [city]") and assumed a venue's homepage would
+list its current exhibitions. The pilot proved that assumption wrong: GAM's
+real listing lives at `/es/que-hacer-en-gam/artesvisuales/`, not the
+homepage — a venue list with nothing to show for it is exactly the failure
+mode this predicts. **Venues are now a byproduct of finding actual
+exhibitions/interventions, not the primary search target:**
+
+1. Search for the content directly, anchored to real month names computed
+   at run time (not the literal words "this month" — the web_search tool
+   doesn't do date arithmetic on query text, that's backend-dependent; a
+   literal month name matches what real pages actually say): "exhibiciones
+   de arte [city] [mes actual] [mes siguiente] [año]", "muestras
+   artísticas [city] [...]", "intervención artística [city] [...]" —
+   queries generated in the region's local language.
+2. **Temporal window: today through +2 months, nothing before or beyond.**
+   The system prompt states today's actual date explicitly (Claude has no
+   reliable notion of "now" otherwise) and instructs discarding anything
+   already past or too far out (unconfirmed that far ahead anyway). This is
+   a first filter at the search stage — the Event Crawler's own past-date
+   check remains the deterministic backstop for whatever gets through.
+3. For each exhibition/intervention found, identify the venue hosting it
+   (or note it has none, for a standalone street intervention) and capture
+   the **specific page URL** it was found at (`sourceUrl`) — distinct from
+   the venue's general website.
+4. Derive `venues.listing_url` by truncating `sourceUrl` to its parent
+   directory (`.../artesvisuales/mundo-pepo/` → `.../artesvisuales/`) —
+   done in code (`dedup.ts`'s `deriveListingUrl`), not left to the model's
+   judgment, since this is deterministic string manipulation, not
+   reasoning.
+5. Match the candidate against existing venues (`dedup.ts`'s
+   `findMatchingVenue`, by name or domain): if it matches a venue that
+   doesn't have a `listing_url` yet, backfill it — this is how venues found
+   before this feature existed get resolved gradually, not just new ones.
+   If it matches nothing, fall through to the existing insert path — same
+   category classification (`art_space` / `hard_excluded` / `needs_review`)
+   as before, with `listing_url` set at insert time if derivable.
+
+**Explicitly deferred, not built in this pass:**
+- Capturing a standalone intervention with no matching venue directly into
+  `events` (`venue_id = null`) — this search is more likely to surface
+  exactly that case (a street performance with no institutional site), but
+  wiring that path is separate work.
+- Using the Axis 5 vision call (Event Crawler) to also tag nudity/eroticism
+  for the family-mode blur filter — only the DB column (`events.image_url`)
+  shipped, to not block it later.
 
 **Geographic scope: global by design** (leveraging the `.com`), but expanding
 into a new region is an **explicit editorial decision** by the curators, same

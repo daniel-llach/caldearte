@@ -10,7 +10,7 @@ import {
 } from "../lib/usage-tracking.js";
 import { flagBudgetExceeded } from "../lib/notify.js";
 import { discoverVenues, type MessagesClient } from "./discover.js";
-import { isDuplicate, extractDomain } from "./dedup.js";
+import { findMatchingVenue, extractDomain, deriveListingUrl } from "./dedup.js";
 
 type Region = Tables<"regions">;
 
@@ -87,13 +87,13 @@ export async function runRegion(
   const discover = deps.discover ?? discoverVenues;
   const messagesClient = deps.messagesClient ?? new Anthropic();
 
-  // Fetched before discovery (not just for dedup afterward) so we can tell
-  // the model what's already known and skip re-searching/re-validating it —
-  // this is what makes a region's second and later runs cheaper than its
-  // first. See docs/region-discovery.md#cost-governance.
+  // Fetched before discovery (not just for matching afterward) so we can
+  // tell the model what's already known — this is what makes a region's
+  // second and later runs cheaper than its first. See
+  // docs/region-discovery.md#cost-governance.
   const { data: existingVenues, error: existingError } = await client
     .from("venues")
-    .select("name, source_domain")
+    .select("id, name, source_domain, listing_url")
     .eq("region_id", region.id);
 
   if (existingError) {
@@ -113,7 +113,37 @@ export async function runRegion(
     usage,
   });
 
-  const newCandidates = candidates.filter((c) => !isDuplicate(c, existingVenues ?? []));
+  const newCandidates: typeof candidates = [];
+
+  for (const candidate of candidates) {
+    const match = findMatchingVenue(candidate, existingVenues ?? []);
+
+    if (!match) {
+      newCandidates.push(candidate);
+      continue;
+    }
+
+    // Already-known venue: not a new discovery, but if this candidate
+    // surfaced via a specific exhibition/intervention page and we don't
+    // have a listing_url yet, backfill it — this is how venues found
+    // before this feature existed get resolved over time, not just new
+    // ones. Doesn't count toward insertedCount/saturation below.
+    if (!match.listing_url && candidate.sourceUrl) {
+      const listingUrl = deriveListingUrl(candidate.sourceUrl);
+      if (listingUrl) {
+        const { error: updateError } = await client
+          .from("venues")
+          .update({ listing_url: listingUrl })
+          .eq("id", match.id);
+
+        if (updateError) {
+          throw new Error(
+            `Failed to backfill listing_url for venue ${match.id}: ${updateError.message}`,
+          );
+        }
+      }
+    }
+  }
 
   if (newCandidates.length > 0) {
     const { error: insertError } = await client.from("venues").insert(
@@ -122,6 +152,7 @@ export async function runRegion(
         name: c.name,
         address: c.address,
         source_domain: extractDomain(c.websiteOrSocial),
+        listing_url: c.sourceUrl ? deriveListingUrl(c.sourceUrl) : null,
         contact_email: c.contactEmail,
         category: c.category,
       })),

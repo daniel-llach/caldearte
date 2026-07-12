@@ -20,6 +20,12 @@ regions
 venues
   id, region_id (fk, restrict delete), name, address, lat, lng, geocoded_at,
   source_domain,
+  listing_url (nullable; the specific page listing current exhibitions/
+    interventions, e.g. a venue's "/artesvisuales/" section rather than its
+    homepage — derived by Venue Discovery from wherever it found a specific
+    exhibition mentioned, by truncating to the parent directory. The Event
+    Crawler prefers this over source_domain's root when set; falls back to
+    the root for venues not yet resolved),
   contact_email (for the opening-date inquiry flow, Phase 1b; nullable — not
     every venue will have one),
   category (art_space | hard_excluded | needs_review) — resolved once per
@@ -35,20 +41,24 @@ events
   title, description, artist,
   opening_datetime (opening date and time, not the exhibition run),
   opening_date_confidence (alta | baja — baja when the source only gives a
-    date range, not an explicit opening time),
+    date range, not an explicit opening time; in that case opening_datetime
+    holds the range's start date as a proxy, and curation_reasoning says so
+    explicitly so it's never presented as a confirmed opening night),
   medium_type (tradicional | intervencion_no_tradicional),
   sensitivity_tags (array: desnudo_erotismo | guerra_violencia |
     memoria_dictadura),
   source (scraped | submitted | discovered — "discovered" is what Venue
     Discovery finds directly, with no venue),
-  image_storage_path, source_url,
+  image_storage_path (reserved for a re-hosted copy, Phase 3 — not written
+    yet), image_url (the raw external image URL, so it isn't silently
+    dropped in the meantime), source_url,
   curation_status (approved | rejected | pending_review),
   curation_reasoning (internal, technical, for the curators),
   public_explanation (nullable; only set on automatic rejection of a
     "submitted" event, goes in the reply email),
   created_at
-  -- auto-deleted 7 days after opening_datetime (daily cleanup cron — not
-  -- yet built)
+  -- auto-deleted 1 month after opening_datetime (daily cleanup cron — not
+  -- yet built; revised from an initial 7-day figure)
 
 system_config
   key (primary key), value, updated_at

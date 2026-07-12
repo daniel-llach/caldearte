@@ -124,7 +124,7 @@ export async function crawlVenue(
   const messagesClient = deps.messagesClient ?? (new Anthropic() as unknown as MessagesClient);
   const imageFetcher = deps.imageFetcher ?? defaultImageFetcher;
 
-  const pageUrl = `https://${venue.source_domain}`;
+  const pageUrl = venue.listing_url ?? `https://${venue.source_domain}`;
   const html = await fetchPage.fetch(pageUrl);
   const contentHash = hashContent(html);
 
@@ -172,6 +172,7 @@ export async function crawlVenue(
         sensitivity_tags: c.sensitivityTags,
         source: "scraped",
         source_url: pageUrl,
+        image_url: c.imageUrl,
         curation_status: c.status,
         curation_reasoning: c.curationReasoning,
       })),
