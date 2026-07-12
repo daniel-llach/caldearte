@@ -49,8 +49,9 @@ export interface MessagesClient {
 
 // Caps worst-case cost per call — a backstop, not the primary lever. The
 // search-economy prompt instructions below are what's meant to keep actual
-// usage well under this in normal operation.
-const MAX_WEB_SEARCH_USES = 20;
+// usage well under this in normal operation. Lowered from 20 to 12 after the
+// first optimized run observed 5-16 real searches/region (avg ~9).
+const MAX_WEB_SEARCH_USES = 12;
 
 const QUERY_TEMPLATES: Record<string, (city: string) => string[]> = {
   es: (city) => [
@@ -77,7 +78,7 @@ const VENUE_FILTER_POLICY = `Classify each venue's "category" using this rule:
 - "art_space": a recognizable, legitimate art or community space — this includes not just museums and galleries but cultural centers, community centers, neighborhood associations, and spaces known for street art or public interventions.
 - "needs_review": anything that is neither clearly a legitimate art/community space nor clearly one of the hard-excluded categories above. Do not guess — use this category when unsure.`;
 
-const SEARCH_ECONOMY_POLICY = `Be economical with searches: rely on the information already present in your initial broad search results whenever possible. Only perform an additional, targeted search for a specific candidate when the initial results didn't already give you enough to confirm it's a real, active space or to extract its address/contact details — don't search individually for every candidate as a default. If you're still unsure about a candidate after a reasonable effort, classify it "needs_review" rather than spending more searches to resolve it.`;
+const SEARCH_ECONOMY_POLICY = `Be economical with searches: rely on the information already present in your initial broad search results whenever possible. Only perform an additional, targeted search for a specific candidate when the initial results didn't already give you enough to confirm it's a real, active space or to extract its address/contact details — don't search individually for every candidate as a default. If you're still unsure about a candidate after a reasonable effort, classify it "needs_review" rather than spending more searches to resolve it. Never issue the same or a near-duplicate query more than once — if you already ran a search, reuse its results instead of repeating it.`;
 
 export function buildSystemPrompt(
   region: Region,

@@ -124,7 +124,7 @@ test("discoverVenues: caps the web_search tool at MAX_WEB_SEARCH_USES", async ()
   await discoverVenues(region, client);
 
   const tools = client.lastParams?.tools as Array<Record<string, unknown>>;
-  assert.equal(tools[0].max_uses, 20);
+  assert.equal(tools[0].max_uses, 12);
 });
 
 test("buildSystemPrompt: lists existing venues and instructs the model to skip them", () => {
@@ -142,4 +142,9 @@ test("buildSystemPrompt: omits the known-venues section when none are passed", (
 test("buildSystemPrompt: always includes the search-economy instruction", () => {
   const prompt = buildSystemPrompt(region, ["query one"]);
   assert.match(prompt, /Be economical with searches/);
+});
+
+test("buildSystemPrompt: instructs the model not to repeat a query", () => {
+  const prompt = buildSystemPrompt(region, ["query one"]);
+  assert.match(prompt, /[Nn]ever issue the same or a near-duplicate query/);
 });
