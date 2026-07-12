@@ -54,15 +54,18 @@ const region = {
   created_at: new Date().toISOString(),
 } as const;
 
+const FIXED_NOW = new Date("2026-07-11T12:00:00Z");
+
 test("discoverVenues: parses a fenced JSON block into candidates", async () => {
   const text = [
-    "I searched for galleries and cultural centers.",
+    "I searched for current exhibitions.",
     "```json",
     JSON.stringify([
       {
         name: "Galería Cerro Norte",
         address: "Calle X 123, Arica",
         websiteOrSocial: "https://instagram.com/galeriacerronorte",
+        sourceUrl: "https://galeriacerronorte.cl/exposiciones/obra-x/",
         contactEmail: null,
         category: "art_space",
       },
@@ -74,6 +77,7 @@ test("discoverVenues: parses a fenced JSON block into candidates", async () => {
 
   assert.equal(result.candidates.length, 1);
   assert.equal(result.candidates[0].name, "Galería Cerro Norte");
+  assert.equal(result.candidates[0].sourceUrl, "https://galeriacerronorte.cl/exposiciones/obra-x/");
   assert.equal(result.candidates[0].category, "art_space");
 });
 
@@ -127,24 +131,37 @@ test("discoverVenues: caps the web_search tool at MAX_WEB_SEARCH_USES", async ()
   assert.equal(tools[0].max_uses, 12);
 });
 
-test("buildSystemPrompt: lists existing venues and instructs the model to skip them", () => {
-  const prompt = buildSystemPrompt(region, ["query one"], ["Galería A", "Centro B"]);
+test("buildSystemPrompt: lists existing venues without telling the model to skip them entirely", () => {
+  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW, ["Galería A", "Centro B"]);
   assert.match(prompt, /Galería A/);
   assert.match(prompt, /Centro B/);
-  assert.match(prompt, /do not re-search or re-validate these/);
+  assert.match(prompt, /no need to re-verify these are legitimate/);
+  assert.match(prompt, /still report it with its sourceUrl/);
 });
 
 test("buildSystemPrompt: omits the known-venues section when none are passed", () => {
-  const prompt = buildSystemPrompt(region, ["query one"], []);
+  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW, []);
   assert.doesNotMatch(prompt, /already known for this region/);
 });
 
 test("buildSystemPrompt: always includes the search-economy instruction", () => {
-  const prompt = buildSystemPrompt(region, ["query one"]);
+  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
   assert.match(prompt, /Be economical with searches/);
 });
 
 test("buildSystemPrompt: instructs the model not to repeat a query", () => {
-  const prompt = buildSystemPrompt(region, ["query one"]);
+  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
   assert.match(prompt, /[Nn]ever issue the same or a near-duplicate query/);
+});
+
+test("buildSystemPrompt: states today's date and a 2-month cutoff", () => {
+  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
+  assert.match(prompt, /Today's date is 2026-07-11/);
+  assert.match(prompt, /2026-09-11/);
+  assert.match(prompt, /discard anything that has already ended/);
+});
+
+test("buildSystemPrompt: asks for sourceUrl in the output shape", () => {
+  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
+  assert.match(prompt, /"sourceUrl"/);
 });

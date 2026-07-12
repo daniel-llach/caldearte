@@ -45,7 +45,7 @@ test(
         assert.ok(due.some((r) => r.id === region.id));
       });
 
-      await t.test("runRegion inserts new venues and records usage", async () => {
+      await t.test("runRegion inserts a new venue with listing_url derived from sourceUrl", async () => {
         const result = await runRegion(region, {
           discover: async () => ({
             candidates: [
@@ -53,6 +53,7 @@ test(
                 name: "Test Gallery",
                 address: null,
                 websiteOrSocial: null,
+                sourceUrl: "https://testgallery.cl/exposiciones/obra-x/",
                 contactEmail: null,
                 category: "art_space",
               },
@@ -69,6 +70,7 @@ test(
         );
         assert.equal(venues?.length, 1);
         assert.equal(venues?.[0].name, "Test Gallery");
+        assert.equal(venues?.[0].listing_url, "https://testgallery.cl/exposiciones/");
 
         const { data: usageRows } = await client
           .from("api_usage_log")
@@ -82,7 +84,94 @@ test(
         assert.equal(updated.status, "active");
       });
 
+      await t.test("runRegion backfills listing_url for an already-known venue, without inserting a duplicate", async () => {
+        const { data: existing } = await client
+          .from("venues")
+          .insert({
+            region_id: region.id,
+            name: "Balmaceda Sede X",
+            source_domain: "balmacedartejoven.cl",
+          })
+          .select()
+          .single();
+
+        try {
+          const result = await runRegion(await refetchRegion(region.id), {
+            discover: async () => ({
+              candidates: [
+                {
+                  name: "Balmaceda Sede X (found via a different name)",
+                  address: null,
+                  websiteOrSocial: null,
+                  sourceUrl: "https://balmacedartejoven.cl/agenda/muestra-final/",
+                  contactEmail: null,
+                  category: "art_space",
+                },
+              ],
+              usage: { inputTokens: 10, outputTokens: 5 },
+            }),
+          });
+
+          // Matched by domain, not a new venue — doesn't count toward inserted.
+          assert.equal(result.inserted, 0);
+
+          const { data: venues } = await client
+            .from("venues")
+            .select("*")
+            .eq("source_domain", "balmacedartejoven.cl");
+          assert.equal(venues?.length, 1);
+          assert.equal(venues?.[0].listing_url, "https://balmacedartejoven.cl/agenda/");
+        } finally {
+          await client.from("venues").delete().eq("id", existing!.id);
+        }
+      });
+
+      await t.test("runRegion does not overwrite an already-resolved listing_url", async () => {
+        const { data: existing } = await client
+          .from("venues")
+          .insert({
+            region_id: region.id,
+            name: "Ya Resuelto",
+            source_domain: "yaresuelto.cl",
+            listing_url: "https://yaresuelto.cl/agenda-original/",
+          })
+          .select()
+          .single();
+
+        try {
+          await runRegion(await refetchRegion(region.id), {
+            discover: async () => ({
+              candidates: [
+                {
+                  name: "Ya Resuelto",
+                  address: null,
+                  websiteOrSocial: null,
+                  sourceUrl: "https://yaresuelto.cl/otra-carpeta/otra-muestra/",
+                  contactEmail: null,
+                  category: "art_space",
+                },
+              ],
+              usage: { inputTokens: 10, outputTokens: 5 },
+            }),
+          });
+
+          const { data: venues } = await client
+            .from("venues")
+            .select("*")
+            .eq("id", existing!.id);
+          assert.equal(venues?.[0].listing_url, "https://yaresuelto.cl/agenda-original/");
+        } finally {
+          await client.from("venues").delete().eq("id", existing!.id);
+        }
+      });
+
       await t.test("runRegion saturates a region after 2 consecutive zero-yield runs", async () => {
+        // Reset regardless of what earlier subtests left it at.
+        await client
+          .from("regions")
+          .update({ consecutive_zero_yield_runs: 0, status: "active", search_frequency: "weekly" })
+          .eq("id", region.id);
+
         const zeroYield = {
           discover: async () => ({
             candidates: [],
@@ -131,6 +220,7 @@ test(
                 name: "Another Gallery",
                 address: null,
                 websiteOrSocial: null,
+                sourceUrl: null,
                 contactEmail: null,
                 category: "art_space",
               },

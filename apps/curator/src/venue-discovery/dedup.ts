@@ -1,8 +1,10 @@
 import type { VenueCandidate } from "./discover.js";
 
 export interface ExistingVenue {
+  id: string;
   name: string;
   source_domain: string | null;
+  listing_url?: string | null;
 }
 
 function normalizeName(name: string): string {
@@ -19,15 +21,46 @@ export function extractDomain(url: string | null): string | null {
   }
 }
 
-export function isDuplicate(candidate: VenueCandidate, existingVenues: ExistingVenue[]): boolean {
-  const candidateName = normalizeName(candidate.name);
-  const candidateDomain = extractDomain(candidate.websiteOrSocial);
+// Strips the last path segment (parent directory) so a specific
+// exhibition/intervention page (e.g. .../artesvisuales/mundo-pepo/) yields
+// the folder that actually lists all of them (.../artesvisuales/). Falls
+// back to null for anything unparseable rather than guessing.
+export function deriveListingUrl(sourceUrl: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(sourceUrl.startsWith("http") ? sourceUrl : `https://${sourceUrl}`);
+  } catch {
+    return null;
+  }
 
-  return existingVenues.some((venue) => {
-    if (normalizeName(venue.name) === candidateName) return true;
-    if (candidateDomain && venue.source_domain && venue.source_domain === candidateDomain) {
-      return true;
-    }
-    return false;
-  });
+  const segments = parsed.pathname.split("/").filter((s) => s.length > 0);
+  if (segments.length === 0) {
+    // Already at the root - nothing to strip.
+    return `${parsed.origin}/`;
+  }
+
+  segments.pop();
+  return `${parsed.origin}/${segments.join("/")}${segments.length > 0 ? "/" : ""}`;
+}
+
+export function findMatchingVenue(
+  candidate: VenueCandidate,
+  existingVenues: ExistingVenue[],
+): ExistingVenue | null {
+  const candidateName = normalizeName(candidate.name);
+  const candidateDomain = extractDomain(candidate.websiteOrSocial) ?? extractDomain(candidate.sourceUrl);
+
+  return (
+    existingVenues.find((venue) => {
+      if (normalizeName(venue.name) === candidateName) return true;
+      if (candidateDomain && venue.source_domain && venue.source_domain === candidateDomain) {
+        return true;
+      }
+      return false;
+    }) ?? null
+  );
+}
+
+export function isDuplicate(candidate: VenueCandidate, existingVenues: ExistingVenue[]): boolean {
+  return findMatchingVenue(candidate, existingVenues) !== null;
 }

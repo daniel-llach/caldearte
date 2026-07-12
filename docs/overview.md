@@ -28,12 +28,14 @@ audience intersect — the opening night, not the exhibition run as a whole.
 
 - If the opening date has already passed by scrape time, the candidate is
   discarded outright — it is never added.
-- An added event stays visible until 7 days after its opening date, then it
-  is deleted from the database — not archived. The calendar should always
-  feel alive and in motion, not like a historical record.
+- An added event stays visible until **1 month** after its opening date
+  (revised from an initial 7-day figure), then it is deleted from the
+  database — not archived. The calendar should always feel alive and in
+  motion, not like a historical record.
   - Architectural implication: a second daily cron job (separate from the
-    scraping cron) deletes `events` rows more than 7 days past
-    `opening_datetime`. It's a single lightweight `DELETE` query.
+    scraping cron) deletes `events` rows more than 1 month past
+    `opening_datetime`. It's a single lightweight `DELETE` query — **not
+    yet built**, this is the policy it should use once it is.
 - Schema implication: the date field is explicitly named `opening_datetime`
   (date **and** time of the opening), not a generic `event_date` — many
   sources only give an exhibition date range ("July 10 – August 30") without

@@ -66,7 +66,7 @@ test(
                 mediumType: "tradicional",
                 sensitivityTags: [],
                 curationReasoning: "ok",
-                imageUrl: null,
+                imageUrl: "https://example-test-venue.cl/obra.jpg",
                 status: "approved",
               },
             ],
@@ -80,6 +80,7 @@ test(
         assert.equal(events?.length, 1);
         assert.equal(events?.[0].title, "Muestra de prueba");
         assert.equal(events?.[0].curation_status, "approved");
+        assert.equal(events?.[0].image_url, "https://example-test-venue.cl/obra.jpg");
 
         const { data: usageRows } = await client
           .from("api_usage_log")
@@ -229,6 +230,37 @@ test(
         const updated = await refetchVenue(venue.id);
         assert.equal(updated.consecutive_zero_yield_checks, 3);
         assert.equal(updated.check_frequency_days, 7);
+      });
+
+      await t.test("crawlVenue fetches listing_url when set, instead of the domain root", async () => {
+        const { data: resolvedVenue } = await client
+          .from("venues")
+          .insert({
+            region_id: region!.id,
+            name: "__test_resolved_venue__",
+            category: "art_space",
+            source_domain: "resolved-test-venue.cl",
+            listing_url: "https://resolved-test-venue.cl/agenda/",
+          })
+          .select()
+          .single();
+
+        try {
+          let fetchedUrl: string | undefined;
+          await crawlVenue(resolvedVenue!, {
+            fetchPage: {
+              fetch: async (url: string) => {
+                fetchedUrl = url;
+                return "<html>agenda content</html>";
+              },
+            },
+            curate: async () => ({ candidates: [], usage: [] }),
+          });
+
+          assert.equal(fetchedUrl, "https://resolved-test-venue.cl/agenda/");
+        } finally {
+          await client.from("venues").delete().eq("id", resolvedVenue!.id);
+        }
       });
 
       await t.test("getVenuesDueForCheck excludes social-domain and non-art_space venues", async () => {
