@@ -302,13 +302,37 @@ ceiling. Three fixes, in `apps/curator/src/venue-discovery/discover.ts`:
   re-validate them — only report genuinely new candidates. This is what
   should make a region's second and later weekly runs much cheaper than its
   first (the first run has nothing to skip, since nothing is known yet).
-- **`max_uses: 20` on the web_search tool** as a backstop, not the primary
+- **`max_uses: 12` on the web_search tool** as a backstop, not the primary
   lever — caps worst-case cost on a pathological run without being the thing
-  actually doing the cost reduction.
+  actually doing the cost reduction. (Lowered from 20 after the first
+  optimized run measured 5-16 real searches/region.)
 
 Every search query the model issues is also logged (region name + query
 text) specifically so future runs give an *observed* search count instead of
 one inferred from a cost gap, the way the ~37/region figure above was.
+
+**Measured result (Concepción, Antofagasta, Arica — first optimized run):**
+27 searches total for 3 regions (avg ~9/region, vs. the ~37/region inferred
+before), real cost **$0.81** for the 3 regions combined (`api_usage_log`'s
+own tracked total for these 3: $0.88 — the two now agree closely, confirming
+the tracking fix works). That's from the search-economy instruction alone —
+none of these 3 regions had existing venues to skip yet, since it was each
+region's first run; the "skip already-known venues" saving is still
+unmeasured and should show up starting each region's second weekly run.
+
+One anomaly this run's logging caught: Arica issued the same 4 queries
+twice (8 of its 16 searches were exact repeats). Nothing in the prompt told
+the model not to re-run a query it had already made — fixed by adding that
+instruction directly to `SEARCH_ECONOMY_POLICY`.
+
+**Prompt caching, considered and skipped for now:** the stable parts of the
+system prompt (`VENUE_FILTER_POLICY` + `SEARCH_ECONOMY_POLICY` + the generic
+instructions) come to roughly 400-500 tokens — under Sonnet's ~1024-token
+minimum cacheable prefix. Marking that block with `cache_control` today
+would be a no-op (Anthropic silently skips caching below the minimum, no
+error, no savings either). Worth revisiting once the system prompt grows
+past that threshold (e.g. if event-capture support, below, gets built into
+the same prompt), not before.
 
 Two ideas considered and set aside, for the record:
 
