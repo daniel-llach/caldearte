@@ -23,11 +23,18 @@ test(
       return data;
     }
 
-    const { data: region } = await client
-      .from("regions")
-      .select("id")
-      .limit(1)
-      .single();
+    // Every subtest below fetches genuinely different (fake) page content
+    // so each run always goes through curate(), not the unchanged-content
+    // skip path — that path gets its own dedicated subtest. Assertions on
+    // consecutive_zero_yield_checks are always relative (before/after),
+    // since subtests share one seeded venue and run in sequence.
+    let pageContentCounter = 0;
+    function nextPageContent(): { fetch: () => Promise<string> } {
+      pageContentCounter += 1;
+      return { fetch: async () => `<html>content variant ${pageContentCounter}</html>` };
+    }
+
+    const { data: region } = await client.from("regions").select("id").limit(1).single();
 
     const { data: venue, error: seedError } = await client
       .from("venues")
@@ -44,12 +51,10 @@ test(
       throw new Error(`Failed to seed test venue: ${seedError?.message}`);
     }
 
-    const fetchPage = { fetch: async () => "<html>fixed content</html>" };
-
     try {
       await t.test("crawlVenue inserts new dated events and records usage", async () => {
         const result = await crawlVenue(venue, {
-          fetchPage,
+          fetchPage: nextPageContent(),
           curate: async () => ({
             candidates: [
               {
@@ -89,9 +94,47 @@ test(
         assert.ok(updated.content_hash);
       });
 
+      await t.test("crawlVenue treats an equivalent instant in a different ISO offset as a duplicate", async () => {
+        const before = await refetchVenue(venue.id);
+
+        // Same event as the first subtest (2026-09-01T19:00-04:00 = 23:00
+        // UTC), just expressed with a different UTC offset — must not be
+        // re-inserted as a "new" event.
+        const result = await crawlVenue(before, {
+          fetchPage: nextPageContent(),
+          curate: async () => ({
+            candidates: [
+              {
+                title: "Muestra de prueba",
+                description: null,
+                artist: null,
+                openingDatetime: "2026-09-01T23:00:00+00:00",
+                openingDateConfidence: "alta",
+                mediumType: "tradicional",
+                sensitivityTags: [],
+                curationReasoning: "ok",
+                imageUrl: null,
+                status: "approved",
+              },
+            ],
+            usage: [{ inputTokens: 10, outputTokens: 5 }],
+          }),
+        });
+
+        assert.equal(result.inserted, 0);
+
+        const { data: events } = await client.from("events").select("*").eq("venue_id", venue.id);
+        assert.equal(events?.length, 1);
+
+        const updated = await refetchVenue(venue.id);
+        assert.equal(updated.consecutive_zero_yield_checks, before.consecutive_zero_yield_checks + 1);
+      });
+
       await t.test("crawlVenue drops candidates with no opening_datetime", async () => {
-        const result = await crawlVenue(await refetchVenue(venue.id), {
-          fetchPage: { fetch: async () => "<html>different content</html>" },
+        const before = await refetchVenue(venue.id);
+
+        const result = await crawlVenue(before, {
+          fetchPage: nextPageContent(),
           curate: async () => ({
             candidates: [
               {
@@ -112,42 +155,79 @@ test(
         });
 
         assert.equal(result.inserted, 0);
+
+        const updated = await refetchVenue(venue.id);
+        assert.equal(updated.consecutive_zero_yield_checks, before.consecutive_zero_yield_checks + 1);
+      });
+
+      await t.test("crawlVenue drops candidates whose opening date has already passed", async () => {
+        const before = await refetchVenue(venue.id);
+
+        const result = await crawlVenue(before, {
+          fetchPage: nextPageContent(),
+          curate: async () => ({
+            candidates: [
+              {
+                title: "Ya pasó",
+                description: null,
+                artist: null,
+                openingDatetime: "2020-01-01T19:00:00-04:00",
+                openingDateConfidence: "alta",
+                mediumType: "tradicional",
+                sensitivityTags: [],
+                curationReasoning: "ok",
+                imageUrl: null,
+                status: "approved",
+              },
+            ],
+            usage: [{ inputTokens: 10, outputTokens: 5 }],
+          }),
+        });
+
+        assert.equal(result.inserted, 0);
+
+        const updated = await refetchVenue(venue.id);
+        assert.equal(updated.consecutive_zero_yield_checks, before.consecutive_zero_yield_checks + 1);
       });
 
       await t.test("crawlVenue skips the curate call when content is unchanged", async () => {
+        const before = await refetchVenue(venue.id);
+        const sameContent = nextPageContent();
         let curateCalled = false;
-        const current = await refetchVenue(venue.id);
+        const curate = async () => {
+          curateCalled = true;
+          return { candidates: [], usage: [] };
+        };
 
-        const result = await crawlVenue(current, {
-          fetchPage: { fetch: async () => "<html>different content</html>" },
-          curate: async () => {
-            curateCalled = true;
-            return { candidates: [], usage: [] };
-          },
-        });
+        // First crawl with this content: genuinely different from what's
+        // stored, so curate() does run.
+        await crawlVenue(before, { fetchPage: sameContent, curate });
+        assert.equal(curateCalled, true);
+
+        // Second crawl with the exact same content: now unchanged, skip.
+        curateCalled = false;
+        const result = await crawlVenue(await refetchVenue(venue.id), { fetchPage: sameContent, curate });
 
         assert.equal(curateCalled, false);
         assert.equal(result.inserted, 0);
 
         const updated = await refetchVenue(venue.id);
-        // Streak carries over from the previous subtest's zero-yield check
-        // (same fetched content, so this is the 2nd consecutive zero-yield).
-        assert.equal(updated.consecutive_zero_yield_checks, 2);
+        assert.equal(updated.consecutive_zero_yield_checks, before.consecutive_zero_yield_checks + 2);
       });
 
       await t.test("crawlVenue slows check_frequency_days after 3 consecutive zero-yield checks", async () => {
-        const zeroYield = {
-          fetchPage: { fetch: async () => "<html>different content</html>" },
-          curate: async () => ({ candidates: [], usage: [] }),
-        };
+        // Force the streak to exactly the slowdown threshold, regardless
+        // of what earlier subtests left it at.
+        await client
+          .from("venues")
+          .update({ consecutive_zero_yield_checks: 2, check_frequency_days: 3 })
+          .eq("id", venue.id);
 
+        const zeroYield = { fetchPage: nextPageContent(), curate: async () => ({ candidates: [], usage: [] }) };
         await crawlVenue(await refetchVenue(venue.id), zeroYield);
-        await crawlVenue(await refetchVenue(venue.id), zeroYield);
+
         const updated = await refetchVenue(venue.id);
-
-        // Streak carries over from earlier subtests: 2 + 2 more = 4, past
-        // the slowdown threshold of 3.
-        assert.equal(updated.consecutive_zero_yield_checks, 4);
+        assert.equal(updated.consecutive_zero_yield_checks, 3);
         assert.equal(updated.check_frequency_days, 7);
       });
 
