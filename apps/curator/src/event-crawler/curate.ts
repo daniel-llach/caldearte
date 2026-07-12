@@ -71,10 +71,12 @@ export const defaultImageFetcher: ImageFetcher = {
 
 // Mirrors docs/overview.md's "What counts as art" section, ported
 // verbatim — this is the scope filter, applied BEFORE the exclusion axes
-// below. Found missing during the first pilot run: without it, conventional
-// concerts/shows and clown/circus performances at a cultural center got
-// captured as if they were art openings.
-const ART_SCOPE_POLICY = `Before applying the exclusion axes below, first confirm this event is actually in scope for an art-opening calendar. Included — traditional visual-art media: drawing, painting, sculpture, printmaking, and similar. Included — non-traditional artistic interventions: performance, happening, graffiti, and interventions that use dance, the body, or musical instruments as part of an artistic intervention/happening, not as a conventional format. Explicitly excluded, even when using the same elements: dance in its traditional format/venue (a dance performance in a theater or dance hall), and conventional concerts/shows (a music concert or album-launch performance in its usual circuit). The test is the format, not the medium: is this an artistic intervention/happening, or a conventional performance/show in its usual circuit? If it's ambiguous whether something is performance art or essentially a concert/show with visual elements, use "pending_review" rather than deciding automatically. If it's clearly a conventional concert or show with no artistic-intervention framing, use "rejected" — out of scope, not merely low-priority.`;
+// below. First version only excluded "conventional concerts/shows" and
+// still let theater plays through (a real pilot run captured 4 of them at
+// Matucana 100) — rewritten after user clarification to explicitly exclude
+// theater/concerts/gigs and to actually recognize a genuine artistic
+// intervention, not just "not a concert."
+const ART_SCOPE_POLICY = `Before applying the exclusion axes below, first confirm this event is actually in scope for an art-opening calendar. Included — visual/plastic art exhibitions: painting, drawing, sculpture, printmaking, installations (sound, tactile, or otherwise), and similar visual-art media shown as an exhibition. Included — genuine artistic interventions: a performance or happening staged specifically as an artistic gesture, not as a conventional show — for example a street performance blending dance and theater as a single artistic intervention, an artist inhabiting a public installation, a mass nude-portrait photography event, or a nude-body walk as performance art. Explicitly excluded, regardless of venue prestige or setting: conventional theater plays (in their usual theater format), concerts, gigs ("tocatas"), and dance performances in their traditional format/venue — even at a legitimate cultural center that also hosts real exhibitions. The test is the format, not the medium or the venue: is this a genuine artistic intervention or a visual-art exhibition, or is it a conventional performing-arts show being staged as usual? The latter is out of scope even when it shares elements (body, music, dance) with what is accepted. If it's ambiguous whether something is a genuine artistic intervention or essentially a themed concert/show with visual elements, use "pending_review" rather than deciding automatically. If it's clearly a conventional theater play, concert, gig, or show with no artistic-intervention framing, use "rejected" — out of scope, not merely low-priority.`;
 
 // Mirrors docs/curation-policy.md's "Operational instruction for Claude
 // Haiku's system prompt" block, ported verbatim — kept in sync with that
@@ -96,7 +98,7 @@ export function buildTextSystemPrompt(venueName: string, imageCandidates: ImageC
 
 Identify any opening-night events announced on this page (a new exhibition, show, or intervention starting on a specific date) — ignore past events, generic "about us" content, and unrelated news.
 
-For each event found, extract: title, description, artist (if named), opening date/time (ISO 8601 if a specific time is given), and whether the date confidence is "alta" (explicit date/time given) or "baja" (only a date range or vague timing).
+For each event found, extract: title, description, artist (if named), opening date/time, and whether the date confidence is "alta" or "baja". Use "alta" only when an explicit opening date/time is given. When the source only gives the exhibition's overall run (e.g. "Nov 12 - Dec 27"), not a specific opening night, use "baja" and set the date to the run's **start date** as a proxy — and say so explicitly in curationReasoning (e.g. "fecha de inicio de la muestra, no se confirma que sea la inauguración"), so this is never presented as a confirmed opening.
 
 ${ART_SCOPE_POLICY}
 
