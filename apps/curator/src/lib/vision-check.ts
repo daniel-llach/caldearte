@@ -10,7 +10,11 @@ export const defaultImageFetcher: ImageFetcher = {
     if (!response.ok) {
       throw new Error(`defaultImageFetcher: ${url} responded ${response.status}`);
     }
-    const mediaType = response.headers.get("content-type") ?? "image/jpeg";
+    // Some servers append parameters to Content-Type on binary responses
+    // (e.g. "image/jpeg;charset=UTF-8", seen on artes.uchile.cl) — the
+    // Anthropic API rejects anything but the bare mime type, so strip
+    // everything after the first ";" before using it.
+    const mediaType = (response.headers.get("content-type") ?? "image/jpeg").split(";")[0].trim();
     const buffer = Buffer.from(await response.arrayBuffer());
     return { base64: buffer.toString("base64"), mediaType };
   },
@@ -22,7 +26,7 @@ interface VisionResponseContentBlock {
 }
 
 // Minimal shape the vision call needs — both event-crawler/curate.ts's and
-// venue-discovery/discover.ts's richer MessagesClient interfaces already
+// event-discovery/discover.ts's richer MessagesClient interfaces already
 // satisfy this structurally, no adapter needed.
 export interface VisionMessagesClient {
   messages: {

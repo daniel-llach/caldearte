@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "test": "node --import tsx --test src/**/*.test.ts",
-    "discover-venues": "node --import tsx src/index.ts",
-    "crawl-events": "node --import tsx src/crawl-events.ts"
+    "discover-events": "node --import tsx src/index.ts",
+    "crawl-events": "node --import tsx src/crawl-events.ts",
+    "poc-tavily": "node --env-file=../../.env --import tsx scripts/poc-tavily-discover.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",

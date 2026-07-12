@@ -28,8 +28,15 @@ done — it should always reflect reality, not the original plan.
   `.github/workflows/deploy-migrations.yml` (auto-deploys on merge to
   `main` when `supabase/migrations/` changes).
 - **Chile's initial regions seeded** — Santiago, Valparaíso, Concepción,
-  Antofagasta, Arica, all `active`/weekly. See
+  Antofagasta, Arica, currently `active`/monthly (reset from weekly). This
+  5-region bootstrap is expected to be replaced by a fixed ~100-unit list
+  (cities + comuna-split metro areas) once the newer Tavily-based Event
+  Discovery design is wired into production — see
   [region-discovery.md](region-discovery.md).
+- **Tavily API key** — generated, loaded into local `.env` (`TAVILY_API_KEY`).
+  **Not yet a GitHub Actions secret** — no production workflow uses it yet,
+  only the standalone PoC (`apps/curator/scripts/poc-tavily-discover.ts`),
+  run locally.
 - **GitHub secrets already loaded:** `SUPABASE_ACCESS_TOKEN`,
   `SUPABASE_DB_PASSWORD` — used by `deploy-migrations.yml`. `ANTHROPIC_API_KEY`,
   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — used by
@@ -58,6 +65,10 @@ done — it should always reflect reality, not the original plan.
   used in a Cowork session; connect it here too if continuing design
   iteration from Claude Code.
 - **Remaining GitHub secrets:**
+  - `TAVILY_API_KEY` — only needed once the Tavily-based Event Discovery
+    design is actually wired into a production workflow (see
+    [region-discovery.md](region-discovery.md)); not needed for the
+    standalone local PoC.
   - `RESEND_API_KEY` / `RESEND_WEBHOOK_SECRET` — Phase 1b, **and now also
     blocked on cost, not just sequencing**: adding `caldearte.com` as a
     second verified domain needs Resend's paid plan (~$20/month), since the

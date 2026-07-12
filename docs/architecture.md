@@ -11,12 +11,23 @@
   free tier while volume stays low.
 - **Automation:** GitHub Actions (public repo, standard runners are free and
   unlimited) for the curator's cron jobs.
-- **AI:** Claude Haiku 4.5 via the Anthropic API for text curation (cheap,
-  high volume) + occasional vision calls for image QA. Claude Sonnet for
-  region/venue discovery, where judgment matters more than cost — see
+- **AI:** Claude Haiku 4.5 via the Anthropic API for all curation — text
+  axes, image selection, and the Axis 5 vision check — across both Event
+  Discovery and the Event Crawler. Originally Sonnet was used for Event
+  Discovery on the assumption bigger-model judgment was needed there; real
+  side-by-side testing showed Haiku reaching identical classification
+  decisions at roughly a quarter of the cost — see
   [region-discovery.md](region-discovery.md). Claude Fable is a candidate for
   editorial copy (descriptions, captions) if a more literary voice is wanted
   later — not decided yet.
+- **Search:** Tavily (a separate, LLM-oriented search API), not Anthropic's
+  own `web_search` tool — a deliberate reversal of the original "no separate
+  search service like SerpAPI" stance below. Real comparison showed
+  Anthropic's `web_search` returning mostly title/URL with no real content
+  and missing social-media coverage entirely, both of which matter directly
+  for finding informal/street art events — see
+  [region-discovery.md](region-discovery.md) for the full comparison and
+  cost data.
 - **Email:** Resend (free tier, 3,000/month) for approval and inbound-mail
   flows (Phase 1b).
 - **Geocoding:** Nominatim (OpenStreetMap), free, 1 req/sec, cached per venue.

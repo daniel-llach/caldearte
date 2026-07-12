@@ -49,7 +49,19 @@ it's not automatically included.
 | "Vigil and Blessing of Images Ahead of the Pilgrimage" | A parish hosts a display of religious imagery as part of a devotional ritual. | Religion | **EXCLUDE** | An act of worship. |
 | "Tarot, Cards, and Energy Healing: Exhibitor Fair" | A fair of tarot, energy reading, and esoteric-practice exhibitors. | Pseudoscience/superstition | **EXCLUDE** | Esoteric/pseudoscientific content with no critical framing. |
 
-## Venue-type filter (independent of content)
+## Venue-type filter (independent of content) — applies to the Event Crawler only
+
+**Scope note (added after Event Discovery's Tavily-based redesign):** the
+newer Event Discovery flow doesn't produce or match venues at all — every
+event has a freeform `location` instead (see
+[region-discovery.md](region-discovery.md)). This filter, and the
+`art_space`/`hard_excluded`/`needs_review` classification it drives, applies
+only to the Event Crawler's flow, which still walks a known `venues` table.
+Event Discovery instead applies the Chile-location whitelist described in
+region-discovery.md, which is a *geographic* check (is this really in
+Chile?), not an institutional one — it doesn't replace this filter's
+purpose, since Event Discovery has no venue concept for this filter to
+apply to.
 
 Automatically excludes any event whose venue is: a church, temple, or seat of
 any religious cult; the headquarters of a right-wing or far-right political
@@ -143,7 +155,17 @@ well when evaluating Spanish-language event descriptions. That's an
 implementation detail to decide when the curator code is written, not a
 constraint set by this document.*
 
-## Signals that trigger mandatory human escalation
+## Signals that trigger mandatory human escalation — applies to the Event Crawler only
+
+**Scope note (added after Event Discovery's Tavily-based redesign):** the
+current Event Discovery design (see
+[region-discovery.md](region-discovery.md)) uses a binary `approved`/
+`rejected` decision, with no `pending_review` escalation tier — a deliberate
+simplification for that flow, not an oversight. The escalation signals below
+still apply in full to the Event Crawler, which keeps the three-way
+`approved`/`rejected`/`pending_review` decision described elsewhere in this
+document. Whether Event Discovery should regain an escalation tier is an
+open question, not decided either way yet.
 
 - The event appears to meet the exception (explicit critical stance) but the
   text isn't clear enough to confirm the rejection is unambiguous and not

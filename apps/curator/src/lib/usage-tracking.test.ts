@@ -34,26 +34,36 @@ test(
       assert.ok(after >= before + 6 - 1e-9, `expected spend to grow by ~$6, got ${after - before}`);
 
       // Clean up so repeated local runs don't drift month-to-date totals.
+      // Surgical (by this test's own distinctive token count), NOT by
+      // purpose alone — test files run in parallel against the same local
+      // DB, and a broad delete here can wipe another suite's freshly
+      // written rows between its insert and its assertion (a real observed
+      // flake with event-crawler/run.test.ts).
       await getSupabaseClient()
         .from("api_usage_log")
         .delete()
         .eq("purpose", "event_crawl")
-        .eq("model", "claude-haiku-4-5");
+        .eq("input_tokens", 1_000_000);
     });
 
     await t.test("isOverBudget flips true once month-to-date spend crosses the ceiling", async () => {
       const budget = await getConfigNumber("monthly_budget_usd");
       assert.equal(await isOverBudget(), false, "shouldn't be over budget before seeding a spike");
 
+      const spikeInputTokens = (budget + 5) * 1_000_000;
       await recordUsage({
-        purpose: "venue_discovery",
+        purpose: "event_discovery",
         model: "claude-sonnet-5",
-        usage: { inputTokens: (budget + 5) * 1_000_000, outputTokens: 0 },
+        usage: { inputTokens: spikeInputTokens, outputTokens: 0 },
       });
 
       assert.equal(await isOverBudget(), true);
 
-      await getSupabaseClient().from("api_usage_log").delete().eq("purpose", "venue_discovery");
+      await getSupabaseClient()
+        .from("api_usage_log")
+        .delete()
+        .eq("purpose", "event_discovery")
+        .eq("input_tokens", spikeInputTokens);
       assert.equal(await isOverBudget(), false, "should clear after cleanup");
     });
 

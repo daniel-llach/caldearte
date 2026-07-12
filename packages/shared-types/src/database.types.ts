@@ -7,10 +7,30 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.5"
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -74,6 +94,33 @@ export type Database = {
           },
         ]
       }
+      detected_sources: {
+        Row: {
+          created_at: string
+          id: string
+          last_reviewed_at: string | null
+          note: string
+          source_type: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_reviewed_at?: string | null
+          note: string
+          source_type?: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_reviewed_at?: string | null
+          note?: string
+          source_type?: string
+          url?: string
+        }
+        Relationships: []
+      }
       events: {
         Row: {
           artist: string | null
@@ -87,8 +134,10 @@ export type Database = {
           image_url: string | null
           medium_type: string | null
           opening_date_confidence: string
-          opening_datetime: string
+          opening_datetime: string | null
           public_explanation: string | null
+          run_end_date: string | null
+          run_start_date: string | null
           sensitivity_tags: string[]
           source: string
           source_url: string | null
@@ -107,8 +156,10 @@ export type Database = {
           image_url?: string | null
           medium_type?: string | null
           opening_date_confidence?: string
-          opening_datetime: string
+          opening_datetime?: string | null
           public_explanation?: string | null
+          run_end_date?: string | null
+          run_start_date?: string | null
           sensitivity_tags?: string[]
           source: string
           source_url?: string | null
@@ -127,8 +178,10 @@ export type Database = {
           image_url?: string | null
           medium_type?: string | null
           opening_date_confidence?: string
-          opening_datetime?: string
+          opening_datetime?: string | null
           public_explanation?: string | null
+          run_end_date?: string | null
+          run_start_date?: string | null
           sensitivity_tags?: string[]
           source?: string
           source_url?: string | null
@@ -413,7 +466,11 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },
 } as const
+

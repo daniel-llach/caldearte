@@ -16,16 +16,27 @@ regions
   search_frequency (weekly | monthly),
   consecutive_zero_yield_runs (int, drives the adaptive-cadence logic),
   last_run_at, created_at
+  -- PLANNED simplification, not yet applied: the saturation/expansion
+  -- columns above (status, search_frequency, consecutive_zero_yield_runs,
+  -- expansion_rank) are being replaced in application logic by a fixed,
+  -- hand-maintained list of ~100 units (cities + comunas for the largest
+  -- metro areas) on a simple fixed monthly cadence — no automatic
+  -- expansion, no saturation state machine. Columns stay in the table
+  -- (no migration needed to stop using them, they just go unread) until
+  -- the real integration happens — see region-discovery.md.
 
 venues
   id, region_id (fk, restrict delete), name, address, lat, lng, geocoded_at,
   source_domain,
   listing_url (nullable; the specific page listing current exhibitions/
     interventions, e.g. a venue's "/artesvisuales/" section rather than its
-    homepage — derived by Venue Discovery from wherever it found a specific
-    exhibition mentioned, by truncating to the parent directory. The Event
-    Crawler prefers this over source_domain's root when set; falls back to
-    the root for venues not yet resolved),
+    homepage — derived by the Event Crawler flow from wherever it found a
+    specific exhibition mentioned, by truncating to the parent directory.
+    The Event Crawler prefers this over source_domain's root when set;
+    falls back to the root for venues not yet resolved). Note: Event
+    Discovery's newer Tavily-based pass never creates or matches venues at
+    all (see region-discovery.md) — this table is populated/read only by
+    the Event Crawler's existing known-venue flow now,
   contact_email (for the opening-date inquiry flow, Phase 1b; nullable — not
     every venue will have one),
   category (art_space | hard_excluded | needs_review) — resolved once per
@@ -36,20 +47,34 @@ venues
   created_at
 
 events
-  id, venue_id (fk, nullable — null when the event has no recurring venue),
-  freeform_location (text + one-off geocoding; used when venue_id is null),
+  id, venue_id (fk, nullable — used by the Event Crawler's known-venue
+    flow; Event Discovery's newer Tavily-based pass never sets this, see
+    below), freeform_location (text; Event Discovery always populates this
+    instead of venue_id — no venue concept in that flow at all, see
+    region-discovery.md),
   title, description, artist,
-  opening_datetime (opening date and time, not the exhibition run),
+  -- PLANNED, not yet migrated (still the shape validated in
+  -- apps/curator/scripts/poc-tavily-discover.ts, a standalone PoC — this
+  -- replaces the two fields below once a real migration lands):
+  --   runStartDate, runEndDate (the exhibition's actual run, shown for its
+  --     full duration — see overview.md's "full exhibition run" policy)
+  --   openingDatetime (date AND time, only when a source explicitly
+  --     confirms a real opening night — null otherwise, no "confidence"
+  --     flag needed since the run dates now carry what the old
+  --     opening_date_confidence: 'baja' proxy used to)
+  opening_datetime (opening date and time, not the exhibition run) —
+    CURRENT, DEPLOYED shape, still used by the Event Crawler's flow,
   opening_date_confidence (alta | baja — baja when the source only gives a
     date range, not an explicit opening time; in that case opening_datetime
     holds the range's start date as a proxy, and curation_reasoning says so
-    explicitly so it's never presented as a confirmed opening night),
+    explicitly so it's never presented as a confirmed opening night) —
+    CURRENT, DEPLOYED shape; being replaced by the two fields above,
   medium_type (tradicional | intervencion_no_tradicional),
   sensitivity_tags (array: desnudo_erotismo | guerra_violencia |
     memoria_dictadura),
   source (scraped | submitted | discovered — "discovered" is everything
-    Event Discovery's search-based pass finds directly, whether or not a
-    venue got matched/created for it; "scraped" is the Event Crawler
+    Event Discovery's search-based pass finds directly, always via
+    freeform_location, never a venue; "scraped" is the Event Crawler
     revisiting a known venue's page),
   image_storage_path (reserved for a re-hosted copy, Phase 3 — not written
     yet), image_url (the raw external image URL, so it isn't silently
@@ -59,8 +84,10 @@ events
   public_explanation (nullable; only set on automatic rejection of a
     "submitted" event, goes in the reply email),
   created_at
-  -- auto-deleted 1 month after opening_datetime (daily cleanup cron — not
-  -- yet built; revised from an initial 7-day figure)
+  -- PLANNED: auto-deleted ~1 year past runEndDate (revised from an
+  -- original 1-month-past-opening_datetime figure, itself revised from an
+  -- initial 7-day figure — see overview.md's "full exhibition run"
+  -- policy). Daily cleanup cron still not built either way.
 
 system_config
   key (primary key), value, updated_at

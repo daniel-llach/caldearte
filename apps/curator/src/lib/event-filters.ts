@@ -1,9 +1,20 @@
 // Shared between event-crawler/run.ts (known-venue revisits) and
-// venue-discovery/run.ts (search-based discovery) — both need to drop
+// event-discovery/run.ts (search-based discovery) — both need to drop
 // candidates with no usable date and dedupe against what's already stored.
 
+function stripAccents(text: string): string {
+  return text.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+// Accent/quote-insensitive: the same event routinely surfaces with
+// slightly different punctuation across sources and re-runs ("Ejercicios
+// de enlaces" vs "Exposición 'Ejercicios de enlaces'" was a real observed
+// duplicate) — plain trim+lowercase missed it.
 export function normalizeTitle(title: string): string {
-  return title.trim().toLowerCase();
+  return stripAccents(title.toLowerCase())
+    .replace(/["'«»“”]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // Compares by parsed instant, not raw string — Postgres normalizes
@@ -16,9 +27,11 @@ export function eventKey(title: string, openingDatetime: string | null): string 
   return `${normalizeTitle(title)}|${Number.isNaN(time) ? "invalid" : time}`;
 }
 
-// events.opening_datetime is NOT NULL, and docs/overview.md is explicit
-// that an event whose opening has already passed by scrape/discovery time
-// should never be added. Checked in code, not left to the model.
+// The Event Crawler's flow still requires a confirmed opening: a candidate
+// the model can't pin to a date isn't stored, and one whose opening already
+// passed by scrape time is never added. Checked in code, not left to the
+// model. (Event Discovery uses a different, month-level rule — see
+// event-discovery/discover.ts's isCurrentOrUpcoming.)
 export function isUpcomingDated(candidate: { title: string; openingDatetime: string | null }): boolean {
   if (!candidate.openingDatetime || candidate.title.trim().length === 0) return false;
   const openingTime = new Date(candidate.openingDatetime).getTime();

@@ -1,7 +1,10 @@
 import { getSupabaseClient } from "./supabase-client.js";
 import { estimateCostUsd, type ModelId, type Usage } from "./pricing.js";
 
-export type Purpose = "venue_discovery" | "event_crawl";
+// "venue_discovery" renamed to "event_discovery" alongside the DB CHECK
+// constraint (migration 20260712210000) — the pass produces events, not
+// venues, since the pivot.
+export type Purpose = "event_discovery" | "event_crawl";
 
 export interface RecordUsageInput {
   purpose: Purpose;
