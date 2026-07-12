@@ -175,11 +175,71 @@ sources (already flagged as a risk — see [risks.md](risks.md)). Don't expect
 Venue Discovery to catch these interventions consistently — it'll catch some by
 having run at the right moment, not by reliable design.
 
-## Event Crawler (daily, already designed in Phase 1a)
+## Event Crawler (implemented, manual-trigger only for now)
 
 Walks the already-known list of `venues` with Claude **Haiku** (cheap, high
 volume, no need for the web search tool since the exact URL to visit is
 already known), looking for new opening announcements at each one.
+
+### v1 implementation (`apps/curator/src/event-crawler/`)
+
+- **Eligible venues**: `category = 'art_space'` AND `source_domain` set AND
+  not a social platform (`facebook.com`/`instagram.com` denylist in code,
+  not a schema column) — see "Venues without a crawlable site" below.
+- **Change-detection first**: fetches the venue's root domain with plain
+  `fetch` (no Playwright yet — added only if a real venue's page turns out
+  to need JS rendering), hashes it (`lib/content-hash.ts`, reused as-is).
+  Unchanged since the last check → zero LLM cost, just bumps
+  `last_checked_at`. This is the actual cost lever, not a nice-to-have.
+- **Two Haiku calls, not one, when content changed**: a text-only call
+  applies the four text-based curation axes (religion / war / far-right /
+  pseudoscience) plus escalation signals from `docs/curation-policy.md`,
+  tags `sensitivity_tags`/`medium_type`/`opening_date_confidence`, and picks
+  a candidate image from the page's `<img>` tags (regex-extracted, scored by
+  alt text + dimensions — `event-crawler/extract-images.ts`). A second,
+  vision-only call applies Axis 5 (explicit aggression) — but **only** for
+  candidates that passed axis 1-4 and have a chosen image, so vision cost is
+  paid only when it matters. No image → treated as approved directly
+  (nothing to falsely show, matching curation-policy.md's framing of axis
+  5's actual risk).
+- **Adaptive per-venue cadence**: mirrors the region-level saturation logic
+  above — no new events on a check → `consecutive_zero_yield_checks`
+  increments; after 3 consecutive, `check_frequency_days` extends from 3 to
+  7; a yield resets both. This is what the original cost-governance design
+  flagged as "still to be implemented."
+- **`events.opening_datetime` is `NOT NULL`**: a candidate the model can't
+  pin to any date isn't stored — there's no Flow 1 (automatic date inquiry)
+  built yet to resolve it. Dropped, not half-persisted.
+- **No image persistence yet**: the chosen image URL is used internally for
+  the Axis 5 vision check but isn't written anywhere on the `events` row —
+  `events` only has `image_storage_path` (meant for a re-hosted copy, Phase
+  3), not a raw external URL field. Revisit once Phase 3's image pipeline
+  exists; not worth a migration just to hold a URL that will be replaced
+  anyway.
+
+### No email approval flow yet (cost-driven, not a design gap)
+
+**Decided:** ambiguous events land with `events.curation_status =
+'pending_review'` and no email — resolved manually in Supabase, the same
+posture as `needs_review` venues below. The original design called for an
+email with two approve/reject buttons (Supabase Edge Function + one-time
+token), but adding `caldearte.com` to Resend requires their paid plan
+(~$20/month) since the free-tier domain slot is already used by another of
+the user's projects — not justified yet. Revisit once this becomes
+genuinely mandatory (real volume, or the cost becomes worth it some other
+way), not before.
+
+### Venues without a crawlable site
+
+14 of the 55 venues Venue Discovery has found so far have no real website —
+`source_domain` is `facebook.com`/`instagram.com`, or null (mostly small
+community spaces and neighborhood associations whose only channel is a
+social account). Scraping social platforms directly carries ToS risk
+(`docs/risks.md`) and isn't reliable via a plain `fetch` (JS-rendered,
+frequently blocked). **Decided:** excluded from Event Crawler v1 via a
+denylist in code, not deleted from `venues` — revisit once there's a real
+path for them (e.g. Phase 1b's public mailbox, or a manually-confirmed
+alternate URL per venue).
 
 ### Handling `needs_review` venues
 
