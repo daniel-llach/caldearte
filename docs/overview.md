@@ -45,25 +45,32 @@ audience intersect — the opening night, not the exhibition run as a whole.
 
 ### What counts as art
 
-**Included — traditional media:** drawing, painting, sculpture, printmaking,
-and other traditional visual-art media.
+**Included — visual/plastic art exhibitions:** painting, drawing, sculpture,
+printmaking, installations (sound, tactile, or otherwise), and similar
+visual-art media, shown as an exhibition. Captured as **openings**
+(`opening_datetime` = the exhibition's inauguration).
 
-**Included — non-traditional artistic interventions:** performance,
-happening, graffiti, and interventions that use dance, the body, or musical
-instruments **as part of an artistic intervention/happening** — not as a
-conventional format.
+**Included — genuine artistic interventions:** a performance or happening
+staged specifically as an artistic gesture, not as a conventional show —
+e.g. a street performance blending dance and theater as a single artistic
+intervention, an artist inhabiting a public installation (a glass box on a
+rooftop), a mass nude-portrait photography event, a nude-body walk as
+performance art. Captured as **presentations** (still populate
+`opening_datetime`, framed as the intervention's first/only appearance
+rather than an "opening night" in the exhibition sense).
 
-**Explicitly excluded**, even when using the same elements: dance in its
-traditional format/venue (a dance performance in a theater or dance hall),
-and conventional concerts/shows. The distinguishing test isn't the medium
-(dance, music) — it's the format: is this an artistic
-intervention/happening, or a conventional performance/show in its usual
-circuit? The former is in scope, the latter isn't, even when they share
-elements (body, instruments) with what *is* accepted.
+**Explicitly excluded, regardless of venue prestige or setting**:
+conventional theater plays (in their usual theater format), concerts, gigs
+("tocatas"), and dance performances in their traditional format/venue —
+even at a legitimate cultural center that also hosts real exhibitions. The
+test is the format, not the medium or the venue: is this a genuine artistic
+intervention or a visual-art exhibition, or is it a conventional
+performing-arts show being staged as usual? The latter is out of scope even
+when it shares elements (body, music, dance) with what *is* accepted.
 
-Ambiguous cases (is this performance art, or essentially a concert with
-visual elements?) escalate to human review — this isn't a distinction worth
-forcing automatically without clear evidence.
+Ambiguous cases (is this a genuine artistic intervention, or essentially a
+themed concert/show with visual elements?) escalate to human review — this
+isn't a distinction worth forcing automatically without clear evidence.
 
 ## Content sensitivity (distinct from curation)
 
