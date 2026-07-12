@@ -62,7 +62,18 @@ exhibitions/interventions, not the primary search target:**
 3. For each exhibition/intervention found, identify the venue hosting it
    (or note it has none, for a standalone street intervention) and capture
    the **specific page URL** it was found at (`sourceUrl`) — distinct from
-   the venue's general website.
+   the venue's general website. **`name` must be the institution itself,
+   never the exhibition's own title** — a real production run confused the
+   two ("Valentina Cruz. De amor, humor y muerte" stored as a venue name
+   instead of "Museo Nacional de Bellas Artes"), and the same institution
+   sometimes came back as two separate candidates (once per exhibition it
+   was hosting, e.g. "Colección MAC..." and "Colección MAC... (Quinta
+   Normal)" sharing one domain). Fixed two ways: the prompt is now explicit
+   about what "name" means, and `dedup.ts`'s `consolidateCandidates` merges
+   same-batch candidates against each other (by name or domain) *before*
+   matching against existing venues — existingVenues-based matching alone
+   only catches duplicates against rows from before this run, not
+   duplicates within the same run's own results.
 4. **Classify each candidate's source**: `"oficial"` (the venue's own site
    or social account) or `"difusion"` (news, a cultural-agenda aggregator,
    or a municipal listing — not the venue's own site). If the same

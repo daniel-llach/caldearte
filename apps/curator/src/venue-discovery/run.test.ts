@@ -197,6 +197,44 @@ test(
         await client.from("venues").delete().eq("name", "Solo En Difusion");
       });
 
+      await t.test("runRegion consolidates same-domain candidates from the same batch before inserting", async () => {
+        const result = await runRegion(await refetchRegion(region.id), {
+          discover: async () => ({
+            candidates: [
+              {
+                name: "Colección MAC: Modulaciones de la imagen fotográfica",
+                address: null,
+                websiteOrSocial: "https://mac.uchile.cl",
+                sourceUrl: "https://mac.uchile.cl/exposiciones/modulaciones/",
+                sourceType: "oficial",
+                contactEmail: null,
+                category: "art_space",
+              },
+              {
+                name: "Colección MAC: Modulaciones de la imagen fotográfica (Quinta Normal)",
+                address: null,
+                websiteOrSocial: "https://mac.uchile.cl",
+                sourceUrl: "https://mac.uchile.cl/exposiciones/modulaciones-qn/",
+                sourceType: "oficial",
+                contactEmail: null,
+                category: "art_space",
+              },
+            ],
+            usage: { inputTokens: 10, outputTokens: 5 },
+          }),
+        });
+
+        assert.equal(result.inserted, 1);
+
+        const { data: venues } = await client
+          .from("venues")
+          .select("*")
+          .eq("source_domain", "mac.uchile.cl");
+        assert.equal(venues?.length, 1);
+
+        await client.from("venues").delete().eq("source_domain", "mac.uchile.cl");
+      });
+
       await t.test("runRegion saturates a region after 2 consecutive zero-yield runs", async () => {
         // Reset regardless of what earlier subtests left it at.
         await client
