@@ -66,6 +66,7 @@ test("discoverVenues: parses a fenced JSON block into candidates", async () => {
         address: "Calle X 123, Arica",
         websiteOrSocial: "https://instagram.com/galeriacerronorte",
         sourceUrl: "https://galeriacerronorte.cl/exposiciones/obra-x/",
+        sourceType: "oficial",
         contactEmail: null,
         category: "art_space",
       },
@@ -78,6 +79,7 @@ test("discoverVenues: parses a fenced JSON block into candidates", async () => {
   assert.equal(result.candidates.length, 1);
   assert.equal(result.candidates[0].name, "Galería Cerro Norte");
   assert.equal(result.candidates[0].sourceUrl, "https://galeriacerronorte.cl/exposiciones/obra-x/");
+  assert.equal(result.candidates[0].sourceType, "oficial");
   assert.equal(result.candidates[0].category, "art_space");
 });
 
@@ -128,7 +130,21 @@ test("discoverVenues: caps the web_search tool at MAX_WEB_SEARCH_USES", async ()
   await discoverVenues(region, client);
 
   const tools = client.lastParams?.tools as Array<Record<string, unknown>>;
-  assert.equal(tools[0].max_uses, 12);
+  assert.equal(tools[0].max_uses, 8);
+});
+
+test("discoverVenues: sets allowed_callers to direct (Haiku doesn't support programmatic tool calling)", async () => {
+  const client = stubClient("```json\n[]\n```");
+  await discoverVenues(region, client);
+
+  const tools = client.lastParams?.tools as Array<Record<string, unknown>>;
+  assert.deepEqual(tools[0].allowed_callers, ["direct"]);
+});
+
+test("discoverVenues: uses claude-haiku-4-5", async () => {
+  const client = stubClient("```json\n[]\n```");
+  await discoverVenues(region, client);
+  assert.equal(client.lastParams?.model, "claude-haiku-4-5");
 });
 
 test("buildSystemPrompt: lists existing venues without telling the model to skip them entirely", () => {
@@ -164,4 +180,17 @@ test("buildSystemPrompt: states today's date and a 2-month cutoff", () => {
 test("buildSystemPrompt: asks for sourceUrl in the output shape", () => {
   const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
   assert.match(prompt, /"sourceUrl"/);
+});
+
+test("buildSystemPrompt: includes source classification and consolidation instructions", () => {
+  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
+  assert.match(prompt, /"oficial"/);
+  assert.match(prompt, /"difusion"/);
+  assert.match(prompt, /consolidate into a single candidate/);
+  assert.match(prompt, /still report it/);
+});
+
+test("buildSystemPrompt: caps follow-up searches at a small explicit number", () => {
+  const prompt = buildSystemPrompt(region, ["query one"], FIXED_NOW);
+  assert.match(prompt, /at most 1-3 targeted follow-ups/);
 });

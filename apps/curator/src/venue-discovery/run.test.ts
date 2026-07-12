@@ -54,6 +54,7 @@ test(
                 address: null,
                 websiteOrSocial: null,
                 sourceUrl: "https://testgallery.cl/exposiciones/obra-x/",
+                sourceType: "oficial",
                 contactEmail: null,
                 category: "art_space",
               },
@@ -104,6 +105,7 @@ test(
                   address: null,
                   websiteOrSocial: null,
                   sourceUrl: "https://balmacedartejoven.cl/agenda/muestra-final/",
+                  sourceType: "oficial",
                   contactEmail: null,
                   category: "art_space",
                 },
@@ -147,6 +149,7 @@ test(
                   address: null,
                   websiteOrSocial: null,
                   sourceUrl: "https://yaresuelto.cl/otra-carpeta/otra-muestra/",
+                  sourceType: "oficial",
                   contactEmail: null,
                   category: "art_space",
                 },
@@ -163,6 +166,35 @@ test(
         } finally {
           await client.from("venues").delete().eq("id", existing!.id);
         }
+      });
+
+      await t.test("runRegion does not derive listing_url from a diffusion source", async () => {
+        const result = await runRegion(await refetchRegion(region.id), {
+          discover: async () => ({
+            candidates: [
+              {
+                name: "Solo En Difusion",
+                address: null,
+                websiteOrSocial: null,
+                sourceUrl: "https://chilemosaico.cl/eventos/tag/arica/algun-evento/",
+                sourceType: "difusion",
+                contactEmail: null,
+                category: "art_space",
+              },
+            ],
+            usage: { inputTokens: 10, outputTokens: 5 },
+          }),
+        });
+
+        assert.equal(result.inserted, 1);
+
+        const { data: venues } = await client
+          .from("venues")
+          .select("*")
+          .eq("name", "Solo En Difusion");
+        assert.equal(venues?.[0].listing_url, null);
+
+        await client.from("venues").delete().eq("name", "Solo En Difusion");
       });
 
       await t.test("runRegion saturates a region after 2 consecutive zero-yield runs", async () => {
@@ -221,6 +253,7 @@ test(
                 address: null,
                 websiteOrSocial: null,
                 sourceUrl: null,
+                sourceType: null,
                 contactEmail: null,
                 category: "art_space",
               },

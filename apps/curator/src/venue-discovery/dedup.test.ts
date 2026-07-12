@@ -9,6 +9,7 @@ function candidate(overrides: Partial<VenueCandidate> = {}): VenueCandidate {
     address: null,
     websiteOrSocial: null,
     sourceUrl: null,
+    sourceType: null,
     contactEmail: null,
     category: "art_space",
     ...overrides,

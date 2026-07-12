@@ -11,6 +11,15 @@ export interface VenueCandidate {
   // listing_url by truncating to the parent directory. Null when the
   // search only turned up the venue's general site/social link.
   sourceUrl: string | null;
+  // Whether sourceUrl is the venue's own site ("oficial") or a third-party
+  // mention (news, cultural agenda aggregator, municipal listing —
+  // "difusion"). Only "oficial" sources are trustworthy enough to derive
+  // listing_url from — a news article or aggregator page doesn't update
+  // when the venue's own exhibitions change, and an aggregator covers many
+  // venues at once, so deriving a "listing page" from it would misattribute
+  // whatever the Event Crawler later finds there. Null when sourceUrl
+  // itself is null.
+  sourceType: "oficial" | "difusion" | null;
   contactEmail: string | null;
   category: "art_space" | "hard_excluded" | "needs_review";
 }
@@ -54,9 +63,11 @@ export interface MessagesClient {
 
 // Caps worst-case cost per call — a backstop, not the primary lever. The
 // search-economy prompt instructions below are what's meant to keep actual
-// usage well under this in normal operation. Lowered from 20 to 12 after the
-// first optimized run observed 5-16 real searches/region (avg ~9).
-const MAX_WEB_SEARCH_USES = 12;
+// usage well under this in normal operation. Lowered from 12 to 8 after the
+// exhibition-first run showed 3 of 4 regions hitting the old cap trying to
+// verify a single candidate — a manual dry run (same query templates, no
+// API) found a real, confirmed candidate in 4-5 searches total.
+const MAX_WEB_SEARCH_USES = 8;
 
 const ES_MONTHS = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -128,7 +139,9 @@ const VENUE_FILTER_POLICY = `Classify each venue's "category" using this rule:
 - "art_space": a recognizable, legitimate art or community space — this includes not just museums and galleries but cultural centers, community centers, neighborhood associations, and spaces known for street art or public interventions.
 - "needs_review": anything that is neither clearly a legitimate art/community space nor clearly one of the hard-excluded categories above. Do not guess — use this category when unsure.`;
 
-const SEARCH_ECONOMY_POLICY = `Be economical with searches: rely on the information already present in your initial broad search results whenever possible. Only perform an additional, targeted search for a specific candidate when the initial results didn't already give you enough to confirm it's a real, active space or to extract its address/contact details — don't search individually for every candidate as a default. If you're still unsure about a candidate after a reasonable effort, classify it "needs_review" rather than spending more searches to resolve it. Never issue the same or a near-duplicate query more than once — if you already ran a search, reuse its results instead of repeating it.`;
+const SEARCH_ECONOMY_POLICY = `Be economical with searches: aim for the 3 initial broad queries plus at most 1-3 targeted follow-ups total for the whole region — not one follow-up per candidate. Rely on the information already present in your initial broad search results whenever possible; classify source type (see below) using those same results, not a dedicated search for it. Only perform an additional, targeted search when the initial results didn't already give you enough to confirm a candidate is real, active, and in scope, or to extract its address/contact details. If you're still unsure about a candidate after a reasonable effort, classify it "needs_review" rather than spending more searches to resolve it. Never issue the same or a near-duplicate query more than once — if you already ran a search, reuse its results instead of repeating it.`;
+
+const SOURCE_CLASSIFICATION_POLICY = `For each candidate, classify where sourceUrl was found: "oficial" (the venue's own website or social media account) or "difusion" (a news site, cultural agenda aggregator, or municipal events listing that isn't the venue's own site). If the same exhibition/intervention turns up via both an official source and a diffusion source in your search results, report it once — consolidate into a single candidate, using the official source for sourceUrl and sourceType. If it only appears via a diffusion source, still report it (don't omit real candidates just because there's no official site) — set sourceType to "difusion" and don't invent an official URL that wasn't actually found. Classify using the search results you already have; this is a judgment call about content already in front of you, not a reason for an extra search.`;
 
 export function buildSystemPrompt(
   region: Region,
@@ -157,8 +170,10 @@ ${SEARCH_ECONOMY_POLICY}
 ${knownVenuesSection}
 ${VENUE_FILTER_POLICY}
 
+${SOURCE_CLASSIFICATION_POLICY}
+
 When you are done researching, respond with ONLY a fenced JSON code block (\`\`\`json ... \`\`\`) containing an array of objects with this exact shape, and nothing else before or after it:
-[{ "name": string, "address": string | null, "websiteOrSocial": string | null, "sourceUrl": string | null, "contactEmail": string | null, "category": "art_space" | "hard_excluded" | "needs_review" }]
+[{ "name": string, "address": string | null, "websiteOrSocial": string | null, "sourceUrl": string | null, "sourceType": "oficial" | "difusion" | null, "contactEmail": string | null, "category": "art_space" | "hard_excluded" | "needs_review" }]
 
 If you find nothing in scope, respond with an empty array: \`\`\`json
 []
@@ -208,11 +223,23 @@ export async function discoverVenues(
   const queries = buildQueries(region, now);
 
   const response = await client.messages.create({
-    model: "claude-sonnet-5",
+    model: "claude-haiku-4-5",
     max_tokens: 8000,
     system: buildSystemPrompt(region, queries, now, existingVenueNames),
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: MAX_WEB_SEARCH_USES }],
-    output_config: { effort: "medium" },
+    // allowed_callers: ["direct"] is required — web_search_20260209 defaults
+    // to programmatic/dynamic-filtering calling, which Haiku doesn't
+    // support (confirmed via a real API call: 400 "does not support
+    // programmatic tool calling" without this). This also means no dynamic
+    // filtering, which is fine here — the search-economy prompt is what's
+    // meant to keep result volume down, not the tool's own filtering.
+    tools: [
+      {
+        type: "web_search_20260209",
+        name: "web_search",
+        max_uses: MAX_WEB_SEARCH_USES,
+        allowed_callers: ["direct"],
+      },
+    ],
     messages: [
       {
         role: "user",

@@ -14,7 +14,7 @@ import { findMatchingVenue, extractDomain, deriveListingUrl } from "./dedup.js";
 
 type Region = Tables<"regions">;
 
-const MODEL = "claude-sonnet-5";
+const MODEL = "claude-haiku-4-5";
 const SATURATION_THRESHOLD = 2;
 const WEEKLY_MS = 7 * 24 * 60 * 60 * 1000;
 const MONTHLY_MS = 30 * 24 * 60 * 60 * 1000;
@@ -128,7 +128,15 @@ export async function runRegion(
     // have a listing_url yet, backfill it — this is how venues found
     // before this feature existed get resolved over time, not just new
     // ones. Doesn't count toward insertedCount/saturation below.
-    if (!match.listing_url && candidate.sourceUrl) {
+    //
+    // Only derived from an "oficial" source — a diffusion source (news,
+    // aggregator, municipal listing) doesn't update when the venue's own
+    // exhibitions change and often covers many venues at once, so deriving
+    // a "listing page" from it would misattribute whatever the Event
+    // Crawler later finds there (this is exactly the bug the first real
+    // run surfaced: MAC's two locations and MNBA/Casa Museo Santa Rosa all
+    // ended up sharing another institution's or an aggregator's URL).
+    if (!match.listing_url && candidate.sourceUrl && candidate.sourceType === "oficial") {
       const listingUrl = deriveListingUrl(candidate.sourceUrl);
       if (listingUrl) {
         const { error: updateError } = await client
@@ -152,7 +160,7 @@ export async function runRegion(
         name: c.name,
         address: c.address,
         source_domain: extractDomain(c.websiteOrSocial),
-        listing_url: c.sourceUrl ? deriveListingUrl(c.sourceUrl) : null,
+        listing_url: c.sourceUrl && c.sourceType === "oficial" ? deriveListingUrl(c.sourceUrl) : null,
         contact_email: c.contactEmail,
         category: c.category,
       })),
