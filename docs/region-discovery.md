@@ -183,6 +183,22 @@ already known), looking for new opening announcements at each one.
 
 ### v1 implementation (`apps/curator/src/event-crawler/`)
 
+**Found by a real local pilot run (GAM + Matucana 100), fixed before the
+GitHub Action shipped:** the first version only ported
+`curation-policy.md`'s four exclusion axes into the prompt — it never
+checked `overview.md`'s "what counts as art" scope at all, so conventional
+concerts, album launches, and a clown-school show at Matucana 100 got
+captured as if they were art openings. Also missing: a deterministic filter
+for events whose opening date has already passed by scrape time
+(`overview.md` is explicit these should never be added), and the
+event-dedup key compared raw ISO date strings instead of parsed instants —
+harmless until a venue's page is re-crawled and the model expresses the
+same timestamp with a different UTC offset, which silently re-inserted a
+duplicate under a different `curation_status`. All three are fixed in code
+(`curate.ts`'s `ART_SCOPE_POLICY`, `run.ts`'s date filter and `eventKey`
+helper) — kept here as a reminder that a docs-only design review doesn't
+catch this kind of gap; running it against real data does.
+
 - **Eligible venues**: `category = 'art_space'` AND `source_domain` set AND
   not a social platform (`facebook.com`/`instagram.com` denylist in code,
   not a schema column) — see "Venues without a crawlable site" below.

@@ -69,6 +69,13 @@ export const defaultImageFetcher: ImageFetcher = {
   },
 };
 
+// Mirrors docs/overview.md's "What counts as art" section, ported
+// verbatim — this is the scope filter, applied BEFORE the exclusion axes
+// below. Found missing during the first pilot run: without it, conventional
+// concerts/shows and clown/circus performances at a cultural center got
+// captured as if they were art openings.
+const ART_SCOPE_POLICY = `Before applying the exclusion axes below, first confirm this event is actually in scope for an art-opening calendar. Included — traditional visual-art media: drawing, painting, sculpture, printmaking, and similar. Included — non-traditional artistic interventions: performance, happening, graffiti, and interventions that use dance, the body, or musical instruments as part of an artistic intervention/happening, not as a conventional format. Explicitly excluded, even when using the same elements: dance in its traditional format/venue (a dance performance in a theater or dance hall), and conventional concerts/shows (a music concert or album-launch performance in its usual circuit). The test is the format, not the medium: is this an artistic intervention/happening, or a conventional performance/show in its usual circuit? If it's ambiguous whether something is performance art or essentially a concert/show with visual elements, use "pending_review" rather than deciding automatically. If it's clearly a conventional concert or show with no artistic-intervention framing, use "rejected" — out of scope, not merely low-priority.`;
+
 // Mirrors docs/curation-policy.md's "Operational instruction for Claude
 // Haiku's system prompt" block, ported verbatim — kept in sync with that
 // doc, not re-derived independently. Axes 1-4 only; axis 5 is separate
@@ -90,6 +97,8 @@ export function buildTextSystemPrompt(venueName: string, imageCandidates: ImageC
 Identify any opening-night events announced on this page (a new exhibition, show, or intervention starting on a specific date) — ignore past events, generic "about us" content, and unrelated news.
 
 For each event found, extract: title, description, artist (if named), opening date/time (ISO 8601 if a specific time is given), and whether the date confidence is "alta" (explicit date/time given) or "baja" (only a date range or vague timing).
+
+${ART_SCOPE_POLICY}
 
 ${TEXT_CURATION_POLICY}
 

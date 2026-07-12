@@ -77,6 +77,16 @@ function normalizeTitle(title: string): string {
   return title.trim().toLowerCase();
 }
 
+// Compares by parsed instant, not raw string — Postgres normalizes
+// timestamptz to UTC on storage, so a candidate re-evaluated later can
+// come back from the model with a different (but equivalent) ISO offset
+// than what's already stored. Comparing text would treat that as "new"
+// and re-insert the same event under a different curation_status.
+function eventKey(title: string, openingDatetime: string | null): string {
+  const time = openingDatetime ? new Date(openingDatetime).getTime() : Number.NaN;
+  return `${normalizeTitle(title)}|${Number.isNaN(time) ? "invalid" : time}`;
+}
+
 async function filterNewEvents(
   venueId: string,
   candidates: EventCandidate[],
@@ -91,12 +101,10 @@ async function filterNewEvents(
   }
 
   const existingKeys = new Set(
-    (existing ?? []).map((e) => `${normalizeTitle(e.title)}|${e.opening_datetime}`),
+    (existing ?? []).map((e) => eventKey(e.title, e.opening_datetime)),
   );
 
-  return candidates.filter(
-    (c) => !existingKeys.has(`${normalizeTitle(c.title)}|${c.openingDatetime}`),
-  );
+  return candidates.filter((c) => !existingKeys.has(eventKey(c.title, c.openingDatetime)));
 }
 
 export interface CrawlVenueDeps {
@@ -138,7 +146,17 @@ export async function crawlVenue(
   // events.opening_datetime is NOT NULL — a candidate the model couldn't
   // pin to any date isn't a storable event yet (no Flow 1 date-inquiry
   // mechanism exists until Phase 1b). Dropped, not stored.
-  const datedCandidates = candidates.filter((c) => c.openingDatetime && c.title.trim().length > 0);
+  //
+  // Also drop anything whose opening date has already passed by scrape
+  // time (docs/overview.md: "the calendar exists to capture the opening
+  // night... never added" if already past) — checked in code, not left to
+  // the model, same reasoning as the null-date filter above.
+  const now = Date.now();
+  const datedCandidates = candidates.filter((c) => {
+    if (!c.openingDatetime || c.title.trim().length === 0) return false;
+    const openingTime = new Date(c.openingDatetime).getTime();
+    return !Number.isNaN(openingTime) && openingTime >= now;
+  });
   const newCandidates = await filterNewEvents(venue.id, datedCandidates);
 
   if (newCandidates.length > 0) {

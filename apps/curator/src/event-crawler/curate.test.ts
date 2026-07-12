@@ -136,3 +136,9 @@ test("buildTextSystemPrompt: includes the four-axis curation policy and escalati
   assert.match(prompt, /default-exclusion policy across four axes/);
   assert.match(prompt, /pending_review/);
 });
+
+test("buildTextSystemPrompt: includes the art-scope filter excluding conventional concerts/shows", () => {
+  const prompt = buildTextSystemPrompt("Test Venue", []);
+  assert.match(prompt, /conventional concerts\/shows/);
+  assert.match(prompt, /artistic intervention\/happening/);
+});
