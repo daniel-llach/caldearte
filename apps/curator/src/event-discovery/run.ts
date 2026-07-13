@@ -124,7 +124,13 @@ async function insertCandidates(
     });
 
     if (error) {
-      throw new Error(`Failed to insert event "${c.title}": ${error.message}`);
+      // Real production incident: one malformed candidate (missing every
+      // date field the DB accepts) threw and crashed the entire run,
+      // losing every remaining unit and the bright-sources pass. One bad
+      // candidate must not cost the whole month's data — log it and move
+      // on; it's visible in the workflow's own logs for follow-up.
+      console.error(`[event-discovery] failed to insert "${c.title}": ${error.message}`);
+      continue;
     }
 
     seenTitleKeys.add(key);

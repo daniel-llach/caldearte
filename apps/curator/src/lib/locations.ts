@@ -15,6 +15,16 @@
 // Argentina" — a pure whitelist let 3 real Argentine candidates through on
 // a substring match. An explicit foreign country/city mention vetoes the
 // whitelist. Belt and suspenders, not either/or.
+//
+// Real production bug found in the FIRST live run: a plain substring check
+// for the override backfired the other way — "Concepción, Parque Ecuador"
+// (a real, well-known park IN Concepción, Chile) got rejected because
+// "ecuador" appears inside "Parque Ecuador". Latin American cities
+// routinely name streets/parks/plazas after other countries (this project
+// already suspected "Avenida Argentina" exists in several Chilean cities —
+// same risk). Fixed by only matching the override against the location's
+// LAST comma-separated segment (the trailing "..., Argentina"/"..., Perú"
+// a real cross-border result actually has), not anywhere in the string.
 
 const CHILE_MARKERS = [
   "chile", "region metropolitana",
@@ -56,6 +66,8 @@ export function stripAccents(text: string): string {
 
 export function isChileanLocation(location: string): boolean {
   const normalized = stripAccents(location.toLowerCase());
-  if (FOREIGN_COUNTRY_MARKERS.some((marker) => normalized.includes(marker))) return false;
+  const segments = normalized.split(",").map((s) => s.trim());
+  const lastSegment = segments[segments.length - 1];
+  if (FOREIGN_COUNTRY_MARKERS.includes(lastSegment)) return false;
   return CHILE_MARKERS.some((marker) => normalized.includes(marker));
 }

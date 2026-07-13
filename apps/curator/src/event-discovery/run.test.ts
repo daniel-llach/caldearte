@@ -58,6 +58,25 @@ const unitCandidates = [
     location: "Centro Cultural Recoleta, Buenos Aires, Argentina",
     sourceUrl: null,
   },
+  {
+    // Real production bug: only run_end_date set (a source stating when a
+    // show closes but never when it opened) — must insert successfully
+    // (events_has_some_date accepts run_end_date alone) instead of
+    // crashing the whole run.
+    title: "__test__ Piedras Raras",
+    description: null,
+    artist: null,
+    runStartDate: null,
+    runEndDate: "2026-08-15",
+    openingDatetime: null,
+    mediumType: "tradicional",
+    sensitivityTags: [],
+    curationReasoning: "solo fecha de termino",
+    imageUrl: null,
+    status: "approved",
+    location: "Concepción, Chile",
+    sourceUrl: null,
+  },
 ];
 
 const brightCandidates = [
@@ -170,6 +189,11 @@ test(
         assert.ok(foranea, "foreign event stored for audit");
         assert.equal(foranea.curation_status, "rejected");
         assert.match(foranea.curation_reasoning, /FILTRO DE CÓDIGO/);
+
+        const soloFin = byTitle.get("__test__ Piedras Raras");
+        assert.ok(soloFin, "event with only run_end_date inserts successfully (real production bug, fixed)");
+        assert.equal(soloFin.run_start_date, null);
+        assert.equal(soloFin.run_end_date, "2026-08-15");
       });
 
       await t.test("last_run_at is set and the unit is no longer due; excluded units never run", async () => {

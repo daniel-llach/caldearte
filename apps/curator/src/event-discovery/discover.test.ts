@@ -77,6 +77,17 @@ test("applyLocationFilter rejects approved candidates outside Chile, including t
   assert.doesNotMatch(filtered[3].curationReasoning, /FILTRO DE CÓDIGO/);
 });
 
+test("applyLocationFilter does not false-positive on a Chilean place that contains a foreign country's name", () => {
+  // Real production bug (first live run): "Parque Ecuador" is a real,
+  // well-known park in Concepción, Chile — a naive substring check against
+  // "ecuador" rejected it. The override only fires on an exact trailing
+  // "..., <country>" segment now, not anywhere in the string.
+  const filtered = applyLocationFilter([
+    { ...baseCandidate, location: "Concepción, Parque Ecuador" },
+  ]);
+  assert.equal(filtered[0].status, "approved");
+});
+
 test("isCurrentOrUpcoming applies the month-level rule, not day-level", () => {
   const now = new Date(2026, 6, 12); // July 12, 2026, local time
   // Run ended earlier this same month but its date already passed → still current.
