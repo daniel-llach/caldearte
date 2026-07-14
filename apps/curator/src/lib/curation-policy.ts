@@ -1,7 +1,6 @@
-// Shared verbatim policy text, used by both event-crawler/curate.ts (known
-// venues, cheap Haiku pass over a fetched page) and event-discovery/discover.ts
+// Shared verbatim policy text, used by event-discovery/discover.ts
 // (search-based discovery, full curation applied at find-time). Single
-// source so the two don't drift out of sync with docs/curation-policy.md
+// source so it doesn't drift out of sync with docs/curation-policy.md
 // and docs/overview.md.
 
 // Mirrors docs/overview.md's "What counts as art" section, ported
@@ -19,14 +18,11 @@ export const ART_SCOPE_POLICY = `Before applying the exclusion axes below, first
 // (see VISION_AXIS5_POLICY) because it needs the actual image, not text.
 export const TEXT_CURATION_POLICY = `Apply a default-exclusion policy across four axes: (1) religion — explicit religious imagery or themes, especially Christian or Jewish; Buddhism is evaluated case by case with a more permissive standard, but isn't automatically included; (2) war or extreme violence; (3) far right or authoritarian ideologies; (4) pseudoscience and superstition (tarot, esotericism, energy healing, and similar). For any of these four axes, the default decision is EXCLUDE. The only exception is when the event declares an explicit and unambiguous critical stance against that specific institution, ideology, or conflict — for example, an installation that explicitly denounces the Church's economic power, or an exhibit with an explicit curatorial statement denouncing an occupation or a dictatorship. "Exploring," "reflecting on," "contextualizing," "documenting," or showing ambiguous aesthetic/curatorial distance isn't enough — without an explicit, declared rejection stance, the event is excluded. There's no middle ground: either the event explicitly criticizes the institution/ideology/conflict, or it's excluded, regardless of artistic quality or the venue's prestige.`;
 
-export const ESCALATION_SIGNALS = `Use "pending_review" instead of forcing "rejected"/"provisionally_approved" when: the event appears to meet the exception (explicit critical stance) but the text isn't clear enough to confirm it; there's insufficient context (very short description, unclear curatorial text); the event mixes axes in a way that isn't obvious how to weigh; it involves Buddhism or another non-Christian/non-Jewish tradition and it's unclear whether the more permissive standard applies; or you have any other low-confidence classification. Don't force a binary decision when unsure.`;
-
 export const VISION_AXIS5_POLICY = `Apply a fifth axis, independent of the four above: exclude any event whose image shows physical or sexual aggression explicitly (graphic violence, sexual assault, gore), regardless of whether the event has denunciation intent — denunciation only enables inclusion when expressed textually, thematically, or symbolically, not through explicit imagery. This axis is about explicit aggression/violence, not sexuality or nudity in general: artistic nudity, eroticism, or non-violent sexuality aren't excluded by this criterion. If the image is not graphic/explicit under this definition, respond with exactly APPROVE. If it is, respond with exactly REJECT.`;
 
-// Mirrors the venue-type filter in docs/curation-policy.md — kept in sync
-// with that doc, not re-derived independently. Only applies when a fixed
-// venue was identified for a candidate.
-export const VENUE_FILTER_POLICY = `Classify each venue's "category" using this rule:
-- "hard_excluded": the venue is a church/temple or house of worship of any religious cult, or the headquarters of a right-wing or far-right political party.
-- "art_space": a recognizable, legitimate art or community space — this includes not just museums and galleries but cultural centers, community centers, neighborhood associations, and spaces known for street art or public interventions.
-- "needs_review": anything that is neither clearly a legitimate art/community space nor clearly one of the hard-excluded categories above. Do not guess — use this category when unsure.`;
+// Institutional exclusion, independent of the axes above. Previously
+// enforced via a separate per-venue classification step (the Event
+// Crawler's venue filter, now retired along with the venues table) — Event
+// Discovery has no venue entity, so this is judged directly from the
+// source text during curation instead.
+export const INSTITUTIONAL_EXCLUSION_POLICY = `Independent of and prior to the axes above: if the event's venue/location is explicitly identifiable as a church, temple, or house of worship of any religious cult, or the headquarters of a right-wing or far-right political party, reject it regardless of the event's own content or any critical stance it claims — the calendar's purpose isn't to drive visits to those institutions. This only applies when the institutional nature is explicit and unambiguous (the venue's own name or the source text states it plainly) — don't infer it from indirect signals, and don't let it override an otherwise-clear approval when the institutional nature is merely ambiguous.`;

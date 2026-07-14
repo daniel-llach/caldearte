@@ -106,7 +106,6 @@ async function insertCandidates(
     }
 
     const { error } = await client.from("events").insert({
-      venue_id: null,
       freeform_location: c.location,
       title: c.title,
       description: c.description,

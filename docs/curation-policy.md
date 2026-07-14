@@ -7,9 +7,8 @@
 Explicit, non-neutral editorial curation, defined by two people (the two
 curators): default-exclude across five axes (religion, war/violence, far
 right, pseudoscience/superstition, explicit physical/sexual aggression) plus
-a venue filter, with an exception only for explicit critical stance. When the
-model is unsure, it doesn't decide alone — it triggers the human-approval
-email flow.
+an institutional-location filter, with an exception only for explicit
+critical stance.
 
 Product decision: this specific curatorial stance **is the value
 proposition**, not something to hide. It's worth making explicit on the site
@@ -49,49 +48,37 @@ it's not automatically included.
 | "Vigil and Blessing of Images Ahead of the Pilgrimage" | A parish hosts a display of religious imagery as part of a devotional ritual. | Religion | **EXCLUDE** | An act of worship. |
 | "Tarot, Cards, and Energy Healing: Exhibitor Fair" | A fair of tarot, energy reading, and esoteric-practice exhibitors. | Pseudoscience/superstition | **EXCLUDE** | Esoteric/pseudoscientific content with no critical framing. |
 
-## Venue-type filter (independent of content) — applies to the Event Crawler only
+## Institutional exclusion (independent of content)
 
-**Scope note (added after Event Discovery's Tavily-based redesign):** the
-newer Event Discovery flow doesn't produce or match venues at all — every
-event has a freeform `location` instead (see
-[region-discovery.md](region-discovery.md)). This filter, and the
-`art_space`/`hard_excluded`/`needs_review` classification it drives, applies
-only to the Event Crawler's flow, which still walks a known `venues` table.
-Event Discovery instead applies the Chile-location whitelist described in
-region-discovery.md, which is a *geographic* check (is this really in
-Chile?), not an institutional one — it doesn't replace this filter's
-purpose, since Event Discovery has no venue concept for this filter to
-apply to.
+There is no venue entity: every event has a freeform `location` (see
+[region-discovery.md](region-discovery.md)), and this filter is judged
+directly from the source text during Event Discovery's own curation call —
+not a separate per-venue classification step. It's independent from, and
+takes priority over, the content filter: even if the event itself had an
+explicit critical stance (e.g. the "Church Inc." example above), if the
+location is literally a temple or a party headquarters, it's excluded
+anyway — the calendar's purpose isn't to drive visits to those institutions.
 
-Automatically excludes any event whose venue is: a church, temple, or seat of
-any religious cult; the headquarters of a right-wing or far-right political
-party; or, more generally, any establishment whose institutional profile
-doesn't align with the curation's values. This filter is independent of the
-content filter and **takes priority over it**: even if the event itself had
-an explicit critical stance (e.g. the "Church Inc." example above), if the
-venue where it opens is literally a temple or a party headquarters, it's
-excluded anyway — the calendar's purpose isn't to drive visits to those
-institutions.
+Excludes any event whose venue/location is **explicitly and unambiguously**
+identifiable as: a church, temple, or house of worship of any religious
+cult; or the headquarters of a right-wing or far-right political party.
+Applies only when the source text states this plainly (the venue's own
+name, or an explicit statement) — not inferred from indirect signals. When
+it's merely ambiguous, this filter doesn't force a rejection; ordinary
+curation on the event's own content still applies. There's no
+human-escalation path for this filter specifically — Event Discovery's
+`status` is binary (approved/rejected), unlike the Event Crawler's old
+three-state flow.
 
-The first two categories (temples, party headquarters) are enumerable and
-can be auto-excluded with high confidence from the venue's name/address. The
-third ("doesn't align with our values") isn't enumerable in advance, so the
-model isn't asked to decide it alone: if the venue isn't recognizable as a
-legitimate art/community space and doesn't clearly fit either hard-exclusion
-category, the case escalates to human review instead of being auto-included
-or auto-excluded.
+This is unrelated to the Chile-location whitelist in region-discovery.md,
+which is a *geographic* check (is this really in Chile?), not an
+institutional one.
 
-**`art_space` explicitly, and enthusiastically, includes more than
-traditional museums and galleries:** interventions/art in urban and street
-spaces, cultural centers, community centers, and neighborhood associations.
-A mural or a street intervention is exactly as valid as an opening at an
-established gallery — the venue filter exists to exclude institutions
-aligned with what the content policy rejects (temples, party headquarters),
-not to restrict coverage to formal art circuits.
-
-Data implication: `venues` carries a classification field
-(`art_space` / `hard_excluded` / `needs_review`) resolved once per venue —
-same as geocoding — not per event.
+Coverage is not restricted to formal art circuits: interventions/art in
+urban and street spaces, cultural centers, community centers, and
+neighborhood associations are exactly as valid as an opening at an
+established gallery. This filter only excludes institutions aligned with
+what the content policy already rejects (temples, party headquarters).
 
 ## Axis 5: explicit physical and sexual aggression (different from the other four)
 
@@ -148,24 +135,19 @@ higher than on the other axes, which are text-only.
 > excluded by this criterion.
 
 *Implementation note: this system prompt is presented here in English for
-documentation consistency, but the actual code (once Venue Discovery/Event
-Crawler are built)
-can implement it in either English or Spanish — Claude handles both equally
-well when evaluating Spanish-language event descriptions. That's an
-implementation detail to decide when the curator code is written, not a
-constraint set by this document.*
+documentation consistency; the actual Event Discovery prompt
+(`apps/curator/src/event-discovery/discover.ts`) is written in Spanish —
+Claude handles Spanish-language event descriptions equally well either
+way.*
 
-## Signals that trigger mandatory human escalation — applies to the Event Crawler only
+## Human escalation: not currently implemented
 
-**Scope note (added after Event Discovery's Tavily-based redesign):** the
-current Event Discovery design (see
-[region-discovery.md](region-discovery.md)) uses a binary `approved`/
-`rejected` decision, with no `pending_review` escalation tier — a deliberate
-simplification for that flow, not an oversight. The escalation signals below
-still apply in full to the Event Crawler, which keeps the three-way
-`approved`/`rejected`/`pending_review` decision described elsewhere in this
-document. Whether Event Discovery should regain an escalation tier is an
-open question, not decided either way yet.
+Event Discovery (the only pipeline in production) uses a binary
+`approved`/`rejected` decision — there's no `pending_review` tier today.
+Ambiguous cases currently fall through to ordinary curation rather than
+escalating to a human. Whether to add an escalation tier is an open
+question, not decided either way yet. Candidate signals for it, if it's
+ever built:
 
 - The event appears to meet the exception (explicit critical stance) but the
   text isn't clear enough to confirm the rejection is unambiguous and not
@@ -176,11 +158,7 @@ open question, not decided either way yet.
   uses religious symbolism) and it isn't obvious how to weigh each one.
 - Cases involving Buddhism or other non-Christian/non-Jewish traditions,
   where it's unclear whether the more permissive standard applies.
-- A venue that isn't recognizable as an established art space and doesn't
-  clearly fit the hard-exclusion categories (temple, party headquarters) —
-  not auto-decided, escalated.
 - It's unclear whether an image is "explicit" or is non-graphic artistic
-  treatment of a violence/aggression theme — escalate rather than decide with
-  low confidence, given the high cost of a false negative on this axis.
-- Any case where the model itself detects low confidence in its
-  classification — it should escalate rather than force a binary decision.
+  treatment of a violence/aggression theme.
+- Any case where the model itself would otherwise be forcing a low-confidence
+  binary decision.

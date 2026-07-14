@@ -6,7 +6,6 @@
   "scripts": {
     "test": "node --import tsx --test src/**/*.test.ts",
     "discover-events": "node --import tsx src/index.ts",
-    "crawl-events": "node --import tsx src/crawl-events.ts",
     "poc-tavily": "node --env-file=../../.env --import tsx scripts/poc-tavily-discover.ts"
   },
   "dependencies": {

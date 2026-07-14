@@ -28,8 +28,7 @@ export interface TavilySearchOptions {
   excludeDomains: string[];
 }
 
-// Injectable fetch so tests can stub the HTTP layer, same pattern as
-// event-crawler/fetch-page.ts.
+// Injectable fetch so tests can stub the HTTP layer.
 export type FetchLike = (
   url: string,
   init?: { method?: string; headers?: Record<string, string>; body?: string },

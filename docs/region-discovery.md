@@ -1,27 +1,16 @@
-# Caldearte — Region Discovery, Crawling & Cost Governance
+# Caldearte — Region Discovery, Event Discovery & Cost Governance
 
-Two distinct processes, run at different frequencies with different models,
-plus the cost-governance system that keeps both bounded. This document is
-required reading before touching either process.
+Which units (cities/comunas) get searched, how Event Discovery searches and
+curates them, and the cost-governance system that keeps it bounded. This
+document is required reading before touching any of it.
 
-**Status note (this revision):** Event Discovery's search/curation design
-below reflects a real, validated proof-of-concept
-(`apps/curator/scripts/poc-tavily-discover.ts`) — extensively tested with
-real Tavily + Anthropic calls, but **not yet wired into the real production
-code** (`apps/curator/src/venue-discovery/discover.ts` and `run.ts` still
-run the older Anthropic-`web_search` + venue-first design described lower in
-this doc's history). Read this document for the *intended* design; check
-the actual source files for what's deployed today.
+## Event Discovery — Tavily + Haiku, events only, no venues
 
-## Event Discovery (research) — Tavily + Haiku, events only, no venues
-
-**Superseded design decision:** Event Discovery no longer produces or
-touches venues at all. Events have a `location` (always freeform text) —
-there is no venue-matching, no venue category gating, nothing. This is a
-further step past the earlier "venues are a byproduct" pivot: venues turned
-out to be pure overhead once the goal is capturing *events*, not building a
-venue directory. (The Event Crawler, described lower down, is unaffected —
-it still walks a `venues` table populated separately, unrelated to this.)
+Event Discovery is implemented and in production
+(`apps/curator/src/event-discovery/`). It never produces or touches venues
+at all — there is no venue entity in the schema. Events have a `location`
+(always freeform text); there is no venue-matching, no venue category
+gating, nothing.
 
 ### Search: Tavily, not Anthropic's web_search tool
 
@@ -118,8 +107,8 @@ sync with [curation-policy.md](curation-policy.md)), plus:
   escalation tier in this design (a simplification vs. the venue-era
   design's `ESCALATION_SIGNALS`).
 
-**Output shape** (validated in the PoC, not yet migrated — see
-[data-model.md](data-model.md)): `title`, `description`, `artist`,
+**Output shape** (see [data-model.md](data-model.md)): `title`,
+`description`, `artist`,
 `runStartDate`/`runEndDate` (the exhibition's actual run), `openingDatetime`
 (only when a real opening is confirmed), `mediumType`, `sensitivityTags`,
 `curationReasoning`, `imageUrl`, `status`, `location` (freeform, always),
@@ -301,100 +290,29 @@ Chinese-language sources, national firewalls) — not a decision that needs
 making until they'd actually come up in a real expansion, which isn't
 planned right now anyway.
 
-## Event Crawler (implemented, manual-trigger only for now, unchanged this session)
+## Event Crawler (retired)
 
-Walks the already-known list of `venues` with Claude **Haiku** (cheap, high
-volume, no need for a search tool since the exact URL to visit is already
-known), looking for new opening announcements at each one. This is
-completely separate from Event Discovery above — it still uses the
-`venues` table and venue-matching logic that Event Discovery no longer
-touches.
-
-### v1 implementation (`apps/curator/src/event-crawler/`)
-
-**Found by a real local pilot run (GAM + Matucana 100), fixed before the
-GitHub Action shipped:** the first version only ported
-`curation-policy.md`'s four exclusion axes into the prompt — it never
-checked `overview.md`'s "what counts as art" scope at all, so conventional
-concerts, album launches, and a clown-school show at Matucana 100 got
-captured as if they were art openings. Also missing: a deterministic filter
-for events whose opening date has already passed by scrape time
-(`overview.md` is explicit these should never be added), and the
-event-dedup key compared raw ISO date strings instead of parsed instants —
-harmless until a venue's page is re-crawled and the model expresses the
-same timestamp with a different UTC offset, which silently re-inserted a
-duplicate under a different `curation_status`. All three are fixed in code
-(`curate.ts`'s `ART_SCOPE_POLICY`, `run.ts`'s date filter and `eventKey`
-helper) — kept here as a reminder that a docs-only design review doesn't
-catch this kind of gap; running it against real data does.
-
-- **Eligible venues**: `category = 'art_space'` AND `source_domain` set AND
-  not a social platform (`facebook.com`/`instagram.com` denylist in code,
-  not a schema column) — see "Venues without a crawlable site" below.
-- **Change-detection first**: fetches the venue's root domain with plain
-  `fetch` (no Playwright yet — added only if a real venue's page turns out
-  to need JS rendering), hashes it (`lib/content-hash.ts`, reused as-is).
-  Unchanged since the last check → zero LLM cost, just bumps
-  `last_checked_at`. This is the actual cost lever, not a nice-to-have.
-- **Two Haiku calls, not one, when content changed**: a text-only call
-  applies the four text-based curation axes (religion / war / far-right /
-  pseudoscience) plus escalation signals from `docs/curation-policy.md`,
-  tags `sensitivity_tags`/`medium_type`/`opening_date_confidence`, and picks
-  a candidate image from the page's `<img>` tags (regex-extracted, scored by
-  alt text + dimensions — `event-crawler/extract-images.ts`). A second,
-  vision-only call applies Axis 5 (explicit aggression) — but **only** for
-  candidates that passed axis 1-4 and have a chosen image, so vision cost is
-  paid only when it matters. No image → treated as approved directly
-  (nothing to falsely show, matching curation-policy.md's framing of axis
-  5's actual risk).
-- **Adaptive per-venue cadence**: mirrors the region-level saturation logic
-  above — no new events on a check → `consecutive_zero_yield_checks`
-  increments; after 3 consecutive, `check_frequency_days` extends from 3 to
-  7; a yield resets both.
-- **`events.opening_datetime` is `NOT NULL`**: a candidate the model can't
-  pin to any date isn't stored — there's no Flow 1 (automatic date inquiry)
-  built yet to resolve it. Dropped, not half-persisted.
-- **No image persistence yet**: the chosen image URL is used internally for
-  the Axis 5 vision check but isn't written anywhere on the `events` row —
-  `events` only has `image_storage_path` (meant for a re-hosted copy, Phase
-  3), not a raw external URL field. Revisit once Phase 3's image pipeline
-  exists; not worth a migration just to hold a URL that will be replaced
-  anyway.
+An earlier pipeline walked a known `venues` table with Claude Haiku, looking
+for new opening announcements at each venue's page. It's been fully removed
+from the code and schema — Event Discovery (above) is the only
+event-sourcing pipeline now, and it never produces or matches venues. See
+git history (`apps/curator/src/event-crawler/`, deleted) for the retired
+implementation if it's ever needed for reference.
 
 ### No email approval flow yet (cost-driven, not a design gap)
 
-**Decided:** ambiguous events land with `events.curation_status =
-'pending_review'` and no email — resolved manually in Supabase, the same
-posture as `needs_review` venues below. The original design called for an
-email with two approve/reject buttons (Supabase Edge Function + one-time
-token), but adding `caldearte.com` to Resend requires their paid plan
-(~$20/month) since the free-tier domain slot is already used by another of
-the user's projects — not justified yet. Revisit once this becomes
-genuinely mandatory (real volume, or the cost becomes worth it some other
-way), not before.
-
-### Venues without a crawlable site
-
-Some venues Event Discovery has found have no real website —
-`source_domain` is `facebook.com`/`instagram.com`, or null (mostly small
-community spaces and neighborhood associations whose only channel is a
-social account). Scraping social platforms directly carries ToS risk
-(`docs/risks.md`) and isn't reliable via a plain `fetch` (JS-rendered,
-frequently blocked). **Decided:** excluded from Event Crawler v1 via a
-denylist in code, not deleted from `venues` — revisit once there's a real
-path for them (e.g. Phase 1b's public mailbox, or a manually-confirmed
-alternate URL per venue).
-
-### Handling `needs_review` venues
-
-**Decided:** the Event Crawler skips any venue with `category =
-'needs_review'` by default — it only crawls `art_space`. There's no
-confirmation flow built for venues yet (unlike events, which already have
-the email-with-two-buttons design) — today the only way a `needs_review`
-venue gets resolved is manually, either updating `venues.category` directly
-in Supabase, or in an ad-hoc review session with Claude going case by case.
-Worth revisiting once the `needs_review` backlog grows enough that manual
-resolution stops being cheap — not before.
+**Decided:** ambiguous events would land with `events.curation_status =
+'pending_review'` and no email — resolved manually in Supabase. The original
+design called for an email with two approve/reject buttons (Supabase Edge
+Function + one-time token), but adding `caldearte.com` to Resend requires
+their paid plan (~$20/month) since the free-tier domain slot is already used
+by another of the user's projects — not justified yet. Revisit once this
+becomes genuinely mandatory (real volume, or the cost becomes worth it some
+other way), not before. **Currently moot in practice:** Event Discovery's
+curation call is binary (`approved`/`rejected` only, see
+curation-policy.md#human-escalation-not-currently-implemented) — nothing in
+production sets `pending_review` today, so this flow has nothing to trigger
+it yet either.
 
 ---
 
@@ -427,9 +345,8 @@ Anthropic's billing API.
 Hitting `monthly_budget_usd` blocks **new region activation only** — under
 the simplified, fixed ~100-unit design above, this specific mechanism is
 less relevant (there's no automatic expansion to block), but the ledger and
-ceiling still apply generally as a spend guardrail. The Event Crawler's
-daily crawl of already-known venues is unaffected either way. Raising the
-ceiling is a one-line SQL update, no redeploy required.
+ceiling still apply generally as a spend guardrail. Raising the ceiling is a
+one-line SQL update, no redeploy required.
 `apps/curator/src/lib/notify.ts` opens a GitHub issue (labeled
 `budget-alert`, deduplicated) the moment the ceiling is hit.
 
@@ -443,12 +360,6 @@ ceiling is a one-line SQL update, no redeploy required.
 - **Bright sources curated once per run, not once per unit** — avoids
   paying to re-curate the same aggregator's content N times, one per unit,
   which was the original (wasteful, and inconsistent — see above) design.
-- **Change-detection before spending on an LLM call** (Event Crawler).
-  `content-hash.ts` hashes a venue's fetched page content;
-  `venues.content_hash` + `last_checked_at` skip the Haiku call entirely
-  when nothing changed.
-- **Adaptive per-venue check cadence** (Event Crawler): `check_frequency_days`
-  defaults to 3, extends to 7 after 3 zero-yield checks.
 - **Prompt caching** — implemented on Event Discovery's system prompt via
   `cache_control`, currently a no-op (prompt is under Haiku's 2048-token
   minimum cacheable prefix — see above). Not worth padding the prompt
@@ -468,13 +379,3 @@ Anthropic spend per run, plus Tavily credits comfortably inside its free
 including the image-token-cost tradeoff and why prompt caching doesn't
 apply yet.
 
-### Rough cost model (for context, not a live estimate)
-
-The Event Crawler's own cost model (change-detection + adaptive cadence,
-Haiku) was estimated pre-optimization at $9-25/month depending on venue
-volume, and hasn't been re-measured against real production data recently.
-Combined with Event Discovery's real measured cost above, total spend
-across both processes is expected to land well under the relaxed
-$50/month ceiling even once the ~100-unit list is live — but this
-combination hasn't been measured together in production yet, only
-projected from each process's own real data separately.

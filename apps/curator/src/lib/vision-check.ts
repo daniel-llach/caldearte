@@ -25,9 +25,9 @@ interface VisionResponseContentBlock {
   text?: string;
 }
 
-// Minimal shape the vision call needs — both event-crawler/curate.ts's and
-// event-discovery/discover.ts's richer MessagesClient interfaces already
-// satisfy this structurally, no adapter needed.
+// Minimal shape the vision call needs — event-discovery/discover.ts's
+// richer MessagesClient interface already satisfies this structurally, no
+// adapter needed.
 export interface VisionMessagesClient {
   messages: {
     create(params: Record<string, unknown>): Promise<{

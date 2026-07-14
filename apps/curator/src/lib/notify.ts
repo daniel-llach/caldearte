@@ -47,7 +47,7 @@ export async function flagBudgetExceeded({ spend, budget }: FlagBudgetExceededIn
   const body = [
     `El gasto estimado de este mes ($${spend.toFixed(2)}) alcanzó o superó el techo configurado ($${budget.toFixed(2)}).`,
     "",
-    "La activación de regiones nuevas está pausada hasta que se suba el techo — el crawl diario de venues ya conocidos sigue funcionando normalmente.",
+    "La activación de regiones nuevas está pausada hasta que se suba el techo.",
     "",
     "Para subir el techo: `update system_config set value = '<nuevo monto>' where key = 'monthly_budget_usd';`",
     "",

@@ -3,23 +3,20 @@
 ## Current status: Phase 1a, in progress
 
 Done: pnpm workspace, core schema deployed to production
-(`regions`/`venues`/`events`), auto-deploy pipeline for migrations
+(`regions`/`events`), auto-deploy pipeline for migrations
 (`deploy-migrations.yml`), Chile's initial regions seeded, cost-governance
 system shipped (`system_config`/`api_usage_log`, budget ceiling, region cap,
 change-detection foundation).
 
-Event Discovery is implemented in production
-(`apps/curator/src/venue-discovery/` — directory name predates the pivot)
-using Anthropic's `web_search` tool + a venue-as-byproduct design — but a
-newer design (Tavily + Haiku, no venues at all, fuentes brillantes,
-real-data-validated quality/cost fixes) has been extensively prototyped and
-validated in a standalone PoC (`apps/curator/scripts/poc-tavily-discover.ts`)
-and **not yet wired into production** — see
-[region-discovery.md](region-discovery.md) for the full design and what's
-still pending before that switch happens. The Event Crawler is implemented
-and unaffected by any of this (`apps/curator/src/event-crawler/`,
-manual-trigger, revisits already-known venues every 3 days). Frontend
-(`apps/web`) hasn't been started.
+Event Discovery (Tavily + Haiku, fuentes brillantes, see
+[region-discovery.md](region-discovery.md)) is implemented and in production
+(`apps/curator/src/event-discovery/`) — it's the only event-sourcing
+pipeline. It writes every event's location as freeform text; there is no
+venue entity. The earlier venue-based design (a separate "Event Crawler"
+that revisited known venues, plus the `venues` table itself) has been
+retired — it was left disconnected after the pivot (nothing fed it new
+venues) and has been fully removed from the code and schema, not just
+deprecated. Frontend (`apps/web`) hasn't been started.
 
 ## Phase 0 — Definition (complete)
 
@@ -38,19 +35,15 @@ Closed out the initial project brief, moved into a dedicated repo.
   Haiku 4.5 — no venue matching, every event has a freeform `location`.
   Includes a "fuentes brillantes" mechanism (known-rich sources fetched
   directly, auto-detected + manually grown) — see region-discovery.md.
-- Daily GitHub Actions cron walks the already-discovered venues (the Event
-  Crawler) — unrelated to Event Discovery, still venue-based.
-- A deterministic scraper extracts HTML + image candidates
-  (`<img src/alt/dimensions>`) for the Event Crawler.
 - Claude Haiku 4.5 evaluates each candidate event against the five curation
-  axes (+ venue filter for the Event Crawler's flow only), picks the
-  featured image, and runs the Axis 5 vision check (explicit aggression)
-  plus `sensitivity_tags` tagging.
+  axes, picks the featured image, and runs the Axis 5 vision check (explicit
+  aggression) plus `sensitivity_tags` tagging.
 - Ambiguous cases → originally designed as an email with two buttons
   (include/don't include) via a Supabase Edge Function with a one-time-use
-  token. **v1 ships without it** (cost-driven: a second Resend domain needs
-  their paid plan) — ambiguous events land as `pending_review`, resolved
-  manually in Supabase. See
+  token, landing ambiguous events as `pending_review` in the meantime.
+  **Neither half is built**: Event Discovery's curation call is binary
+  (`approved`/`rejected` only, no `pending_review` output today) and the
+  email flow itself was deferred on cost. See
   [region-discovery.md](region-discovery.md#no-email-approval-flow-yet-cost-driven-not-a-design-gap).
 - Writes land in Supabase (Postgres).
 - **Decided:** the calendar shows an exhibition for its full run (start to
@@ -87,8 +80,8 @@ Closed out the initial project brief, moved into a dedicated repo.
 ## Phase 1c — Expanding beyond Chile (superseded design, see below)
 
 - **Superseded:** originally planned as automatic global expansion via a
-  precalculated population/distance ranking, growing the venue list in the
-  background. Event Discovery no longer produces venues at all, and the
+  precalculated population/distance ranking, growing a venue list in the
+  background. There is no venue list anymore, and the
   ranking/automatic-expansion machinery isn't in active use — see
   [region-discovery.md](region-discovery.md#ranking--expansion-superseded-kept-for-historical-reference).
   Expanding beyond Chile's ~100-unit list is planned as a manual, deliberate
@@ -97,7 +90,10 @@ Closed out the initial project brief, moved into a dedicated repo.
 
 ## Phase 2 — Geo/temporal personalization
 
-- `venues` table with geocoded lat/lng (Nominatim, once per venue).
+- Geocoding mechanism **not yet designed**: the original plan cached
+  lat/lng once per venue on the (now-retired) `venues` table; with location
+  as freeform text per event, there's no venue entity to cache coordinates
+  against, and this needs a rethink before Phase 2 starts.
 - PostGIS in Supabase to rank events by distance + days-until-event combined,
   based on the user's city.
 - User city detection: **decided** — see
