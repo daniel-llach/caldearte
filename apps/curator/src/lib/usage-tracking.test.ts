@@ -25,7 +25,7 @@ test(
       const before = await getCurrentMonthSpend();
 
       await recordUsage({
-        purpose: "event_crawl",
+        purpose: "event_discovery",
         model: "claude-haiku-4-5",
         usage: { inputTokens: 1_000_000, outputTokens: 1_000_000 },
       });
@@ -37,12 +37,11 @@ test(
       // Surgical (by this test's own distinctive token count), NOT by
       // purpose alone — test files run in parallel against the same local
       // DB, and a broad delete here can wipe another suite's freshly
-      // written rows between its insert and its assertion (a real observed
-      // flake with event-crawler/run.test.ts).
+      // written rows between its insert and its assertion.
       await getSupabaseClient()
         .from("api_usage_log")
         .delete()
-        .eq("purpose", "event_crawl")
+        .eq("purpose", "event_discovery")
         .eq("input_tokens", 1_000_000);
     });
 

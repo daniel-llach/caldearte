@@ -1,17 +1,13 @@
 import { getSupabaseClient } from "./supabase-client.js";
 import { estimateCostUsd, type ModelId, type Usage } from "./pricing.js";
 
-// "venue_discovery" renamed to "event_discovery" alongside the DB CHECK
-// constraint (migration 20260712210000) — the pass produces events, not
-// venues, since the pivot.
-export type Purpose = "event_discovery" | "event_crawl";
+export type Purpose = "event_discovery";
 
 export interface RecordUsageInput {
   purpose: Purpose;
   model: ModelId;
   usage: Usage;
   regionId?: string;
-  venueId?: string;
 }
 
 export async function recordUsage(input: RecordUsageInput): Promise<void> {
@@ -23,7 +19,6 @@ export async function recordUsage(input: RecordUsageInput): Promise<void> {
       purpose: input.purpose,
       model: input.model,
       region_id: input.regionId ?? null,
-      venue_id: input.venueId ?? null,
       input_tokens: input.usage.inputTokens,
       output_tokens: input.usage.outputTokens,
       cache_creation_input_tokens: input.usage.cacheCreationInputTokens ?? 0,
@@ -74,8 +69,7 @@ export async function getConfigNumber(key: string): Promise<number> {
   return parsed;
 }
 
-// Blocks new region activation only (Venue Discovery) — the Event Crawler's
-// daily crawl of already-known venues keeps running regardless of this check.
+// Blocks new region activation only.
 export async function isOverBudget(): Promise<boolean> {
   const [spend, budget] = await Promise.all([
     getCurrentMonthSpend(),

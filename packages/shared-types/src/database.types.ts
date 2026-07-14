@@ -46,7 +46,6 @@ export type Database = {
           output_tokens: number
           purpose: string
           region_id: string | null
-          venue_id: string | null
           web_search_requests: number
         }
         Insert: {
@@ -60,7 +59,6 @@ export type Database = {
           output_tokens?: number
           purpose: string
           region_id?: string | null
-          venue_id?: string | null
           web_search_requests?: number
         }
         Update: {
@@ -74,7 +72,6 @@ export type Database = {
           output_tokens?: number
           purpose?: string
           region_id?: string | null
-          venue_id?: string | null
           web_search_requests?: number
         }
         Relationships: [
@@ -83,13 +80,6 @@ export type Database = {
             columns: ["region_id"]
             isOneToOne: false
             referencedRelation: "regions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "api_usage_log_venue_id_fkey"
-            columns: ["venue_id"]
-            isOneToOne: false
-            referencedRelation: "venues"
             referencedColumns: ["id"]
           },
         ]
@@ -128,7 +118,7 @@ export type Database = {
           curation_reasoning: string | null
           curation_status: string
           description: string | null
-          freeform_location: string | null
+          freeform_location: string
           id: string
           image_storage_path: string | null
           image_url: string | null
@@ -142,7 +132,6 @@ export type Database = {
           source: string
           source_url: string | null
           title: string
-          venue_id: string | null
         }
         Insert: {
           artist?: string | null
@@ -150,7 +139,7 @@ export type Database = {
           curation_reasoning?: string | null
           curation_status?: string
           description?: string | null
-          freeform_location?: string | null
+          freeform_location: string
           id?: string
           image_storage_path?: string | null
           image_url?: string | null
@@ -164,7 +153,6 @@ export type Database = {
           source: string
           source_url?: string | null
           title: string
-          venue_id?: string | null
         }
         Update: {
           artist?: string | null
@@ -172,7 +160,7 @@ export type Database = {
           curation_reasoning?: string | null
           curation_status?: string
           description?: string | null
-          freeform_location?: string | null
+          freeform_location?: string
           id?: string
           image_storage_path?: string | null
           image_url?: string | null
@@ -186,17 +174,8 @@ export type Database = {
           source?: string
           source_url?: string | null
           title?: string
-          venue_id?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "events_venue_id_fkey"
-            columns: ["venue_id"]
-            isOneToOne: false
-            referencedRelation: "venues"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       regions: {
         Row: {
@@ -266,71 +245,6 @@ export type Database = {
           value?: string
         }
         Relationships: []
-      }
-      venues: {
-        Row: {
-          address: string | null
-          category: string
-          check_frequency_days: number
-          consecutive_zero_yield_checks: number
-          contact_email: string | null
-          content_hash: string | null
-          created_at: string
-          geocoded_at: string | null
-          id: string
-          last_checked_at: string | null
-          lat: number | null
-          listing_url: string | null
-          lng: number | null
-          name: string
-          region_id: string
-          source_domain: string | null
-        }
-        Insert: {
-          address?: string | null
-          category?: string
-          check_frequency_days?: number
-          consecutive_zero_yield_checks?: number
-          contact_email?: string | null
-          content_hash?: string | null
-          created_at?: string
-          geocoded_at?: string | null
-          id?: string
-          last_checked_at?: string | null
-          lat?: number | null
-          listing_url?: string | null
-          lng?: number | null
-          name: string
-          region_id: string
-          source_domain?: string | null
-        }
-        Update: {
-          address?: string | null
-          category?: string
-          check_frequency_days?: number
-          consecutive_zero_yield_checks?: number
-          contact_email?: string | null
-          content_hash?: string | null
-          created_at?: string
-          geocoded_at?: string | null
-          id?: string
-          last_checked_at?: string | null
-          lat?: number | null
-          listing_url?: string | null
-          lng?: number | null
-          name?: string
-          region_id?: string
-          source_domain?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "venues_region_id_fkey"
-            columns: ["region_id"]
-            isOneToOne: false
-            referencedRelation: "regions"
-            referencedColumns: ["id"]
-          },
-        ]
       }
     }
     Views: {

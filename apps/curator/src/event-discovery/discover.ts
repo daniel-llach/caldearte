@@ -5,7 +5,7 @@
 // (apps/curator/scripts/poc-tavily-discover.ts) after extensive real-data
 // testing; keep the two in sync only in spirit — this file is now the
 // source of truth.
-import { ART_SCOPE_POLICY, TEXT_CURATION_POLICY } from "../lib/curation-policy.js";
+import { ART_SCOPE_POLICY, TEXT_CURATION_POLICY, INSTITUTIONAL_EXCLUSION_POLICY } from "../lib/curation-policy.js";
 import { tavilySearch, type FetchLike, type TavilyImage } from "../lib/tavily.js";
 import { isChileanLocation } from "../lib/locations.js";
 import { normalizeTitle } from "../lib/event-filters.js";
@@ -49,8 +49,7 @@ export interface DiscoverUsage {
 }
 
 // Narrow structural interface instead of the full Anthropic SDK class, so
-// tests can inject a stub without hitting the real API (same pattern as
-// event-crawler/curate.ts).
+// tests can inject a stub without hitting the real API.
 export interface MessagesClient {
   messages: {
     create(params: Record<string, unknown>): Promise<{
@@ -196,6 +195,8 @@ Excluye también, explícitamente:
 - Talleres (actividades de aprendizaje/participación, no una muestra o intervención artística).
 
 ${TEXT_CURATION_POLICY}
+
+${INSTITUTIONAL_EXCLUSION_POLICY}
 
 Importante sobre ubicación: no descartes un candidato solo porque la ubicación real mencionada en el contenido es distinta a la comuna/ciudad que buscamos — reporta la ubicación real tal como aparece en la fuente (ej. "Las Condes, Santiago" aunque la búsqueda haya sido por otra comuna). Descarta cuando la fuente sea de otro país (no de Chile) — esto es una regla dura, no una sugerencia: cualquier evento fuera de Chile debe ir "rejected".
 

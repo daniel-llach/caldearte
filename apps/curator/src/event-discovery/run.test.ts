@@ -177,7 +177,6 @@ test(
         const vigente = byTitle.get("__test__ Muestra vigente");
         assert.ok(vigente, "current event inserted");
         assert.equal(vigente.curation_status, "approved");
-        assert.equal(vigente.venue_id, null);
         assert.equal(vigente.freeform_location, "Providencia, Santiago, Chile");
         assert.equal(vigente.run_start_date, "2026-07-05");
         assert.equal(vigente.run_end_date, "2026-09-30");
@@ -252,7 +251,7 @@ test(
 
         const { data: bright } = await client.from("events").select("*").like("title", "__test__ Brillante%");
         assert.equal(bright?.length, 2);
-        assert.ok(bright?.every((e) => e.venue_id === null && e.curation_status === "approved"));
+        assert.ok(bright?.every((e) => e.curation_status === "approved"));
 
         const { data: detected } = await client
           .from("detected_sources")

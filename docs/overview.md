@@ -5,47 +5,18 @@
 Caldearte is a free, publicly accessible calendar of art opening nights —
 galleries, museums, cultural centers, community spaces, and street
 interventions. It is maintained through automation (GitHub Actions + the
-Claude API + Supabase) to minimize the ongoing manual-operation cost that
-caused an earlier version of this project to be abandoned after 10+ years.
-
-**Primary goal:** a technical learning project (monorepo tooling, LLM agents,
-geospatial ranking, publishing APIs) that incidentally delivers real value
-(making opening nights discoverable). The project is free by design.
-Monetization is left open as a future option, not a starting objective — this
-avoids repeating the earlier version's failure mode (it was abandoned for
-lack of maintenance time, not lack of monetization).
-
-**Explicit scope constraint:** growth-for-monetization is not a priority.
-Success is defined as: the system runs itself with minimal maintenance, *and*
-there is real learning along the way.
+Claude API + Supabase).
 
 ## What counts as a valid event
 
-### The full exhibition run, with openings as the star (revised — was "openings only")
-
-**Decision, superseding the original "opening nights only" design**: Caldearte
-is a calendar of art, not exclusively of opening nights. An exhibition is
-shown for its **entire run** — from the day it starts to the day it ends —
-not discarded just because its opening has already passed. Opening nights
-remain the most valuable, most highlighted moment when one is known (that's
-still what makes an event "a star" in the UI), but their absence or passing
-is no longer a reason to exclude an otherwise-real, currently-running
-exhibition. This directly reverses the original policy below, after the
-project's real search data (Tavily + Haiku, see
-[region-discovery.md](region-discovery.md)) showed the majority of real,
-legitimate exhibitions found don't have an explicit, confirmed opening-night
-date/time at all — only a run's start and end dates. Discarding those would
-have discarded most of what's actually out there.
+### The full exhibition run, with openings as the star
 
 - A candidate is discarded only if its run has **already fully ended**
   before the current month (see the region-discovery.md date rule) — not
   merely because its opening, if any, already passed.
-- **Retention: ~1 year**, not 1 month (revised from the original 1-month
-  figure, itself a revision from an initial 7-day figure). Storage cost for
+- **Retention: ~1 year**, Storage cost for
   this is negligible at this project's scale (a few hundred bytes of text
-  per event) — the real reason for the earlier short retention wasn't
-  storage, it was "the calendar should feel alive," which no longer applies
-  once the calendar is showing full runs rather than only fresh openings.
+  per event).
   - Architectural implication: a cleanup cron (still not built) should
     delete `events` rows roughly a year past their run's end, not their
     opening date.
@@ -54,8 +25,7 @@ have discarded most of what's actually out there.
   distinct from the exhibition's overall duration), plus a separate,
   independently-nullable `openingDatetime` (date **and** time) that's only
   populated when a source explicitly confirms a real opening night — no
-  longer a "confidence" flag on a single overloaded date field
-  (`opening_date_confidence`, the original approach), since the run's own
+  longer a "confidence" flag on a single overloaded date field, since the run's own
   start/end dates now carry that information directly instead of being
   inferred as a low-confidence proxy for an opening.
 

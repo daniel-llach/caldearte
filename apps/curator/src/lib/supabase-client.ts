@@ -4,8 +4,8 @@ import type { Database } from "@caldearte/shared-types";
 let client: SupabaseClient<Database> | undefined;
 
 // Lazy singleton: throws only when actually used, not at import time, so
-// modules that don't need Supabase (pricing, content-hash) stay importable
-// without env vars set.
+// modules that don't need Supabase (e.g. pricing) stay importable without
+// env vars set.
 export function getSupabaseClient(): SupabaseClient<Database> {
   if (client) return client;
 
