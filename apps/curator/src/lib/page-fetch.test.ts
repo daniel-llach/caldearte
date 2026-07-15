@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { enrichMissingImages, fetchOgImage, isSocialMediaUrl, type FetchLike } from "./page-fetch.js";
+import {
+  enrichMissingImages,
+  extractJsonLdImage,
+  extractOgImage,
+  extractTwitterImage,
+  fetchOgImage,
+  isSocialMediaUrl,
+  type FetchLike,
+} from "./page-fetch.js";
 
 test("isSocialMediaUrl matches instagram.com and facebook.com on any path, including subdomains, but not lookalikes", () => {
   assert.equal(isSocialMediaUrl("https://instagram.com/museo/p/xyz/"), true);
@@ -43,6 +51,55 @@ test("fetchOgImage degrades to null when the fetch itself throws", async () => {
     throw new Error("network down");
   };
   assert.equal(await fetchOgImage("https://portaldisc.com/expo", failing), null);
+});
+
+test("extractTwitterImage matches both attribute orders and the :src variant", () => {
+  assert.equal(extractTwitterImage(`<meta name="twitter:image" content="/img/a.jpg">`), "/img/a.jpg");
+  assert.equal(extractTwitterImage(`<meta content="/img/b.jpg" name="twitter:image">`), "/img/b.jpg");
+  assert.equal(extractTwitterImage(`<meta name="twitter:image:src" content="/img/c.jpg">`), "/img/c.jpg");
+  assert.equal(extractTwitterImage(`<html></html>`), null);
+});
+
+test("extractJsonLdImage reads a plain string image field, an array, and an ImageObject, skipping malformed blocks", () => {
+  assert.equal(
+    extractJsonLdImage(`<script type="application/ld+json">{"@type":"Event","image":"/img/a.jpg"}</script>`),
+    "/img/a.jpg",
+  );
+  assert.equal(
+    extractJsonLdImage(`<script type="application/ld+json">{"image":["/img/b.jpg","/img/c.jpg"]}</script>`),
+    "/img/b.jpg",
+  );
+  assert.equal(
+    extractJsonLdImage(`<script type="application/ld+json">{"image":{"@type":"ImageObject","url":"/img/d.jpg"}}</script>`),
+    "/img/d.jpg",
+  );
+  assert.equal(
+    extractJsonLdImage(`<script type="application/ld+json">{not valid json</script><script type="application/ld+json">{"image":"/img/e.jpg"}</script>`),
+    "/img/e.jpg",
+    "malformed block is skipped, not fatal",
+  );
+  assert.equal(extractJsonLdImage(`<html></html>`), null);
+});
+
+test("fetchOgImage chains strategies in order: og:image wins over twitter:image and JSON-LD when present", async () => {
+  const html = `
+    <meta property="og:image" content="/og.jpg">
+    <meta name="twitter:image" content="/twitter.jpg">
+    <script type="application/ld+json">{"image":"/jsonld.jpg"}</script>
+  `;
+  assert.equal(await fetchOgImage("https://portaldisc.com/expo", stubFetch(html)), "https://portaldisc.com/og.jpg");
+});
+
+test("fetchOgImage falls through to twitter:image, then JSON-LD, when earlier strategies find nothing", async () => {
+  const twitterOnly = `<meta name="twitter:image" content="/twitter.jpg"><script type="application/ld+json">{"image":"/jsonld.jpg"}</script>`;
+  assert.equal(await fetchOgImage("https://portaldisc.com/expo", stubFetch(twitterOnly)), "https://portaldisc.com/twitter.jpg");
+
+  const jsonLdOnly = `<script type="application/ld+json">{"image":"/jsonld.jpg"}</script>`;
+  assert.equal(await fetchOgImage("https://portaldisc.com/expo", stubFetch(jsonLdOnly)), "https://portaldisc.com/jsonld.jpg");
+});
+
+test("extractOgImage is exported directly and behaves the same as through fetchOgImage", () => {
+  assert.equal(extractOgImage(`<meta property="og:image" content="/img.jpg">`), "/img.jpg");
 });
 
 test("enrichMissingImages fills imageUrl only for approved candidates with no image and a fetchable sourceUrl", async () => {

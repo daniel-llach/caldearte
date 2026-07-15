@@ -1,13 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  detectNewBrightSources,
-  extractEventArticles,
-  extractImgTags,
-  filterKnownSourceImages,
-  isCompleteEvent,
-  mergeBrightSources,
-} from "./sources.js";
+import { detectNewBrightSources, fetchBrightSources, isCompleteEvent, mergeBrightSources, type BrightSource } from "./sources.js";
+import { KNOWN_SOURCES } from "../lib/known-sources.js";
+import type { ArticleListConfig } from "./extractors.js";
 import type { EventCandidate } from "./discover.js";
 
 const completeCandidate: EventCandidate = {
@@ -29,86 +24,121 @@ const completeCandidate: EventCandidate = {
 
 const NOW = new Date(2026, 6, 12); // July 12, 2026
 
-test("extractImgTags pulls src/alt pairs and treats empty alt as null", () => {
-  const html = `<div><img src="/a.jpg" alt="obra"> <img src="/b.jpg" alt=""> <img alt="no src"></div>`;
-  const images = extractImgTags(html);
-  assert.deepEqual(images, [
-    { url: "/a.jpg", description: "obra" },
-    { url: "/b.jpg", description: null },
-  ]);
+// extractImgTags/filterKnownSourceImages/extractArticleList/
+// extractWordpressItems have their own direct coverage in
+// extractors.test.ts — these tests cover fetchBrightSources's dispatch
+// logic instead: does it pick the right extractor, and does it degrade
+// correctly when there isn't one.
+type StubFetch = () => Promise<{ ok: boolean; status: number; text(): Promise<string>; json(): Promise<unknown> }>;
+
+async function withStubFetch<T>(stub: StubFetch, run: () => Promise<T>): Promise<T> {
+  const original = globalThis.fetch;
+  globalThis.fetch = stub as typeof fetch;
+  try {
+    return await run();
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+function jsonResponse(body: unknown): ReturnType<StubFetch> {
+  return Promise.resolve({ ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body });
+}
+
+function textResponse(body: string): ReturnType<StubFetch> {
+  return Promise.resolve({ ok: true, status: 200, text: async () => body, json: async () => JSON.parse(body) });
+}
+
+test("fetchBrightSources dispatches an articleList-configured source to the registry parser", async () => {
+  const source: BrightSource = {
+    url: "https://sitio.cl/agenda",
+    note: "sitio",
+    extractor: {
+      kind: "articleList",
+      blockRegex: /<li class="ev">([\s\S]*?)<\/li>/g,
+      titleLinkRegex: /<a href="([^"]+)">([^<]*)<\/a>/,
+    },
+  };
+  const html = `<ul><li class="ev"><a href="/e/1">Muestra</a></li></ul>`;
+
+  const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([source]));
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].content, '- "Muestra" (fecha no indicada). Lugar: no indicado. Más info: https://sitio.cl/e/1');
 });
 
-test("filterKnownSourceImages resolves relative URLs, drops chrome, nulls 'vacio' alts", () => {
-  const images = [
-    { url: " /dam/expo-prev.jpg", description: "vacio" },
-    { url: "/logos/site-logo.png", description: "Universidad" },
-    { url: "https://cdn.cl/real.jpg", description: "afiche" },
-    { url: "https://cdn.cl/real.jpg", description: "duplicada" },
-  ];
-  const out = filterKnownSourceImages(images, "https://artes.uchile.cl/agenda/30dias/6");
-  assert.deepEqual(out, [
-    { url: "https://artes.uchile.cl/dam/expo-prev.jpg", description: null },
-    { url: "https://cdn.cl/real.jpg", description: "afiche" },
-  ]);
+test("fetchBrightSources falls back to a whole-page flatten when the configured extractor doesn't match the fetched markup", async () => {
+  const source: BrightSource = {
+    url: "https://sitio.cl/agenda",
+    note: "sitio",
+    extractor: {
+      kind: "articleList",
+      blockRegex: /<li class="ev">([\s\S]*?)<\/li>/g,
+      titleLinkRegex: /<a href="([^"]+)">([^<]*)<\/a>/,
+    },
+  };
+  // Real markup for this fetch doesn't have any "ev" blocks at all.
+  const html = `<html><body><p>Contenido inesperado, sin la estructura configurada.</p></body></html>`;
+
+  const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([source]));
+
+  assert.equal(results.length, 1);
+  assert.match(results[0].content, /Contenido inesperado/);
 });
 
-test("extractEventArticles pairs each event with its own image and text, handling the item-place/item-placer typo", () => {
+test("fetchBrightSources falls back to a whole-page flatten for an html source with no extractor configured at all (today's auto-detected sources)", async () => {
+  const source: BrightSource = { url: "https://sitio.cl/agenda", note: "sitio" }; // no type, no extractor — the shape an auto-detected row has
+  const html = `<html><body><script>ignoreme()</script><p>Texto real del sitio.</p></body></html>`;
+
+  const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([source]));
+
+  assert.equal(results.length, 1);
+  assert.match(results[0].content, /Texto real del sitio/);
+  assert.doesNotMatch(results[0].content, /ignoreme/);
+});
+
+test("fetchBrightSources dispatches a wordpressRestApi-configured source to the registry parser", async () => {
+  const source: BrightSource = {
+    url: "https://sitio.cl/wp-json/wp/v2/events",
+    note: "sitio",
+    type: "json-api",
+    extractor: { kind: "wordpressRestApi", titleField: "title.rendered", linkField: "link", imageField: "image" },
+  };
+  const items = [{ title: { rendered: "Muestra API" }, link: "https://sitio.cl/e/1", image: "https://sitio.cl/img.jpg" }];
+
+  const results = await withStubFetch(() => jsonResponse(items), () => fetchBrightSources([source]));
+
+  assert.equal(results.length, 1);
+  assert.deepEqual(results[0].images, [{ url: "https://sitio.cl/img.jpg", description: "Imagen de la exposición: Muestra API" }]);
+});
+
+test("fetchBrightSources logs and skips (doesn't crash the run) a json-api source with no extractor configured", async () => {
+  const source: BrightSource = { url: "https://sitio.cl/wp-json/wp/v2/events", note: "sitio", type: "json-api" };
+
+  const results = await withStubFetch(() => jsonResponse([{ title: { rendered: "x" } }]), () => fetchBrightSources([source]));
+
+  assert.equal(results.length, 0);
+});
+
+test("fetchBrightSources against the real KNOWN_SOURCES config for uchile.cl parses per-event structure (regression check against production config)", async () => {
+  const uchile = KNOWN_SOURCES.find((s) => s.url.includes("artes.uchile.cl"));
+  assert.ok(uchile?.extractor?.kind === "articleList");
+  const config = uchile.extractor as ArticleListConfig;
+
   const html = `
     <article class="mod-cal-result__item">
-      <figure><img src="/dam/uno.jpg" alt="Imagen 1"></figure>
-      <h4 class="mod__item-title"><a href="/agenda/evento-uno">Muestra Uno</a></h4>
+      <figure><img src="/dam/uno.jpg" alt="Imagen"></figure>
+      <h4 class="mod__item-title"><a href="/agenda/evento-uno">Muestra Real</a></h4>
       <p class="mod-cal-result__item-days">Del 1 al 20 de julio</p>
-      <p class="mod-cal-result__item-place">Sala Juan Egenau</p>
-    </article>
-    <article class="mod-cal-result__item">
-      <figure><img src="/dam/dos.jpg" alt="Imagen 2"></figure>
-      <h4 class="mod__item-title"><a href="/agenda/evento-dos">Muestra Dos</a></h4>
-      <p class="mod-cal-result__item-days">Del 5 al 30 de julio</p>
-      <p class="mod-cal-result__item-placer">Galería Central</p>
+      <p class="mod-cal-result__item-placer">MAC Quinta Normal</p>
     </article>
   `;
 
-  const result = extractEventArticles(html, "https://artes.uchile.cl/agenda/30dias/6");
-  assert.ok(result);
-  assert.equal(result.images.length, 2);
-  assert.deepEqual(result.images[0], {
-    url: "https://artes.uchile.cl/dam/uno.jpg",
-    description: "Imagen de la exposición: Muestra Uno",
-  });
-  assert.deepEqual(result.images[1], {
-    url: "https://artes.uchile.cl/dam/dos.jpg",
-    description: "Imagen de la exposición: Muestra Dos",
-  });
+  const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([{ url: uchile.url, note: uchile.note, extractor: config }]));
 
-  const lines = result.content.split("\n");
-  assert.equal(lines.length, 2);
-  assert.equal(
-    lines[0],
-    '- "Muestra Uno" (Del 1 al 20 de julio). Lugar: Sala Juan Egenau. Más info: https://artes.uchile.cl/agenda/evento-uno',
-  );
-  assert.equal(
-    lines[1],
-    '- "Muestra Dos" (Del 5 al 30 de julio). Lugar: Galería Central. Más info: https://artes.uchile.cl/agenda/evento-dos',
-  );
-});
-
-test("extractEventArticles falls back to placeholder text when days/place are missing, but skips an article with no title link", () => {
-  const html = `
-    <article class="mod-cal-result__item">
-      <h4 class="mod__item-title"><a href="/agenda/evento-tres">Muestra Tres</a></h4>
-    </article>
-    <article class="mod-cal-result__item">
-      <p class="mod-cal-result__item-days">Todo julio</p>
-    </article>
-  `;
-
-  const result = extractEventArticles(html, "https://artes.uchile.cl/agenda/30dias/6");
-  assert.ok(result);
-  assert.equal(result.content, '- "Muestra Tres" (fecha no indicada). Lugar: no indicado. Más info: https://artes.uchile.cl/agenda/evento-tres');
-});
-
-test("extractEventArticles returns null when the page has no matching <article> blocks (fallback signal)", () => {
-  assert.equal(extractEventArticles("<div>algo distinto</div>", "https://otra.cl"), null);
+  assert.equal(results.length, 1);
+  assert.match(results[0].content, /Muestra Real.*MAC Quinta Normal/);
+  assert.equal(results[0].images[0]?.url, "https://artes.uchile.cl/dam/uno.jpg");
 });
 
 test("mergeBrightSources dedups by domain with the hand-curated list winning", () => {
