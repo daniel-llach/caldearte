@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@caldearte/shared-types";
-import { deriveCityId, KNOWN_CITIES } from "./cities";
+import { cityIdFromRegionName, deriveCityId, KNOWN_CITIES } from "./cities";
 import { activeRange, anchorDateOnly, dateOnlyFromIso, isCurrentOrUpcoming, rangesOverlap, type EventDates } from "./date";
 
 export interface EventRecord extends EventDates {
@@ -9,6 +9,8 @@ export interface EventRecord extends EventDates {
   artist: string | null;
   description: string | null;
   freeformLocation: string;
+  placeName: string | null;
+  regionName: string | null;
   imageUrl: string | null;
   sensitivityTags: string[];
   sourceUrl: string | null;
@@ -16,13 +18,15 @@ export interface EventRecord extends EventDates {
 
 type EventRow = Database["public"]["Tables"]["events"]["Row"];
 
-function toEventRecord(row: EventRow): EventRecord {
+function toEventRecord(row: EventRow, regionNameById: Map<string, string>): EventRecord {
   return {
     id: row.id,
     title: row.title,
     artist: row.artist,
     description: row.description,
     freeformLocation: row.freeform_location,
+    placeName: row.place_name,
+    regionName: row.region_id ? (regionNameById.get(row.region_id) ?? null) : null,
     imageUrl: row.image_url,
     openingDatetime: row.opening_datetime,
     runStartDate: row.run_start_date,
@@ -33,13 +37,36 @@ function toEventRecord(row: EventRow): EventRecord {
 }
 
 // RLS already restricts anon reads to curation_status='approved' — see
-// supabase/migrations/20260711171717_create_core_schema.sql.
+// supabase/migrations/20260711171717_create_core_schema.sql. `regions` is
+// public-read (added alongside events.region_id, specifically so the
+// frontend can resolve region_id -> name) — fetched alongside events so
+// resolveCityId below can prefer the backend's exact match over the
+// freeform_location guess.
 export async function fetchApprovedEvents(client: SupabaseClient<Database>): Promise<EventRecord[]> {
-  const { data, error } = await client.from("events").select("*");
-  if (error) {
-    throw new Error(`Failed to fetch events: ${error.message}`);
+  const [eventsRes, regionsRes] = await Promise.all([
+    client.from("events").select("*"),
+    client.from("regions").select("id, name"),
+  ]);
+  if (eventsRes.error) {
+    throw new Error(`Failed to fetch events: ${eventsRes.error.message}`);
   }
-  return (data ?? []).map(toEventRecord);
+  if (regionsRes.error) {
+    throw new Error(`Failed to fetch regions: ${regionsRes.error.message}`);
+  }
+  const regionNameById = new Map((regionsRes.data ?? []).map((r) => [r.id, r.name]));
+  return (eventsRes.data ?? []).map((row) => toEventRecord(row, regionNameById));
+}
+
+// Prefers the curator's own region match (exact, resolved at write time)
+// over the frontend's freeform_location guess — the guess only covers rows
+// from before region_id existed, or whose location text didn't match any
+// seeded region.
+function resolveCityId(event: EventRecord): string {
+  if (event.regionName) {
+    const matched = cityIdFromRegionName(event.regionName);
+    if (matched) return matched;
+  }
+  return deriveCityId(event.freeformLocation);
 }
 
 export function filterFamilyMode(events: EventRecord[], familyModeOn: boolean): EventRecord[] {
@@ -47,7 +74,7 @@ export function filterFamilyMode(events: EventRecord[], familyModeOn: boolean): 
 }
 
 export function filterByCity(events: EventRecord[], cityId: string): EventRecord[] {
-  return events.filter((e) => deriveCityId(e.freeformLocation) === cityId);
+  return events.filter((e) => resolveCityId(e) === cityId);
 }
 
 export function eventsActiveInRange(events: EventRecord[], start: string, end: string): EventRecord[] {
@@ -113,7 +140,7 @@ export function countByCity(events: EventRecord[], todayStr: string): Record<str
     counts[city.id] = { inauguraciones: 0, exposActuales: 0 };
   }
   for (const e of events) {
-    const cityId = deriveCityId(e.freeformLocation);
+    const cityId = resolveCityId(e);
     if (!(cityId in counts)) continue; // "otro" isn't shown in the carousel
     const isInauguracion = e.openingDatetime !== null && dateOnlyFromIso(e.openingDatetime) === todayStr;
     counts[cityId][isInauguracion ? "inauguraciones" : "exposActuales"] += 1;

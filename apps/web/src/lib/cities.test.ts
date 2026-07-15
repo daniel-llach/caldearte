@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deriveCityId, cityById, OTHER_CITY } from "./cities";
+import { deriveCityId, cityById, cityIdFromRegionName, OTHER_CITY } from "./cities";
 
 test("deriveCityId matches the trailing comma-segment against known cities", () => {
   assert.equal(deriveCityId("Sala El Farol, Valparaíso"), "valparaiso");
@@ -16,6 +16,12 @@ test("deriveCityId is accent/case-insensitive", () => {
 test("deriveCityId falls back to 'otro' for an unrecognized location", () => {
   assert.equal(deriveCityId("Plaza Central, Rancagua"), "otro");
   assert.equal(deriveCityId("Un lugar sin coma"), "otro");
+});
+
+test("cityIdFromRegionName matches an exact region name, accent/case-insensitive, and returns null otherwise", () => {
+  assert.equal(cityIdFromRegionName("Valparaíso"), "valparaiso");
+  assert.equal(cityIdFromRegionName("VALPARAISO"), "valparaiso");
+  assert.equal(cityIdFromRegionName("Rancagua"), null);
 });
 
 test("cityById returns OTHER_CITY for an unknown id", () => {

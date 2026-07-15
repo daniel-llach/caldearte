@@ -29,7 +29,7 @@ export default function EventCardBase({
         <CardImage imageUrl={event.imageUrl} sourceUrl={event.sourceUrl} sensitivityTags={event.sensitivityTags} />
       </div>
       <div className={`flex flex-col gap-1.5 ${contentPaddingClass}`}>
-        <p className={`${venueClass} text-venue-gray truncate`}>{event.freeformLocation}</p>
+        <p className={`${venueClass} text-venue-gray truncate`}>{event.placeName ?? event.freeformLocation}</p>
         <p className={`${titleClass} text-white`}>{event.title}</p>
         {period && (
           <p className={`${periodClass} text-period-gray`}>

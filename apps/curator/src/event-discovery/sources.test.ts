@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   detectNewBrightSources,
+  extractEventArticles,
   extractImgTags,
   filterKnownSourceImages,
   isCompleteEvent,
@@ -22,6 +23,7 @@ const completeCandidate: EventCandidate = {
   imageUrl: "https://nuevositio.cl/obra.jpg",
   status: "approved",
   location: "Santiago, Chile",
+  placeName: null,
   sourceUrl: "https://nuevositio.cl/expo-1",
 };
 
@@ -48,6 +50,65 @@ test("filterKnownSourceImages resolves relative URLs, drops chrome, nulls 'vacio
     { url: "https://artes.uchile.cl/dam/expo-prev.jpg", description: null },
     { url: "https://cdn.cl/real.jpg", description: "afiche" },
   ]);
+});
+
+test("extractEventArticles pairs each event with its own image and text, handling the item-place/item-placer typo", () => {
+  const html = `
+    <article class="mod-cal-result__item">
+      <figure><img src="/dam/uno.jpg" alt="Imagen 1"></figure>
+      <h4 class="mod__item-title"><a href="/agenda/evento-uno">Muestra Uno</a></h4>
+      <p class="mod-cal-result__item-days">Del 1 al 20 de julio</p>
+      <p class="mod-cal-result__item-place">Sala Juan Egenau</p>
+    </article>
+    <article class="mod-cal-result__item">
+      <figure><img src="/dam/dos.jpg" alt="Imagen 2"></figure>
+      <h4 class="mod__item-title"><a href="/agenda/evento-dos">Muestra Dos</a></h4>
+      <p class="mod-cal-result__item-days">Del 5 al 30 de julio</p>
+      <p class="mod-cal-result__item-placer">Galería Central</p>
+    </article>
+  `;
+
+  const result = extractEventArticles(html, "https://artes.uchile.cl/agenda/30dias/6");
+  assert.ok(result);
+  assert.equal(result.images.length, 2);
+  assert.deepEqual(result.images[0], {
+    url: "https://artes.uchile.cl/dam/uno.jpg",
+    description: "Imagen de la exposición: Muestra Uno",
+  });
+  assert.deepEqual(result.images[1], {
+    url: "https://artes.uchile.cl/dam/dos.jpg",
+    description: "Imagen de la exposición: Muestra Dos",
+  });
+
+  const lines = result.content.split("\n");
+  assert.equal(lines.length, 2);
+  assert.equal(
+    lines[0],
+    '- "Muestra Uno" (Del 1 al 20 de julio). Lugar: Sala Juan Egenau. Más info: https://artes.uchile.cl/agenda/evento-uno',
+  );
+  assert.equal(
+    lines[1],
+    '- "Muestra Dos" (Del 5 al 30 de julio). Lugar: Galería Central. Más info: https://artes.uchile.cl/agenda/evento-dos',
+  );
+});
+
+test("extractEventArticles falls back to placeholder text when days/place are missing, but skips an article with no title link", () => {
+  const html = `
+    <article class="mod-cal-result__item">
+      <h4 class="mod__item-title"><a href="/agenda/evento-tres">Muestra Tres</a></h4>
+    </article>
+    <article class="mod-cal-result__item">
+      <p class="mod-cal-result__item-days">Todo julio</p>
+    </article>
+  `;
+
+  const result = extractEventArticles(html, "https://artes.uchile.cl/agenda/30dias/6");
+  assert.ok(result);
+  assert.equal(result.content, '- "Muestra Tres" (fecha no indicada). Lugar: no indicado. Más info: https://artes.uchile.cl/agenda/evento-tres');
+});
+
+test("extractEventArticles returns null when the page has no matching <article> blocks (fallback signal)", () => {
+  assert.equal(extractEventArticles("<div>algo distinto</div>", "https://otra.cl"), null);
 });
 
 test("mergeBrightSources dedups by domain with the hand-curated list winning", () => {

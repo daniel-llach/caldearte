@@ -130,17 +130,25 @@ images per search result (bright sources are exempt from this cap — their
 image URLs are cheap, short, first-party paths, unlike long CDN URLs from
 social platforms).
 
-**Vision check (Axis 5)** reuses `lib/vision-check.ts` unchanged. Measured
-real cost: ~$0.0003-0.0011 per image — negligible, applying it to every
-event with an image would barely move the budget. Two real bugs found and
-fixed in `defaultImageFetcher` (shared code, not just this flow):
-(1) some servers append parameters to `Content-Type`
-(`image/jpeg;charset=UTF-8`), which Anthropic's API rejects outright —
-fixed by stripping everything after the first `;`; (2) Instagram's CDN
-sometimes returns 403 on a direct server-side fetch (hotlink protection) —
-not fixed (would need a different fetch strategy/headers), but the vision
-step now falls back to the next available candidate image instead of
-failing the whole run.
+**Vision check (Axis 5) exists as reusable code (`lib/vision-check.ts`) but
+is NOT wired into production Event Discovery today.** Its only caller
+anywhere in the repo is the standalone PoC
+(`apps/curator/scripts/poc-tavily-discover.ts`) — `discover.ts`/`sources.ts`/
+`run.ts` never call `runVisionCheck`, so no image (Tavily-sourced or
+otherwise) currently gets an Axis-5 explicit-content check before
+publishing. Wiring it into production is a deliberate, separate editorial/
+cost decision (it could newly reject currently-live events), not done yet.
+
+What's validated so far, in the PoC: measured real cost ~$0.0003-0.0011 per
+image — negligible, applying it to every event with an image would barely
+move the budget. Two real bugs found and fixed in `defaultImageFetcher`
+(shared code, not PoC-specific): (1) some servers append parameters to
+`Content-Type` (`image/jpeg;charset=UTF-8`, e.g. `artes.uchile.cl`), which
+Anthropic's API rejects outright — fixed by stripping everything after the
+first `;`; (2) Instagram's CDN sometimes returns 403 on a direct
+server-side fetch (hotlink protection) — not fixed (would need a different
+fetch strategy/headers), but the PoC's vision step falls back to the next
+available candidate image instead of failing the whole run.
 
 ### Prompt caching — implemented, currently inactive
 

@@ -28,6 +28,7 @@ const baseCandidate: EventCandidate = {
   imageUrl: null,
   status: "approved",
   location: "Providencia, Santiago, Chile",
+  placeName: null,
   sourceUrl: "https://example.cl/expo",
 };
 

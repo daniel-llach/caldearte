@@ -25,7 +25,8 @@ const unitCandidates = [
     curationReasoning: "ok",
     imageUrl: "https://x.cl/obra.jpg",
     status: "approved",
-    location: "Providencia, Santiago, Chile",
+    location: "GAM, Santiago",
+    placeName: "GAM",
     sourceUrl: "https://x.cl/expo",
   },
   {
@@ -41,6 +42,7 @@ const unitCandidates = [
     imageUrl: null,
     status: "approved",
     location: "Santiago, Chile",
+    placeName: null,
     sourceUrl: null,
   },
   {
@@ -56,6 +58,7 @@ const unitCandidates = [
     imageUrl: null,
     status: "approved",
     location: "Centro Cultural Recoleta, Buenos Aires, Argentina",
+    placeName: "Centro Cultural Recoleta",
     sourceUrl: null,
   },
   {
@@ -75,6 +78,7 @@ const unitCandidates = [
     imageUrl: null,
     status: "approved",
     location: "Concepción, Chile",
+    placeName: null,
     sourceUrl: null,
   },
 ];
@@ -92,7 +96,8 @@ const brightCandidates = [
     curationReasoning: "ok",
     imageUrl: "https://nuevositio.cl/obra1.jpg",
     status: "approved",
-    location: "Valparaíso, Chile",
+    location: "Plaza Sotomayor, Valparaíso",
+    placeName: "Plaza Sotomayor",
     sourceUrl: "https://nuevositio.cl/expo-1",
   },
   {
@@ -108,6 +113,7 @@ const brightCandidates = [
     imageUrl: "https://nuevositio.cl/obra2.jpg",
     status: "approved",
     location: "Valparaíso, Chile",
+    placeName: null,
     sourceUrl: "https://nuevositio.cl/expo-2",
   },
 ];
@@ -177,10 +183,14 @@ test(
         const vigente = byTitle.get("__test__ Muestra vigente");
         assert.ok(vigente, "current event inserted");
         assert.equal(vigente.curation_status, "approved");
-        assert.equal(vigente.freeform_location, "Providencia, Santiago, Chile");
+        assert.equal(vigente.freeform_location, "GAM, Santiago");
+        assert.equal(vigente.place_name, "GAM");
         assert.equal(vigente.run_start_date, "2026-07-05");
         assert.equal(vigente.run_end_date, "2026-09-30");
         assert.equal(vigente.source, "discovered");
+
+        const santiagoRegion = await client.from("regions").select("id").eq("name", "Santiago").single();
+        assert.equal(vigente.region_id, santiagoRegion.data?.id, "matched against the seeded Santiago region");
 
         assert.equal(byTitle.has("__test__ Ya terminó"), false, "stale event dropped");
 
@@ -188,6 +198,8 @@ test(
         assert.ok(foranea, "foreign event stored for audit");
         assert.equal(foranea.curation_status, "rejected");
         assert.match(foranea.curation_reasoning, /FILTRO DE CÓDIGO/);
+        assert.equal(foranea.place_name, "Centro Cultural Recoleta");
+        assert.equal(foranea.region_id, null, "no seeded region named 'Argentina' — unmatched, not the unit searched");
 
         const soloFin = byTitle.get("__test__ Piedras Raras");
         assert.ok(soloFin, "event with only run_end_date inserts successfully (real production bug, fixed)");
@@ -252,6 +264,13 @@ test(
         const { data: bright } = await client.from("events").select("*").like("title", "__test__ Brillante%");
         assert.equal(bright?.length, 2);
         assert.ok(bright?.every((e) => e.curation_status === "approved"));
+
+        const valparaisoRegion = await client.from("regions").select("id").eq("name", "Valparaíso").single();
+        const brightByTitle = new Map((bright ?? []).map((e) => [e.title, e]));
+        assert.equal(brightByTitle.get("__test__ Brillante uno")?.place_name, "Plaza Sotomayor");
+        assert.equal(brightByTitle.get("__test__ Brillante uno")?.region_id, valparaisoRegion.data?.id);
+        assert.equal(brightByTitle.get("__test__ Brillante dos")?.place_name, null);
+        assert.equal(brightByTitle.get("__test__ Brillante dos")?.region_id, null, "'Chile' alone doesn't match any seeded region name");
 
         const { data: detected } = await client
           .from("detected_sources")

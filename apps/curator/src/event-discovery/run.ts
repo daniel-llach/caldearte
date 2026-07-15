@@ -10,6 +10,8 @@ import type { Tables } from "@caldearte/shared-types";
 import { getSupabaseClient } from "../lib/supabase-client.js";
 import { recordUsage } from "../lib/usage-tracking.js";
 import { knownSourceDomain } from "../lib/known-sources.js";
+import { matchRegionId, type RegionLike } from "../lib/locations.js";
+import { enrichMissingImages, type FetchLike as PageFetchLike } from "../lib/page-fetch.js";
 import {
   buildBlock,
   buildSystemPrompt,
@@ -53,6 +55,19 @@ export async function getUnitsDueForRun(now: Date = new Date()): Promise<Region[
   return (data ?? []).filter((r) => isDueForRun(r, now));
 }
 
+// All regions, regardless of status — region_id is a location tag, not a
+// "should we search here" flag, so an event can still match an excluded
+// or not-yet-due region by name.
+async function loadAllRegions(): Promise<RegionLike[]> {
+  const { data, error } = await getSupabaseClient().from("regions").select("id, name");
+
+  if (error) {
+    throw new Error(`Failed to load regions: ${error.message}`);
+  }
+
+  return data ?? [];
+}
+
 async function loadDetectedSources(): Promise<BrightSource[]> {
   const { data, error } = await getSupabaseClient()
     .from("detected_sources")
@@ -89,7 +104,7 @@ async function loadExistingTitleKeys(): Promise<Set<string>> {
 
 async function insertCandidates(
   candidates: EventCandidate[],
-  regionId: string | null,
+  regions: RegionLike[],
   seenTitleKeys: Set<string>,
   now: Date,
 ): Promise<number> {
@@ -107,6 +122,8 @@ async function insertCandidates(
 
     const { error } = await client.from("events").insert({
       freeform_location: c.location,
+      place_name: c.placeName,
+      region_id: matchRegionId(c.location, regions),
       title: c.title,
       description: c.description,
       artist: c.artist,
@@ -160,6 +177,7 @@ export interface RunDeps {
   messagesClient?: MessagesClient;
   searchUnitFn?: typeof searchUnit;
   fetchBrightSourcesFn?: typeof fetchBrightSources;
+  pageFetchFn?: PageFetchLike;
   now?: Date;
 }
 
@@ -173,12 +191,14 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   const messagesClient: MessagesClient = deps.messagesClient ?? new Anthropic();
   const searchUnitFn = deps.searchUnitFn ?? searchUnit;
   const fetchBrightSourcesFn = deps.fetchBrightSourcesFn ?? fetchBrightSources;
+  const pageFetchFn = deps.pageFetchFn ?? fetch;
   const client = getSupabaseClient();
 
   const systemPrompt = buildSystemPrompt(currentMonthLabel(now));
   const brightSources = mergeBrightSources(await loadDetectedSources());
   const excludeDomains = brightSources.map((s) => knownSourceDomain(s.url));
   const seenTitleKeys = await loadExistingTitleKeys();
+  const regions = await loadAllRegions();
   const allCandidates: EventCandidate[] = [];
 
   const units = await getUnitsDueForRun(now);
@@ -198,8 +218,9 @@ export async function run(deps: RunDeps = {}): Promise<void> {
         regionId: unit.id,
         usage,
       });
+      await enrichMissingImages(candidates, pageFetchFn);
       allCandidates.push(...candidates);
-      inserted = await insertCandidates(candidates, unit.id, seenTitleKeys, now);
+      inserted = await insertCandidates(candidates, regions, seenTitleKeys, now);
     }
 
     const { error } = await client
@@ -221,8 +242,9 @@ export async function run(deps: RunDeps = {}): Promise<void> {
     const block = buildBlock("Fuentes brillantes (no específicas a ninguna comuna)", brightResults);
     const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
     await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
+    await enrichMissingImages(candidates, pageFetchFn);
     allCandidates.push(...candidates);
-    const inserted = await insertCandidates(candidates, null, seenTitleKeys, now);
+    const inserted = await insertCandidates(candidates, regions, seenTitleKeys, now);
     console.log(`[event-discovery] bright sources: ${inserted} new approved event(s)`);
   }
 

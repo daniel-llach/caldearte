@@ -25,6 +25,7 @@ export interface EventCandidate {
   imageUrl: string | null;
   status: "approved" | "rejected";
   location: string;
+  placeName: string | null; // recognizable venue/institution/landmark name, when the source states one
   sourceUrl: string | null;
 }
 
@@ -187,6 +188,8 @@ Para cada evento real que encuentres, extrae:
 - \`openingDatetime\`: fecha Y hora exacta de la inauguración, SOLO si la fuente menciona una apertura/inauguración específica con hora — null si no hay una inauguración confirmada (una muestra puede no tener inauguración pública)
 - \`imageUrl\`: elige, de las "imágenes candidatas" listadas bajo cada fuente, la que realmente muestre una obra, flyer o foto del evento — NO un logo, ícono, foto de perfil, o imagen decorativa del sitio. Usa la descripción de cada imagen (cuando exista) para decidir: una descripción como "profile picture" NUNCA es correcta; una descripción que menciona un cartel, afiche, o texto del evento SÍ suele serlo. Si ninguna imagen candidata parece ser realmente del evento, usa null — no inventes ni elijas al azar.
 - \`sourceUrl\`: la URL de la fuente donde se puede ver más información del evento
+- \`location\`: la comuna/ciudad donde ocurre el evento, tal como aparece en la fuente (ej. "Las Condes, Santiago")
+- \`placeName\`: el nombre reconocible del lugar, cuando la fuente lo menciona — nombre de museo, galería, centro cultural, u otra institución (ej. "GAM", "Parque Cultural Valparaíso"); si no hay un nombre de institución pero sí una dirección o punto de referencia claro (ej. "Plaza Sotomayor", "Parque Forestal", una dirección de calle), usa eso. Si la fuente no da ninguno de los dos, usa null — no repitas la comuna/ciudad aquí, y no inventes un nombre que la fuente no menciona.
 
 ${ART_SCOPE_POLICY}
 
@@ -207,7 +210,7 @@ Etiqueta también: \`mediumType\` ("tradicional" o "intervencion_no_tradicional"
 \`status\` es binario: "approved" o "rejected" — no hay estado intermedio.
 
 Responde SOLO con un bloque de código \`\`\`json que contenga un array de objetos con esta forma exacta, nada más antes o después:
-[{ "title": string, "description": string | null, "artist": string | null, "runStartDate": string | null, "runEndDate": string | null, "openingDatetime": string | null, "mediumType": "tradicional" | "intervencion_no_tradicional", "sensitivityTags": string[], "curationReasoning": string, "imageUrl": string | null, "status": "approved" | "rejected", "location": string, "sourceUrl": string | null }]
+[{ "title": string, "description": string | null, "artist": string | null, "runStartDate": string | null, "runEndDate": string | null, "openingDatetime": string | null, "mediumType": "tradicional" | "intervencion_no_tradicional", "sensitivityTags": string[], "curationReasoning": string, "imageUrl": string | null, "status": "approved" | "rejected", "location": string, "placeName": string | null, "sourceUrl": string | null }]
 
 Si no encuentras nada en scope, responde con un array vacío: \`\`\`json
 []
