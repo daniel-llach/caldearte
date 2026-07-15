@@ -1,0 +1,159 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { esCL } from "@/i18n/es-CL";
+import { cityById, type City } from "@/lib/cities";
+import { CITY_COOKIE, FAMILY_MODE_COOKIE } from "@/lib/cookies";
+import { fmtShort } from "@/lib/date";
+import type { CityCounts, EventRecord } from "@/lib/events";
+import Header from "./Header";
+import InauguracionCard from "./InauguracionCard";
+import ExpoCard from "./ExpoCard";
+import CityCarousel from "./CityCarousel";
+import Footer from "./Footer";
+import CityPickerPanel from "./CityPickerPanel";
+import MenuDrawer from "./MenuDrawer";
+
+interface CalendarViewProps {
+  inauguraciones: EventRecord[];
+  exposActuales: EventRecord[];
+  cityId: string;
+  familyMode: boolean;
+  today: string; // YYYY-MM-DD, computed server-side for SSR/CSR consistency
+  cityCounts: Record<string, CityCounts>;
+  nextEvent: EventRecord | null; // empty-state fallback, beyond "today"
+}
+
+function setCookie(name: string, value: string): void {
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${60 * 60 * 24 * 365}`;
+}
+
+const DESKTOP_BREAKPOINT = 768;
+
+export default function CalendarView({
+  inauguraciones,
+  exposActuales,
+  cityId,
+  familyMode,
+  today,
+  cityCounts,
+  nextEvent,
+}: CalendarViewProps) {
+  const router = useRouter();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerView, setDrawerView] = useState<"menu" | "curatoria">("menu");
+
+  const city = cityById(cityId);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      setIsDesktop(entries[0].contentRect.width >= DESKTOP_BREAKPOINT);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  function goToCity(nextCityId: string) {
+    setCookie(CITY_COOKIE, nextCityId);
+    setLocationOpen(false);
+    router.refresh();
+  }
+
+  function selectCity(next: City) {
+    goToCity(next.id);
+  }
+
+  function toggleFamilyMode() {
+    setCookie(FAMILY_MODE_COOKIE, familyMode ? "" : "1");
+    router.refresh();
+  }
+
+  const isEmpty = inauguraciones.length === 0 && exposActuales.length === 0;
+
+  return (
+    <div ref={containerRef} className="w-full relative">
+      <Header
+        cityId={cityId}
+        familyMode={familyMode}
+        today={today}
+        inauguracionesCount={inauguraciones.length}
+        exposCount={exposActuales.length}
+        onOpenCityPicker={() => setLocationOpen(true)}
+        onOpenMobileMenu={() => {
+          setDrawerView("menu");
+          setDrawerOpen(true);
+        }}
+        onOpenCuratoria={() => {
+          setDrawerView("curatoria");
+          setDrawerOpen(true);
+        }}
+        onToggleFamilyMode={toggleFamilyMode}
+      />
+
+      {isEmpty ? (
+        <div className="py-10">
+          {nextEvent ? (
+            <p className="text-sm text-heading-gray">
+              {esCL.emptyWithNextEvent(
+                city.name,
+                nextEvent.openingDatetime ? fmtShort(nextEvent.openingDatetime.slice(0, 10)) : fmtShort(nextEvent.runStartDate ?? today),
+                nextEvent.title,
+              )}
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-heading-gray mb-2">{esCL.emptyNoEventsYet(city.name)}</p>
+              <p className="text-xs text-muted-gray mb-3">{esCL.doYouKnowOne}</p>
+              <button className="text-xs px-3 py-1.5 rounded-full bg-city-pill-bg text-city-pill-fg">{esCL.tellUs}</button>
+            </>
+          )}
+        </div>
+      ) : (
+        <>
+          {inauguraciones.length > 0 && (
+            <section className="mt-10">
+              <h2 className="text-3xl md:text-[41px] font-black tracking-wide text-heading-gray mb-6">{esCL.sectionInauguraciones}</h2>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${isDesktop ? 2 : 1}, minmax(0,1fr))`, gap: isDesktop ? "118px" : "24px" }}>
+                {inauguraciones.map((e) => (
+                  <InauguracionCard key={e.id} event={e} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {exposActuales.length > 0 && (
+            <section className="mt-16">
+              <h2 className="text-3xl md:text-[41px] font-black tracking-wide text-heading-gray mb-6">{esCL.sectionExposActuales}</h2>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${isDesktop ? 3 : 1}, minmax(0,1fr))`, gap: "24px" }}>
+                {exposActuales.map((e) => (
+                  <ExpoCard key={e.id} event={e} />
+                ))}
+              </div>
+            </section>
+          )}
+        </>
+      )}
+
+      <CityCarousel cityCounts={cityCounts} excludeCityId={cityId} onSelectCity={goToCity} />
+
+      <Footer />
+
+      <CityPickerPanel open={locationOpen} cityId={cityId} onClose={() => setLocationOpen(false)} onSelect={selectCity} />
+
+      <MenuDrawer
+        open={drawerOpen}
+        view={drawerView}
+        familyMode={familyMode}
+        onClose={() => setDrawerOpen(false)}
+        onViewChange={setDrawerView}
+        onToggleFamilyMode={toggleFamilyMode}
+      />
+    </div>
+  );
+}

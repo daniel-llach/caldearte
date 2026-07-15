@@ -1,0 +1,47 @@
+import { cookies } from "next/headers";
+import { getSupabaseClient } from "@/lib/supabase-client";
+import { fetchApprovedEvents, filterFamilyMode, filterByCity, filterActiveToday, splitInauguracionesYExpos, countByCity, findNextEvent } from "@/lib/events";
+import { DEFAULT_CITY_ID, KNOWN_CITIES } from "@/lib/cities";
+import { todayInSantiago } from "@/lib/date";
+import { CITY_COOKIE, FAMILY_MODE_COOKIE } from "@/lib/cookies";
+import CalendarView from "@/components/CalendarView";
+
+export default async function HomePage() {
+  const cookieStore = await cookies();
+  const rawCityId = cookieStore.get(CITY_COOKIE)?.value ?? DEFAULT_CITY_ID;
+  const cityId = KNOWN_CITIES.some((c) => c.id === rawCityId) ? rawCityId : DEFAULT_CITY_ID;
+  const familyMode = Boolean(cookieStore.get(FAMILY_MODE_COOKIE)?.value);
+  const today = todayInSantiago();
+
+  const allEvents = await fetchApprovedEvents(getSupabaseClient());
+  // Family-mode filtering happens here, server-side, before anything is
+  // sent to the client — excluded events never reach the HTML/JS, which is
+  // what actually satisfies "no flash of unblurred content" (overview.md).
+  const visible = filterFamilyMode(allEvents, familyMode);
+
+  // Home shows only what's visitable *today* — nothing not yet started,
+  // nothing already ended.
+  const activeToday = filterActiveToday(visible, today);
+  const cityCounts = countByCity(activeToday, today);
+
+  const cityEventsToday = filterByCity(activeToday, cityId);
+  const { inauguraciones, exposActuales } = splitInauguracionesYExpos(cityEventsToday, today);
+
+  // Empty-state fallback looks beyond "today" within the selected city, so
+  // it can say "the next one is on X" instead of just "nothing."
+  const nextEvent = findNextEvent(filterByCity(visible, cityId), today);
+
+  return (
+    <main className="min-h-screen w-full bg-white px-4 py-8 md:px-[61px] max-w-[1280px] mx-auto">
+      <CalendarView
+        inauguraciones={inauguraciones}
+        exposActuales={exposActuales}
+        cityId={cityId}
+        familyMode={familyMode}
+        today={today}
+        cityCounts={cityCounts}
+        nextEvent={nextEvent}
+      />
+    </main>
+  );
+}

@@ -1,0 +1,89 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  fmtShort,
+  fmtPeriod,
+  fmtOpeningHour,
+  anchorDateOnly,
+  activeRange,
+  rangesOverlap,
+  isCurrentOrUpcoming,
+  dateOnlyFromIso,
+} from "./date";
+
+test("fmtShort formats a short date", () => {
+  assert.equal(fmtShort("2026-07-11"), "11 jul");
+});
+
+test("dateOnlyFromIso extracts the date from a full timestamptz", () => {
+  assert.equal(dateOnlyFromIso("2026-07-11T22:00:00+00:00"), "2026-07-11");
+  assert.equal(dateOnlyFromIso("2026-07-11"), "2026-07-11");
+});
+
+test("anchorDateOnly prefers opening_datetime, then run_start_date, then run_end_date", () => {
+  assert.equal(
+    anchorDateOnly({ openingDatetime: "2026-07-11T22:00:00+00:00", runStartDate: "2026-07-01", runEndDate: "2026-08-01" }),
+    "2026-07-11",
+  );
+  assert.equal(anchorDateOnly({ openingDatetime: null, runStartDate: "2026-07-01", runEndDate: "2026-08-01" }), "2026-07-01");
+  assert.equal(anchorDateOnly({ openingDatetime: null, runStartDate: null, runEndDate: "2026-08-01" }), "2026-08-01");
+  assert.equal(anchorDateOnly({ openingDatetime: null, runStartDate: null, runEndDate: null }), null);
+});
+
+test("activeRange spans run_start_date to run_end_date when both present", () => {
+  assert.deepEqual(
+    activeRange({ openingDatetime: null, runStartDate: "2026-07-05", runEndDate: "2026-09-30" }),
+    { start: "2026-07-05", end: "2026-09-30" },
+  );
+});
+
+test("activeRange collapses to a single day when there's only an anchor", () => {
+  assert.deepEqual(
+    activeRange({ openingDatetime: "2026-07-11T22:00:00+00:00", runStartDate: null, runEndDate: null }),
+    { start: "2026-07-11", end: "2026-07-11" },
+  );
+});
+
+test("rangesOverlap", () => {
+  assert.equal(rangesOverlap("2026-07-01", "2026-07-10", "2026-07-10", "2026-07-20"), true);
+  assert.equal(rangesOverlap("2026-07-01", "2026-07-10", "2026-07-11", "2026-07-20"), false);
+});
+
+test("fmtPeriod: same-month run", () => {
+  assert.equal(fmtPeriod("2026-07-12", "2026-07-28", "2026-07-12"), "12 al 28 de julio");
+});
+
+test("fmtPeriod: cross-month run", () => {
+  assert.equal(fmtPeriod("2026-07-28", "2026-08-03", "2026-07-28"), "28 de julio al 3 de agosto");
+});
+
+test("fmtPeriod: single day (no run, just an anchor)", () => {
+  assert.equal(fmtPeriod(null, null, "2026-07-11"), "11 de julio");
+});
+
+test("fmtOpeningHour: whole hour", () => {
+  // 23:00 UTC = 19:00 in Chile (winter, UTC-4, no DST in July).
+  assert.equal(fmtOpeningHour("2026-07-11T23:00:00.000Z"), "19 hr");
+});
+
+test("fmtOpeningHour: non-zero minutes", () => {
+  assert.equal(fmtOpeningHour("2026-07-11T23:30:00.000Z"), "19:30 hr");
+});
+
+test("isCurrentOrUpcoming: a run that ended last month is stale", () => {
+  assert.equal(
+    isCurrentOrUpcoming({ openingDatetime: null, runStartDate: "2026-05-01", runEndDate: "2026-06-15" }, "2026-07-11"),
+    false,
+  );
+});
+
+test("isCurrentOrUpcoming: a run still ending this month or later is current", () => {
+  assert.equal(
+    isCurrentOrUpcoming({ openingDatetime: null, runStartDate: "2026-06-01", runEndDate: "2026-07-05" }, "2026-07-11"),
+    true,
+  );
+  assert.equal(
+    isCurrentOrUpcoming({ openingDatetime: "2026-08-01T22:00:00+00:00", runStartDate: null, runEndDate: null }, "2026-07-11"),
+    true,
+  );
+});
