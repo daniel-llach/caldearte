@@ -12,14 +12,23 @@
 // lastReviewedAt: manual review cadence — every 3-6 months, confirm the
 // URL still works and is still worth fetching directly. Not automated;
 // just a note for whoever does the periodic check.
-// "html" sources get scraped as a page (tags stripped, <img src/alt>
-// pulled out first). "json-api" sources are structured data already —
-// no HTML parsing needed, just map fields directly.
+//
+// `extractor`: which registry parser (event-discovery/extractors.ts) knows
+// how to pull individual events out of this source's real structure —
+// config, not a new one-off function per site. Its `kind` also decides HOW
+// the source gets fetched: "wordpressRestApi" -> REST call, anything else
+// (an "articleList" config, or no extractor at all) -> plain HTML page
+// fetch, falling back to a whole-page flatten when there's no config or it
+// doesn't match. A type-only import from event-discovery/ is the one place
+// this file points "up" instead of down — extractor shapes are inherently
+// owned by the extraction registry, not worth duplicating here.
+import type { ExtractorConfig } from "../event-discovery/extractors.js";
+
 export interface KnownSource {
   url: string;
   note: string;
   lastReviewedAt: string;
-  type?: "html" | "json-api";
+  extractor?: ExtractorConfig;
 }
 
 export const KNOWN_SOURCES: KnownSource[] = [
@@ -27,12 +36,29 @@ export const KNOWN_SOURCES: KnownSource[] = [
     url: "https://artes.uchile.cl/agenda/30dias/6",
     note: "Rolling 30-day agenda, Universidad de Chile — lists multiple real exhibitions per entry, updates dynamically.",
     lastReviewedAt: "2026-07-12",
+    extractor: {
+      kind: "articleList",
+      blockRegex: /<article class="mod-cal-result__item">([\s\S]*?)<\/article>/g,
+      titleLinkRegex: /<h4 class="mod__item-title"><a href="([^"]+)">([^<]*)<\/a><\/h4>/,
+      // Real markup has a typo — some entries use "item-place", most use
+      // "item-placer" — match both rather than assuming the source will fix it.
+      daysRegex: /class="mod-cal-result__item-days"[^>]*>([\s\S]*?)<\/p>/,
+      placeRegex: /class="mod-cal-result__item-place[a-z]*"[^>]*>([\s\S]*?)<\/p>/,
+    },
   },
   {
     url: "https://parquecultural.cl/wp-json/wp/v2/events_list?_fields=title,meta&per_page=20",
     note: 'WordPress REST API behind Parque Cultural Valparaíso\'s events widget (the widget itself is JS-rendered, invisible to a plain fetch — found via the browser\'s Network tab). Structured fields: title.rendered, meta.imagen_evento (image), meta.extracto_corto (free-text description, often states the real "Inauguración" date/time — meta.hora_de_inicio/hora_de_termino are just the venue\'s daily opening hours, NOT the inauguración time), meta.fecha_de_inicio/fecha_de_termino (YYYYMMDD).',
     lastReviewedAt: "2026-07-12",
-    type: "json-api",
+    extractor: {
+      kind: "wordpressRestApi",
+      titleField: "title.rendered",
+      linkField: "meta.link_al_evento",
+      imageField: "meta.imagen_evento",
+      descriptionField: "meta.extracto_corto",
+      startDateField: "meta.fecha_de_inicio",
+      endDateField: "meta.fecha_de_termino",
+    },
   },
 ];
 

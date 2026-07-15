@@ -207,26 +207,55 @@ every run, and excluded from regular Tavily searches for that domain (via
 `exclude_domains`) so the search budget isn't spent re-discovering what's
 already covered directly.
 
-**Two source types**, `apps/curator/src/lib/known-sources.ts`:
-- `"html"` — scrape the page: extract `<img src/alt>` pairs *before*
-  stripping tags (a real bug — the original crude tag-strip threw away
-  real per-exhibition thumbnails that were sitting right in the HTML,
-  fixed by pulling images out first), resolve relative image URLs against
-  the page's own origin.
-- `"json-api"` — structured data already, no HTML parsing or image-to-
-  event matching needed. Example: Parque Cultural Valparaíso's events
-  widget is JS-rendered (invisible to a plain `fetch` — confirmed the raw
-  HTML response never contains the widget's real content anywhere, even
-  though the browser's DevTools shows it after JavaScript runs), but the
-  widget itself calls a clean WordPress REST endpoint
-  (`/wp-json/wp/v2/events_list`) found via the browser's Network tab —
-  hitting that directly gives real, structured title/image/description/
-  date fields per event, no guessing required. One real find worth noting:
-  its `hora_de_inicio`/`hora_de_termino` fields are the *venue's* daily
-  opening hours, not the actual inauguración time — the real opening time,
-  when there is one, is only in the free-text description field, so Haiku
-  still needs to read that rather than trust the structured hour fields
-  blindly.
+**`type` decides how a source is fetched** (`apps/curator/src/lib/known-sources.ts`):
+- `"html"` (default) — a plain page fetch.
+- `"json-api"` — a REST call, no HTML involved.
+
+**`extractor` (optional, config-driven) decides how per-event structure
+gets pulled out of what was fetched** — a registry
+(`apps/curator/src/event-discovery/extractors.ts`) instead of one hardcoded
+parser function per site. Adding a new bright source with known structure
+means writing a config entry, not new parsing code. Two shapes exist so
+far, matching the two kinds of structure real bright sources have shown:
+
+- `articleList` — an HTML listing page where each event lives in its own
+  repeating block. uchile.cl's config: a `blockRegex` matching each
+  `<article class="mod-cal-result__item">`, plus regexes for the
+  title+link, date range, and place *within* that block. Extracts `<img
+  src/alt>` pairs *before* stripping tags (a real bug — the original crude
+  tag-strip threw away real per-exhibition thumbnails that were sitting
+  right in the HTML, fixed by pulling images out first), resolves relative
+  image URLs against the page's own origin, and — critically — keeps each
+  event's own image and individual page URL paired with *that* event, not
+  pooled with every other event on the page. A real bug this fixed: the
+  original whole-page-flatten approach lost that pairing entirely, so
+  Haiku had to blind-match N images to N events from one pooled list and
+  got some wrong (confirmed: 3 of 15 in a real run against uchile.cl).
+- `wordpressRestApi` — a WordPress REST endpoint, fields named per-site
+  (dotted paths in the config, e.g. `meta.link_al_evento`) since a site's
+  custom meta-field names aren't a WordPress standard. Example: Parque
+  Cultural Valparaíso's events widget is JS-rendered (invisible to a plain
+  `fetch` — confirmed the raw HTML response never contains the widget's
+  real content anywhere, even though the browser's DevTools shows it after
+  JavaScript runs), but the widget itself calls a clean WordPress REST
+  endpoint (`/wp-json/wp/v2/events_list`) found via the browser's Network
+  tab — hitting that directly gives real, structured title/image/
+  description/date fields per event, no guessing required. One real find
+  worth noting: its `hora_de_inicio`/`hora_de_termino` fields are the
+  *venue's* daily opening hours, not the actual inauguración time — the
+  real opening time, when there is one, is only in the free-text
+  description field, so Haiku still needs to read that rather than trust
+  the structured hour fields blindly.
+
+**A source with no `extractor` configured** — every auto-detected source
+today, since the `detected_sources` table only stores the simple `type`
+enum, not a full parser config — falls back to a generic whole-page
+flatten for `"html"` sources (tags stripped, `<img src/alt>` pulled out
+first, same as before this registry existed), or a clear log-and-skip for
+a `"json-api"` source nobody's written a config for yet. Upgrading an
+auto-detected source to real structured extraction is a manual step: a
+human notices it during the periodic `lastReviewedAt` review and adds an
+`extractor` entry for it in `known-sources.ts`.
 
 **Curated once per run, separately from any single unit's search** — not
 attached to each unit's own prompt. Real bug found and fixed: when
@@ -240,12 +269,14 @@ unit's call happened to surface it.
 `instagram.com`/`facebook.com`/`tiktok.com`/`twitter.com`/`x.com`, shared
 by thousands of unrelated accounts — and not already known) that
 contributes **2+ "complete" events** in one run — image + title + a start
-date within the current month — gets auto-added to a persisted
-`detected-sources.json`, merged with the hand-curated `KNOWN_SOURCES` list
-at the start of every run. No source file gets rewritten by the script;
-`known-sources.ts` stays the manually-reviewed list, detection just grows
-a separate file alongside it. **`description` is deliberately not
-required** for "complete" — a real test against arteinformado.com (a
+date within the current month — gets auto-added to the `detected_sources`
+Supabase table, merged with the hand-curated `KNOWN_SOURCES` list at the
+start of every run (a table, not a local JSON file — GitHub Actions
+runners are ephemeral, nothing on disk survives between monthly runs). No
+source file gets rewritten by the script; `known-sources.ts` stays the
+manually-reviewed list, detection just grows a separate table alongside
+it. **`description` is deliberately not required** for "complete" — a
+real test against arteinformado.com (a
 genuinely rich source, 10 real Chilean exhibitions, 2 within the current
 month, all with real images) showed Haiku correctly leaves `description`
 null when a source only lists structured facts with no prose per event;

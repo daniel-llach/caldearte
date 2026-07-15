@@ -10,190 +10,50 @@
 // rows auto-detected into the detected_sources table (a table, not a local
 // JSON file — GitHub Actions runners are ephemeral, nothing on disk
 // survives between monthly runs).
-import { KNOWN_SOURCES, knownSourceDomain, type KnownSource } from "../lib/known-sources.js";
-import {
-  filterImageCandidates,
-  isJunkImage,
-  type EventCandidate,
-  type ImageCandidate,
-  type RawResult,
-} from "./discover.js";
-
-// --- HTML sources -----------------------------------------------------
-
-// Pull <img src/alt> pairs out BEFORE stripping tags — the original crude
-// tag-strip threw away real per-exhibition thumbnails sitting right in the
-// HTML (a real bug, found against artes.uchile.cl's agenda).
-export function extractImgTags(html: string): Array<{ url: string; description: string | null }> {
-  const images: Array<{ url: string; description: string | null }> = [];
-  const imgTagRegex = /<img\b[^>]*>/gi;
-  const srcRegex = /\bsrc=["']([^"']+)["']/i;
-  const altRegex = /\balt=["']([^"']*)["']/i;
-
-  for (const match of html.matchAll(imgTagRegex)) {
-    const tag = match[0];
-    const src = tag.match(srcRegex)?.[1];
-    if (!src) continue;
-    const alt = tag.match(altRegex)?.[1] ?? null;
-    images.push({ url: src, description: alt && alt.trim().length > 0 ? alt.trim() : null });
-  }
-
-  return images;
-}
-
-// Aggregator pages legitimately list many events, each with its own small
-// first-party thumbnail — the per-result cap/description-required filter
-// used for noisy social/CDN search results is the wrong fit here. Only
-// drop obvious site chrome, resolve relative URLs against the page's own
-// origin. ("vacio" is a real literal alt value seen on artes.uchile.cl —
-// an alt that says "empty" carries no signal, treat as none.)
-export function filterKnownSourceImages(
-  images: Array<{ url: string; description: string | null }>,
-  pageUrl: string,
-): ImageCandidate[] {
-  const seen = new Set<string>();
-  const out: ImageCandidate[] = [];
-  for (const img of images) {
-    const trimmedUrl = img.url.trim();
-    if (isJunkImage(trimmedUrl)) continue;
-    let absoluteUrl: string;
-    try {
-      absoluteUrl = new URL(trimmedUrl, pageUrl).href;
-    } catch {
-      continue;
-    }
-    if (seen.has(absoluteUrl)) continue;
-    seen.add(absoluteUrl);
-    out.push({ url: absoluteUrl, description: img.description === "vacio" ? null : img.description });
-  }
-  return out;
-}
-
-// --- JSON-API sources ---------------------------------------------------
-
-interface WpEventsListItem {
-  title: { rendered: string };
-  meta: {
-    link_al_evento?: string;
-    imagen_evento?: string;
-    extracto_corto?: string;
-    fecha_de_inicio?: string; // YYYYMMDD
-    fecha_de_termino?: string; // YYYYMMDD
-  };
-}
-
-function formatWpDate(yyyymmdd: string | undefined): string {
-  if (!yyyymmdd || yyyymmdd.length !== 8) return "?";
-  return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
-}
-
-// A WordPress REST API response is already structured — no HTML parsing,
-// no guessing which image belongs to which event. Real find (Parque
-// Cultural Valparaíso): hora_de_inicio/hora_de_termino are the venue's
-// daily opening hours, NOT the inauguración time — the real one, when
-// there is one, lives in extracto_corto's free text, so Haiku still reads
-// that instead of trusting the structured hour fields blindly.
-async function fetchJsonApiSource(source: { url: string; note: string }): Promise<RawResult> {
-  const res = await fetch(source.url);
-  if (!res.ok) {
-    throw new Error(`json-api source ${source.url} responded ${res.status}`);
-  }
-  const items = (await res.json()) as WpEventsListItem[];
-
-  const images: ImageCandidate[] = items
-    .filter((item) => item.meta.imagen_evento)
-    .map((item) => ({
-      url: item.meta.imagen_evento as string,
-      description: `Imagen de la exposición: ${item.title.rendered}`,
-    }));
-
-  const content = items
-    .map((item) => {
-      const start = formatWpDate(item.meta.fecha_de_inicio);
-      const end = formatWpDate(item.meta.fecha_de_termino);
-      return `- "${item.title.rendered}" (${start} a ${end}): ${item.meta.extracto_corto ?? "sin descripción"}. Más info: ${item.meta.link_al_evento ?? source.url}`;
-    })
-    .join("\n");
-
-  return { title: source.note, url: source.url, content, score: 1, images };
-}
-
-function collapseWhitespace(text: string): string {
-  return text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-}
-
-// artes.uchile.cl's agenda listing (currently the only `html`-type bright
-// source) wraps each event in its own <article class="mod-cal-result__item">
-// with a title+individual-page link, a run date-range line, a venue-
-// name-and-address line, and its own <img> — all cleanly co-located. The
-// old approach flattened the WHOLE page (all N events) into one
-// tag-stripped text blob before Haiku saw it, destroying that pairing —
-// Haiku had to blind-match N images to N events from one pooled list and
-// got some wrong (confirmed: 3 of 15 in a real run). This extracts one
-// content line + one image per event instead, embedding the event's own
-// title into its image's description — the exact trick that already makes
-// image/event pairing reliable for the json-api bright-source path below
-// (`Imagen de la exposición: ${title}`), and embedding each event's own
-// individual page URL the same way json-api's `Más info: ${link}` already
-// does, so Haiku picks it up as sourceUrl instead of the listing page.
 //
-// Returns null (caller falls back to the old whole-page approach) if the
-// page doesn't match this structure — keeps this safe for any *other*
-// html-type source added later with different markup, rather than baking
-// in an assumption that every html source looks like this one.
-const ARTICLE_REGEX = /<article class="mod-cal-result__item">([\s\S]*?)<\/article>/g;
-const TITLE_LINK_REGEX = /<h4 class="mod__item-title"><a href="([^"]+)">([^<]*)<\/a><\/h4>/;
-const DAYS_REGEX = /class="mod-cal-result__item-days"[^>]*>([\s\S]*?)<\/p>/;
-// Real markup has a typo — some entries use "item-place", most use
-// "item-placer" — match both rather than assuming the source will fix it.
-const PLACE_REGEX = /class="mod-cal-result__item-place[a-z]*"[^>]*>([\s\S]*?)<\/p>/;
+// fetchHtmlSource/fetchJsonApiSource are thin dispatchers: `type` decides
+// HOW to fetch (plain HTML page vs a REST call), `extractor` (when present
+// — extractors.ts's config-driven registry) decides HOW to pull per-event
+// structure out of what got fetched. A source with no `extractor` (every
+// auto-detected one today — the detected_sources table only stores a
+// simple `source_type` enum, not a full parser config) safely falls back
+// to a generic whole-page flatten for html sources, or a clear
+// log-and-skip for a json-api source nobody's configured yet — better than
+// silently reusing another site's field names against it.
+import { KNOWN_SOURCES, knownSourceDomain } from "../lib/known-sources.js";
+import { type EventCandidate, type RawResult } from "./discover.js";
+import {
+  extractArticleList,
+  extractImgTags,
+  extractWordpressItems,
+  filterKnownSourceImages,
+  collapseWhitespace,
+  type ExtractorConfig,
+} from "./extractors.js";
 
-export function extractEventArticles(html: string, pageUrl: string): { content: string; images: ImageCandidate[] } | null {
-  const lines: string[] = [];
-  const images: ImageCandidate[] = [];
-
-  for (const articleMatch of html.matchAll(ARTICLE_REGEX)) {
-    const block = articleMatch[1];
-    const titleMatch = block.match(TITLE_LINK_REGEX);
-    if (!titleMatch) continue;
-    const [, href, rawTitle] = titleMatch;
-    const title = collapseWhitespace(rawTitle);
-
-    const days = collapseWhitespace(block.match(DAYS_REGEX)?.[1] ?? "");
-    const place = collapseWhitespace(block.match(PLACE_REGEX)?.[1] ?? "");
-
-    let individualUrl: string;
-    try {
-      individualUrl = new URL(href, pageUrl).href;
-    } catch {
-      individualUrl = pageUrl;
-    }
-
-    lines.push(`- "${title}" (${days || "fecha no indicada"}). Lugar: ${place || "no indicado"}. Más info: ${individualUrl}`);
-
-    const [firstImage] = filterKnownSourceImages(extractImgTags(block), pageUrl);
-    if (firstImage) {
-      images.push({ url: firstImage.url, description: `Imagen de la exposición: ${title}` });
-    }
-  }
-
-  if (lines.length === 0) return null;
-  return { content: lines.join("\n"), images };
+export interface BrightSource {
+  url: string;
+  note: string;
+  type?: "html" | "json-api";
+  extractor?: ExtractorConfig;
 }
 
-async function fetchHtmlSource(source: { url: string; note: string }): Promise<RawResult> {
+async function fetchHtmlSource(source: BrightSource): Promise<RawResult> {
   const res = await fetch(source.url);
   if (!res.ok) {
     throw new Error(`html source ${source.url} responded ${res.status}`);
   }
   const html = await res.text();
 
-  const structured = extractEventArticles(html, source.url);
-  if (structured) {
-    return { title: source.note, url: source.url, content: structured.content, score: 1, images: structured.images };
+  if (source.extractor?.kind === "articleList") {
+    const structured = extractArticleList(html, source.url, source.extractor);
+    if (structured) {
+      return { title: source.note, url: source.url, content: structured.content, score: 1, images: structured.images };
+    }
   }
 
-  // Fallback: unrecognized markup — whole-page flatten, as before (script/
+  // Fallback: no configured extractor, or the configured one didn't match
+  // this page's actual markup — whole-page flatten, as before (script/
   // style CONTENTS stripped first, not just the tags, so JS/CSS source
   // doesn't leak into the text Haiku reads).
   const images = filterKnownSourceImages(extractImgTags(html), source.url);
@@ -201,10 +61,19 @@ async function fetchHtmlSource(source: { url: string; note: string }): Promise<R
   return { title: source.note, url: source.url, content: text, score: 1, images };
 }
 
-export interface BrightSource {
-  url: string;
-  note: string;
-  type?: "html" | "json-api";
+async function fetchJsonApiSource(source: BrightSource): Promise<RawResult> {
+  const res = await fetch(source.url);
+  if (!res.ok) {
+    throw new Error(`json-api source ${source.url} responded ${res.status}`);
+  }
+  const items = (await res.json()) as unknown[];
+
+  if (source.extractor?.kind !== "wordpressRestApi") {
+    throw new Error(`json-api source ${source.url} has no wordpressRestApi extractor configured`);
+  }
+
+  const { content, images } = extractWordpressItems(items, source.extractor, source.url);
+  return { title: source.note, url: source.url, content, score: 1, images };
 }
 
 // Merge hand-curated + detected, deduped by domain (hand-curated wins —
@@ -213,7 +82,7 @@ export interface BrightSource {
 export function mergeBrightSources(detected: BrightSource[]): BrightSource[] {
   const seen = new Set<string>();
   const merged: BrightSource[] = [];
-  for (const source of [...(KNOWN_SOURCES as KnownSource[]), ...detected]) {
+  for (const source of [...KNOWN_SOURCES, ...detected]) {
     const domain = knownSourceDomain(source.url);
     if (seen.has(domain)) continue;
     seen.add(domain);
