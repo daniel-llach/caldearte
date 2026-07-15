@@ -17,6 +17,8 @@ function event(overrides: Partial<EventRecord> = {}): EventRecord {
     artist: "Artista",
     description: null,
     freeformLocation: "Galería X, Santiago",
+    placeName: null,
+    regionName: null,
     imageUrl: null,
     openingDatetime: null,
     runStartDate: "2026-07-05",
@@ -43,10 +45,17 @@ test("filterFamilyMode excludes sensitivity-tagged events only when on", () => {
   assert.deepEqual(filterFamilyMode([sensitive, clean], false), [sensitive, clean]);
 });
 
-test("filterByCity derives city from freeform_location", () => {
+test("filterByCity derives city from freeform_location when there's no regionName", () => {
   const santiago = event({ id: "a", freeformLocation: "Galería X, Santiago" });
   const valpo = event({ id: "b", freeformLocation: "Sala El Farol, Valparaíso" });
   assert.deepEqual(filterByCity([santiago, valpo], "santiago"), [santiago]);
+});
+
+test("filterByCity prefers regionName over a freeform_location that would otherwise mismatch", () => {
+  // A backend-resolved region_id always wins, even if the freeform text
+  // alone would've derived a different (or no) city.
+  const backendResolved = event({ id: "a", freeformLocation: "Frase libre sin ciudad reconocible", regionName: "Valparaíso" });
+  assert.deepEqual(filterByCity([backendResolved], "valparaiso"), [backendResolved]);
 });
 
 test("splitInauguracionesYExpos: opening today -> inauguración, else -> expo actual", () => {

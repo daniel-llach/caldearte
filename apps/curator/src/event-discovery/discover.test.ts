@@ -8,6 +8,7 @@ import {
   firstOfMonthIso,
   isCurrentOrUpcoming,
   normalizeTitle,
+  nullifyAggregatorSourceUrls,
   searchUnit,
   curate,
   type EventCandidate,
@@ -28,6 +29,7 @@ const baseCandidate: EventCandidate = {
   imageUrl: null,
   status: "approved",
   location: "Providencia, Santiago, Chile",
+  placeName: null,
   sourceUrl: "https://example.cl/expo",
 };
 
@@ -86,6 +88,33 @@ test("applyLocationFilter does not false-positive on a Chilean place that contai
     { ...baseCandidate, location: "Concepción, Parque Ecuador" },
   ]);
   assert.equal(filtered[0].status, "approved");
+});
+
+test("nullifyAggregatorSourceUrls nulls sourceUrl when 2+ approved candidates share it (a listing page, not an event page), but leaves a uniquely-sourced one alone", () => {
+  const listing = "https://agenda.cl/listado";
+  const candidates = [
+    { ...baseCandidate, title: "Uno", sourceUrl: listing },
+    { ...baseCandidate, title: "Dos", sourceUrl: listing },
+    { ...baseCandidate, title: "Tres", sourceUrl: "https://sitio.cl/evento-tres" },
+  ];
+  const result = nullifyAggregatorSourceUrls(candidates);
+  assert.equal(result[0].sourceUrl, null);
+  assert.equal(result[1].sourceUrl, null);
+  assert.equal(result[2].sourceUrl, "https://sitio.cl/evento-tres");
+});
+
+test("nullifyAggregatorSourceUrls ignores rejected candidates and null sourceUrls when counting", () => {
+  const shared = "https://agenda.cl/listado";
+  const candidates = [
+    { ...baseCandidate, title: "Aprobada", sourceUrl: shared },
+    { ...baseCandidate, title: "Rechazada", status: "rejected" as const, sourceUrl: shared },
+    { ...baseCandidate, title: "Sin URL", sourceUrl: null },
+  ];
+  const result = nullifyAggregatorSourceUrls(candidates);
+  // Only one APPROVED candidate actually has this URL — not shared, stays.
+  assert.equal(result[0].sourceUrl, shared);
+  assert.equal(result[1].sourceUrl, shared, "rejected candidates pass through untouched");
+  assert.equal(result[2].sourceUrl, null);
 });
 
 test("isCurrentOrUpcoming applies the month-level rule, not day-level", () => {

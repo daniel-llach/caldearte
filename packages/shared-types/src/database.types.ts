@@ -125,7 +125,9 @@ export type Database = {
           medium_type: string | null
           opening_date_confidence: string
           opening_datetime: string | null
+          place_name: string | null
           public_explanation: string | null
+          region_id: string | null
           run_end_date: string | null
           run_start_date: string | null
           sensitivity_tags: string[]
@@ -146,7 +148,9 @@ export type Database = {
           medium_type?: string | null
           opening_date_confidence?: string
           opening_datetime?: string | null
+          place_name?: string | null
           public_explanation?: string | null
+          region_id?: string | null
           run_end_date?: string | null
           run_start_date?: string | null
           sensitivity_tags?: string[]
@@ -167,7 +171,9 @@ export type Database = {
           medium_type?: string | null
           opening_date_confidence?: string
           opening_datetime?: string | null
+          place_name?: string | null
           public_explanation?: string | null
+          region_id?: string | null
           run_end_date?: string | null
           run_start_date?: string | null
           sensitivity_tags?: string[]
@@ -175,7 +181,15 @@ export type Database = {
           source_url?: string | null
           title?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "events_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       regions: {
         Row: {

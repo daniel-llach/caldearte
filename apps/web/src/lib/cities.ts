@@ -1,10 +1,11 @@
-// V1 city derivation: events have no structured city column, only
-// `freeform_location` free text. We take the trailing comma-segment
-// (same technique as apps/curator/src/lib/locations.ts's Chile/foreign-
-// country check) and match it against the known, hardcoded region list —
-// no live query, `regions` has no public RLS policy. Unmatched locations
-// fall into "otro". A real `city`/`region_id` column is a possible later
-// backend change, not part of this build.
+// City derivation: `events.region_id` (resolved by the curator at write
+// time — see apps/curator/src/lib/locations.ts's matchRegionId) gives an
+// exact region name for rows that have it; events.ts resolves that name
+// against KNOWN_CITIES here. Older/unmatched rows have no region_id, so we
+// fall back to the original heuristic: take freeform_location's trailing
+// comma-segment (same technique as the curator's own Chile/foreign-country
+// check) and match it against the same known, hardcoded list. Unmatched
+// locations fall into "otro".
 
 export interface City {
   id: string;
@@ -32,14 +33,26 @@ function normalize(text: string): string {
   return stripAccents(text.toLowerCase()).trim();
 }
 
+function matchCityName(name: string): string | null {
+  const normalized = normalize(name);
+  const match = KNOWN_CITIES.find((city) => normalize(city.name) === normalized);
+  return match?.id ?? null;
+}
+
 // Returns a known city id, or OTHER_CITY.id when the trailing segment of
 // freeform_location doesn't match any known city.
 export function deriveCityId(freeformLocation: string): string {
-  const segments = freeformLocation.split(",").map((s) => normalize(s));
+  const segments = freeformLocation.split(",").map((s) => s.trim());
   const lastSegment = segments[segments.length - 1] ?? "";
+  return matchCityName(lastSegment) ?? OTHER_CITY.id;
+}
 
-  const match = KNOWN_CITIES.find((city) => normalize(city.name) === lastSegment);
-  return match?.id ?? OTHER_CITY.id;
+// A region name straight from `regions.name` (via events.region_id) is
+// already the exact city — no comma-segment guessing needed. Returns null
+// (caller falls back to deriveCityId) when the name isn't one of today's 5
+// known cities, e.g. a region added later that isn't in KNOWN_CITIES yet.
+export function cityIdFromRegionName(regionName: string): string | null {
+  return matchCityName(regionName);
 }
 
 export function cityById(id: string): City {

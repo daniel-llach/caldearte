@@ -118,20 +118,86 @@ async function fetchJsonApiSource(source: { url: string; note: string }): Promis
   return { title: source.note, url: source.url, content, score: 1, images };
 }
 
+function collapseWhitespace(text: string): string {
+  return text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// artes.uchile.cl's agenda listing (currently the only `html`-type bright
+// source) wraps each event in its own <article class="mod-cal-result__item">
+// with a title+individual-page link, a run date-range line, a venue-
+// name-and-address line, and its own <img> — all cleanly co-located. The
+// old approach flattened the WHOLE page (all N events) into one
+// tag-stripped text blob before Haiku saw it, destroying that pairing —
+// Haiku had to blind-match N images to N events from one pooled list and
+// got some wrong (confirmed: 3 of 15 in a real run). This extracts one
+// content line + one image per event instead, embedding the event's own
+// title into its image's description — the exact trick that already makes
+// image/event pairing reliable for the json-api bright-source path below
+// (`Imagen de la exposición: ${title}`), and embedding each event's own
+// individual page URL the same way json-api's `Más info: ${link}` already
+// does, so Haiku picks it up as sourceUrl instead of the listing page.
+//
+// Returns null (caller falls back to the old whole-page approach) if the
+// page doesn't match this structure — keeps this safe for any *other*
+// html-type source added later with different markup, rather than baking
+// in an assumption that every html source looks like this one.
+const ARTICLE_REGEX = /<article class="mod-cal-result__item">([\s\S]*?)<\/article>/g;
+const TITLE_LINK_REGEX = /<h4 class="mod__item-title"><a href="([^"]+)">([^<]*)<\/a><\/h4>/;
+const DAYS_REGEX = /class="mod-cal-result__item-days"[^>]*>([\s\S]*?)<\/p>/;
+// Real markup has a typo — some entries use "item-place", most use
+// "item-placer" — match both rather than assuming the source will fix it.
+const PLACE_REGEX = /class="mod-cal-result__item-place[a-z]*"[^>]*>([\s\S]*?)<\/p>/;
+
+export function extractEventArticles(html: string, pageUrl: string): { content: string; images: ImageCandidate[] } | null {
+  const lines: string[] = [];
+  const images: ImageCandidate[] = [];
+
+  for (const articleMatch of html.matchAll(ARTICLE_REGEX)) {
+    const block = articleMatch[1];
+    const titleMatch = block.match(TITLE_LINK_REGEX);
+    if (!titleMatch) continue;
+    const [, href, rawTitle] = titleMatch;
+    const title = collapseWhitespace(rawTitle);
+
+    const days = collapseWhitespace(block.match(DAYS_REGEX)?.[1] ?? "");
+    const place = collapseWhitespace(block.match(PLACE_REGEX)?.[1] ?? "");
+
+    let individualUrl: string;
+    try {
+      individualUrl = new URL(href, pageUrl).href;
+    } catch {
+      individualUrl = pageUrl;
+    }
+
+    lines.push(`- "${title}" (${days || "fecha no indicada"}). Lugar: ${place || "no indicado"}. Más info: ${individualUrl}`);
+
+    const [firstImage] = filterKnownSourceImages(extractImgTags(block), pageUrl);
+    if (firstImage) {
+      images.push({ url: firstImage.url, description: `Imagen de la exposición: ${title}` });
+    }
+  }
+
+  if (lines.length === 0) return null;
+  return { content: lines.join("\n"), images };
+}
+
 async function fetchHtmlSource(source: { url: string; note: string }): Promise<RawResult> {
   const res = await fetch(source.url);
   if (!res.ok) {
     throw new Error(`html source ${source.url} responded ${res.status}`);
   }
   const html = await res.text();
+
+  const structured = extractEventArticles(html, source.url);
+  if (structured) {
+    return { title: source.note, url: source.url, content: structured.content, score: 1, images: structured.images };
+  }
+
+  // Fallback: unrecognized markup — whole-page flatten, as before (script/
+  // style CONTENTS stripped first, not just the tags, so JS/CSS source
+  // doesn't leak into the text Haiku reads).
   const images = filterKnownSourceImages(extractImgTags(html), source.url);
-  const text = html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 4000);
+  const text = collapseWhitespace(html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "")).slice(0, 4000);
   return { title: source.note, url: source.url, content: text, score: 1, images };
 }
 

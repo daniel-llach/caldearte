@@ -71,3 +71,25 @@ export function isChileanLocation(location: string): boolean {
   if (FOREIGN_COUNTRY_MARKERS.includes(lastSegment)) return false;
   return CHILE_MARKERS.some((marker) => normalized.includes(marker));
 }
+
+export interface RegionLike {
+  id: string;
+  name: string;
+}
+
+// Same trailing-comma-segment technique as isChileanLocation and as
+// apps/web/src/lib/cities.ts's deriveCityId — moved here so the match is
+// resolved once at write-time (a real events.region_id FK) instead of
+// re-guessed on every frontend render. Deliberately NOT the search unit
+// that produced the candidate (region-discovery.md is explicit: a
+// candidate's real location can differ from the unit searched for it, e.g.
+// "Las Condes" found while searching "Providencia") — always matched from
+// the candidate's own reported location text. Returns null when unmatched
+// (an event outside the current unit list — the "otro" case).
+export function matchRegionId(location: string, regions: RegionLike[]): string | null {
+  const normalized = stripAccents(location.toLowerCase());
+  const segments = normalized.split(",").map((s) => s.trim());
+  const lastSegment = segments[segments.length - 1] ?? "";
+  const match = regions.find((r) => stripAccents(r.name.toLowerCase()) === lastSegment);
+  return match?.id ?? null;
+}
