@@ -227,6 +227,23 @@ function parseCandidates(text: string): EventCandidate[] {
   return JSON.parse(match[1]) as EventCandidate[];
 }
 
+// Deterministic backstop over Haiku's own decision: a sourceUrl shared by
+// 2+ approved candidates in the same batch is structurally proof that page
+// hosts multiple events, not one — Haiku had only that one URL in the text
+// it saw (either a Tavily hit that happened to be a listing page, or a
+// bright-source page whose markup we don't have a per-event parser for
+// yet, so the whole page got flattened to one blob with one URL) and had
+// no way to report each event's own page. A wrong link is worse than no
+// link, so null it rather than pointing a card at the wrong event.
+export function nullifyAggregatorSourceUrls(candidates: EventCandidate[]): EventCandidate[] {
+  const counts = new Map<string, number>();
+  for (const c of candidates) {
+    if (c.status !== "approved" || !c.sourceUrl) continue;
+    counts.set(c.sourceUrl, (counts.get(c.sourceUrl) ?? 0) + 1);
+  }
+  return candidates.map((c) => (c.sourceUrl && (counts.get(c.sourceUrl) ?? 0) >= 2 ? { ...c, sourceUrl: null } : c));
+}
+
 // Deterministic backstop over Haiku's own decision — see lib/locations.ts.
 export function applyLocationFilter(candidates: EventCandidate[]): EventCandidate[] {
   return candidates.map((c) =>
@@ -267,7 +284,7 @@ export async function curate(
     .join("");
 
   return {
-    candidates: applyLocationFilter(parseCandidates(text)),
+    candidates: nullifyAggregatorSourceUrls(applyLocationFilter(parseCandidates(text))),
     usage: {
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
