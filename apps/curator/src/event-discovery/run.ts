@@ -88,26 +88,39 @@ async function loadDetectedSources(): Promise<BrightSource[]> {
 
 // Cross-run dedup: don't re-insert an event already in the calendar (e.g.
 // a mid-July re-run must not duplicate everything found on July 1st).
-// Normalized title is the key — the same event routinely surfaces with
-// slightly different punctuation/quoting across sources and runs, which
-// exact-match comparison misses (a real observed failure).
-async function loadExistingTitleKeys(): Promise<Set<string>> {
+// Two keys, either one is enough to count as a duplicate:
+// - Normalized title — the same event routinely surfaces with slightly
+//   different punctuation/quoting across sources and runs, which
+//   exact-match comparison misses (a real observed failure).
+// - sourceUrl — a real production bug (found 2026-07-16): the SAME bright
+//   source content, re-curated in a later run, got a DIFFERENT title from
+//   Haiku each time ("Rama torcida" vs "Muestra "Rama torcida" en el
+//   Museo de Arte Contemporáneo" — same source_url, same image, same
+//   event) — title extraction isn't stable across separate Haiku calls
+//   even on identical input, so title-only dedup missed it entirely.
+//   sourceUrl doesn't have that instability, so it catches what title
+//   dedup can't. Only applied when sourceUrl is non-null — never used to
+//   dedup two different candidates that both happen to lack one.
+async function loadExistingKeys(): Promise<{ titles: Set<string>; sourceUrls: Set<string> }> {
   const { data, error } = await getSupabaseClient()
     .from("events")
-    .select("title")
+    .select("title, source_url")
     .eq("source", "discovered");
 
   if (error) {
     throw new Error(`Failed to load existing discovered events: ${error.message}`);
   }
 
-  return new Set((data ?? []).map((row) => normalizeTitle(row.title)));
+  return {
+    titles: new Set((data ?? []).map((row) => normalizeTitle(row.title))),
+    sourceUrls: new Set((data ?? []).flatMap((row) => (row.source_url ? [row.source_url] : []))),
+  };
 }
 
 async function insertCandidates(
   candidates: EventCandidate[],
   regions: RegionLike[],
-  seenTitleKeys: Set<string>,
+  seen: { titles: Set<string>; sourceUrls: Set<string> },
   now: Date,
 ): Promise<number> {
   const client = getSupabaseClient();
@@ -116,9 +129,12 @@ async function insertCandidates(
   for (const c of candidates) {
     if (!isCurrentOrUpcoming(c, now)) continue;
 
-    const key = normalizeTitle(c.title);
-    if (seenTitleKeys.has(key)) {
-      console.log(`[event-discovery] skipping duplicate: "${c.title}"`);
+    const titleKey = normalizeTitle(c.title);
+    const isDuplicateTitle = seen.titles.has(titleKey);
+    const isDuplicateSourceUrl = c.sourceUrl !== null && seen.sourceUrls.has(c.sourceUrl);
+    if (isDuplicateTitle || isDuplicateSourceUrl) {
+      const reason = isDuplicateSourceUrl && !isDuplicateTitle ? " (same sourceUrl, different title)" : "";
+      console.log(`[event-discovery] skipping duplicate: "${c.title}"${reason}`);
       continue;
     }
 
@@ -151,7 +167,8 @@ async function insertCandidates(
       continue;
     }
 
-    seenTitleKeys.add(key);
+    seen.titles.add(titleKey);
+    if (c.sourceUrl) seen.sourceUrls.add(c.sourceUrl);
     if (c.status === "approved") inserted += 1;
   }
 
@@ -243,7 +260,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   const systemPrompt = buildSystemPrompt(currentMonthLabel(now));
   const brightSources = mergeBrightSources(await loadDetectedSources());
   const excludeDomains = brightSources.map((s) => knownSourceDomain(s.url));
-  const seenTitleKeys = await loadExistingTitleKeys();
+  const seenKeys = await loadExistingKeys();
   const regions = await loadAllRegions();
   const allCandidates: EventCandidate[] = [];
 
@@ -275,7 +292,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
       });
       await enrichMissingImages(candidates, pageFetchFn);
       allCandidates.push(...candidates);
-      inserted = await insertCandidates(candidates, regions, seenTitleKeys, now);
+      inserted = await insertCandidates(candidates, regions, seenKeys, now);
     }
 
     const { error } = await client
@@ -299,7 +316,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
     await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
     await enrichMissingImages(candidates, pageFetchFn);
     allCandidates.push(...candidates);
-    const inserted = await insertCandidates(candidates, regions, seenTitleKeys, now);
+    const inserted = await insertCandidates(candidates, regions, seenKeys, now);
     console.log(`[event-discovery] bright sources: ${inserted} new approved event(s)`);
   }
 
