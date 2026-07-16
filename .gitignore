@@ -2,6 +2,8 @@
 .env.local
 .mcp.json
 .DS_Store
+# Local-only dev-setup script — never meant to be committed.
+scripts/local-setup.sh
 node_modules/
 dist/
 .turbo/
