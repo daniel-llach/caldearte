@@ -11,6 +11,7 @@ import { stripAccents } from "./locations.js";
 // known-sources.ts's manually-reviewed list.
 export const KNOWN_OUT_OF_SCOPE_EVENTS = [
   "festival santiago a mil",
+  "la florida es teatro",
 ];
 
 export function matchesKnownExclusion(title: string): boolean {
