@@ -252,6 +252,55 @@ test(
         assert.equal(after, before, "no duplicates inserted on re-run");
       });
 
+      await t.test(
+        "a re-run where Haiku gives the same sourceUrl a different title still does not duplicate (real production bug, fixed)",
+        async () => {
+          const { count: before } = await client
+            .from("events")
+            .select("id", { count: "exact", head: true })
+            .like("title", "__test__%");
+
+          // Same sourceUrl as "__test__ Muestra vigente" (https://x.cl/expo),
+          // but Haiku re-worded the title on this run — title-only dedup
+          // would miss this and insert a second row for the same event.
+          const retitledCandidates = unitCandidates.map((c) =>
+            c.title === "__test__ Muestra vigente" ? { ...c, title: "__test__ Muestra vigente (retitulada)" } : c,
+          );
+          const retitledMessagesClient = {
+            messages: {
+              create: async (params: Record<string, unknown>) => {
+                const userContent = (params.messages as Array<{ content: string }>)[0].content;
+                const payload = userContent.includes("Fuentes brillantes") ? brightCandidates : retitledCandidates;
+                return {
+                  content: [{ type: "text", text: fencedJson(payload) }],
+                  usage: { input_tokens: 100, output_tokens: 50 },
+                };
+              },
+            },
+          };
+
+          await run({
+            messagesClient: retitledMessagesClient,
+            searchUnitFn,
+            fetchBrightSourcesFn: async () => [],
+            now: new Date(2026, 8, 20), // Sep 20 — unit due again, safely past the 28-day cadence
+          });
+
+          const { count: after } = await client
+            .from("events")
+            .select("id", { count: "exact", head: true })
+            .like("title", "__test__%");
+
+          assert.equal(after, before, "no duplicate inserted despite the new title — sourceUrl dedup caught it");
+
+          const { data: retitled } = await client
+            .from("events")
+            .select("id")
+            .eq("title", "__test__ Muestra vigente (retitulada)");
+          assert.equal(retitled?.length ?? 0, 0, "the re-titled duplicate itself was not inserted");
+        },
+      );
+
       await t.test("bright-sources pass inserts events and auto-detects the new source domain", async () => {
         await run({
           messagesClient,
