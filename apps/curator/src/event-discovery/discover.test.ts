@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  applyKnownExclusionsFilter,
   applyLocationFilter,
   buildQueries,
   currentMonthLabel,
   filterImageCandidates,
+  filterKnownExclusions,
   firstOfMonthIso,
   isCurrentOrUpcoming,
   normalizeTitle,
@@ -13,6 +15,7 @@ import {
   curate,
   type EventCandidate,
   type MessagesClient,
+  type RawResult,
 } from "./discover.js";
 import type { FetchLike } from "../lib/tavily.js";
 
@@ -115,6 +118,29 @@ test("nullifyAggregatorSourceUrls ignores rejected candidates and null sourceUrl
   assert.equal(result[0].sourceUrl, shared);
   assert.equal(result[1].sourceUrl, shared, "rejected candidates pass through untouched");
   assert.equal(result[2].sourceUrl, null);
+});
+
+test("filterKnownExclusions drops a raw search result whose own title matches a known out-of-scope event, before it ever reaches Haiku", () => {
+  const results: RawResult[] = [
+    { title: "Festival Santiago a Mil - XXXIII edición vuelve con todo", url: "https://x.cl/1", content: "c", score: 0.9, images: [] },
+    { title: "Exposición Colectiva Sala FEM 2026", url: "https://x.cl/2", content: "c", score: 0.9, images: [] },
+  ];
+  const filtered = filterKnownExclusions(results);
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].url, "https://x.cl/2");
+});
+
+test("applyKnownExclusionsFilter forces a matching approved candidate to rejected with a reasoning note, but leaves rejected/unrelated candidates untouched", () => {
+  const candidates = [
+    { ...baseCandidate, title: "Festival Santiago a Mil - XXXIII edición", status: "approved" as const },
+    { ...baseCandidate, title: "Festival Santiago a Mil ya rechazado", status: "rejected" as const },
+    { ...baseCandidate, title: "Muestra sin relación", status: "approved" as const },
+  ];
+  const result = applyKnownExclusionsFilter(candidates);
+  assert.equal(result[0].status, "rejected");
+  assert.match(result[0].curationReasoning, /FILTRO DE CÓDIGO/);
+  assert.doesNotMatch(result[1].curationReasoning, /FILTRO DE CÓDIGO/, "already-rejected candidates pass through untouched");
+  assert.equal(result[2].status, "approved");
 });
 
 test("isCurrentOrUpcoming applies the month-level rule, not day-level", () => {

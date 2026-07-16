@@ -1,0 +1,14 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { matchesKnownExclusion } from "./known-exclusions.js";
+
+test("matchesKnownExclusion matches a known excluded event regardless of edition/year suffix, accent/case-insensitive", () => {
+  assert.equal(matchesKnownExclusion("Festival Santiago a Mil - XXXIII edición"), true);
+  assert.equal(matchesKnownExclusion("FESTIVAL SANTIAGO A MIL 2027"), true);
+  assert.equal(matchesKnownExclusion("festival santiago a mil"), true);
+});
+
+test("matchesKnownExclusion returns false for unrelated titles", () => {
+  assert.equal(matchesKnownExclusion("Exposición Colectiva Sala FEM 2026"), false);
+  assert.equal(matchesKnownExclusion("Muestra Poética de las aguas"), false);
+});
