@@ -24,6 +24,7 @@ import {
   searchUnit,
   type EventCandidate,
   type MessagesClient,
+  type RawResult,
 } from "./discover.js";
 import {
   detectNewBrightSources,
@@ -157,6 +158,48 @@ async function insertCandidates(
   return inserted;
 }
 
+const RAW_SEARCH_RESULTS_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Not a permanent archive — a short rolling window so an on-demand review
+// ("¿hay fuentes brillantes nuevas?" shortly after a run) has real data to
+// query, without needing a separate cleanup job. Piggybacked on this
+// run's own cadence (Event Discovery is manually triggered, no schedule
+// yet) rather than a new automation. Ancillary — a failure here must never
+// break the actual run.
+async function pruneOldRawSearchResults(now: Date): Promise<void> {
+  const cutoff = new Date(now.getTime() - RAW_SEARCH_RESULTS_RETENTION_MS).toISOString();
+  const { error } = await getSupabaseClient().from("raw_search_results").delete().lt("created_at", cutoff);
+  if (error) {
+    console.error(`[event-discovery] failed to prune raw_search_results: ${error.message}`);
+  }
+}
+
+// Logs EVERY raw Tavily hit for a unit (before filterKnownExclusions, so
+// the log reflects everything Tavily actually returned) — not just what
+// Haiku turns into a candidate. `events` can't serve this purpose: a
+// weak-snippet aggregator page can show up in every search and never
+// produce a single candidate, so it would never appear there. Purpose:
+// spot a domain that keeps showing up (a possible bright-source
+// candidate, found the same way mnba.gob.cl was) without re-running
+// searches by hand. Ancillary — a failure here must never break the
+// actual run.
+async function logRawSearchResults(unitName: string, results: RawResult[]): Promise<void> {
+  if (results.length === 0) return;
+  const rows = results.map((r) => {
+    let domain: string;
+    try {
+      domain = knownSourceDomain(r.url);
+    } catch {
+      domain = r.url; // unparseable — keep something queryable rather than dropping the row
+    }
+    return { unit_name: unitName, domain, url: r.url, title: r.title, score: r.score };
+  });
+  const { error } = await getSupabaseClient().from("raw_search_results").insert(rows);
+  if (error) {
+    console.error(`[event-discovery] failed to log raw search results for ${unitName}: ${error.message}`);
+  }
+}
+
 async function persistNewBrightSources(candidates: EventCandidate[], now: Date, excludeDomains: string[]): Promise<void> {
   const detected = detectNewBrightSources(candidates, now, excludeDomains);
   if (detected.length === 0) return;
@@ -195,6 +238,8 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   const pageFetchFn = deps.pageFetchFn ?? fetch;
   const client = getSupabaseClient();
 
+  await pruneOldRawSearchResults(now);
+
   const systemPrompt = buildSystemPrompt(currentMonthLabel(now));
   const brightSources = mergeBrightSources(await loadDetectedSources());
   const excludeDomains = brightSources.map((s) => knownSourceDomain(s.url));
@@ -208,6 +253,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   for (const unit of units) {
     const { results: rawResults, credits } = await searchUnitFn(tavilyApiKey ?? "", unit.name, now, excludeDomains);
     console.log(`[event-discovery] ${unit.name}: ${rawResults.length} results, ${credits} Tavily credits`);
+    await logRawSearchResults(unit.name, rawResults);
 
     // Drop known-out-of-scope results before they ever reach Haiku — saves
     // both the input tokens for that result's content and the output
