@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { matchRegionId } from "./locations.js";
+import { isChileanLocation, matchRegionId } from "./locations.js";
 
 const REGIONS = [
   { id: "r-santiago", name: "Santiago" },
@@ -43,4 +43,9 @@ test("matchRegionId ignores which search unit produced the candidate — matches
   // Condes (docs/region-discovery.md's own documented case) — the match
   // must come from the location text, never a passed-in search-unit id.
   assert.equal(matchRegionId("Centro Cultural Recoleta, Buenos Aires, Argentina", REGIONS), null);
+});
+
+test("isChileanLocation recognizes Frutillar (real production bug: a legitimate art expo there was code-rejected as 'not Chilean' because CHILE_MARKERS didn't include it, even though Puerto Varas/Osorno/Valdivia — its neighbors — already did)", () => {
+  assert.equal(isChileanLocation("Frutillar"), true);
+  assert.equal(isChileanLocation("Teatro del Lago, Frutillar"), true);
 });
