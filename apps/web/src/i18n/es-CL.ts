@@ -8,6 +8,21 @@ function pluralize(n: number, singular: string, plural: string): string {
   return n === 1 ? singular : plural;
 }
 
+// "Muestra lo que hay": a zero count carries no information worth reading
+// (nobody wants "0 inauguraciones y 2 exposiciones"), so it's dropped
+// entirely rather than shown as a zero. When both are zero, callers decide
+// their own fallback — this returns "" so the caller can detect that case.
+function countsPhrase(inauguracionesCount: number, exposCount: number, joiner: string): string {
+  const parts: string[] = [];
+  if (inauguracionesCount > 0) {
+    parts.push(`${inauguracionesCount} ${pluralize(inauguracionesCount, "inauguración", "inauguraciones")}`);
+  }
+  if (exposCount > 0) {
+    parts.push(`${exposCount} ${pluralize(exposCount, "exposición", "exposiciones")}`);
+  }
+  return parts.join(joiner);
+}
+
 export const esCL = {
   appName: "CALDEARTE",
   chooseCity: "Elegí tu ciudad",
@@ -17,17 +32,16 @@ export const esCL = {
   otherCity: "Otro",
   explorar: "Explorar",
 
-  headerSummary: (inauguracionesCount: number, exposCount: number) =>
-    `${inauguracionesCount} ${pluralize(inauguracionesCount, "inauguración", "inauguraciones")} y ` +
-    `${exposCount} ${pluralize(exposCount, "exposición", "exposiciones")} que visitar en`,
+  headerSummary: (inauguracionesCount: number, exposCount: number) => {
+    const phrase = countsPhrase(inauguracionesCount, exposCount, " y ");
+    return phrase ? `${phrase} que visitar en` : "Descubrí el arte que hay en";
+  },
 
   sectionInauguraciones: "INAUGURACIONES",
   sectionExposActuales: "EXPOS ACTUALES",
   sectionArteEnTodasPartes: "ARTE EN TODAS PARTES",
 
-  cityStats: (inauguracionesCount: number, exposCount: number) =>
-    `${inauguracionesCount} ${pluralize(inauguracionesCount, "inauguración", "inauguraciones")} · ` +
-    `${exposCount} ${pluralize(exposCount, "exposición", "exposiciones")}`,
+  cityStats: (inauguracionesCount: number, exposCount: number) => countsPhrase(inauguracionesCount, exposCount, " · "),
 
   tellUs: "Contanos →",
   doYouKnowOne: "¿Conocés una que deberíamos sumar?",

@@ -1,14 +1,18 @@
 import { esCL } from "@/i18n/es-CL";
-import { KNOWN_CITIES, type City } from "@/lib/cities";
+import { citiesWithEvents, type City } from "@/lib/cities";
+import type { CityCounts } from "@/lib/events";
 
 interface CityPickerPanelProps {
   open: boolean;
   cityId: string;
+  cityCounts: Record<string, CityCounts>;
   onClose: () => void;
   onSelect: (city: City) => void;
 }
 
-export default function CityPickerPanel({ open, cityId, onClose, onSelect }: CityPickerPanelProps) {
+export default function CityPickerPanel({ open, cityId, cityCounts, onClose, onSelect }: CityPickerPanelProps) {
+  const cities = citiesWithEvents(cityCounts, { alwaysIncludeCityId: cityId });
+
   return (
     <>
       <div
@@ -28,7 +32,7 @@ export default function CityPickerPanel({ open, cityId, onClose, onSelect }: Cit
             ✕
           </button>
         </div>
-        {KNOWN_CITIES.map((c) => (
+        {cities.map((c) => (
           <button
             key={c.id}
             onClick={() => onSelect(c)}

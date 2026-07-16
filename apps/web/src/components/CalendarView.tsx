@@ -144,7 +144,7 @@ export default function CalendarView({
 
       <Footer />
 
-      <CityPickerPanel open={locationOpen} cityId={cityId} onClose={() => setLocationOpen(false)} onSelect={selectCity} />
+      <CityPickerPanel open={locationOpen} cityId={cityId} cityCounts={cityCounts} onClose={() => setLocationOpen(false)} onSelect={selectCity} />
 
       <MenuDrawer
         open={drawerOpen}

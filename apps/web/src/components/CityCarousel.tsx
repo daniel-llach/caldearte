@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { esCL } from "@/i18n/es-CL";
-import { KNOWN_CITIES } from "@/lib/cities";
+import { citiesWithEvents } from "@/lib/cities";
 import type { CityCounts } from "@/lib/events";
 
 interface CityCarouselProps {
@@ -14,8 +14,10 @@ interface CityCarouselProps {
 // Scroll-snap carousel, not the ResizeObserver-driven grid mechanism —
 // this is an overflow-x layout, not a CSS grid needing an exact column
 // count. "Otro" is never shown here (no sensible "Explorar" destination).
+// A city with nothing to show today (0 inauguraciones AND 0 exposiciones)
+// isn't a real "explore this" destination either — "muestra lo que hay".
 export default function CityCarousel({ cityCounts, excludeCityId, onSelectCity }: CityCarouselProps) {
-  const cities = KNOWN_CITIES.filter((c) => c.id !== excludeCityId);
+  const cities = citiesWithEvents(cityCounts, { excludeCityId });
   const scrollRef = useRef<HTMLDivElement>(null);
   const [activeDot, setActiveDot] = useState(0);
 

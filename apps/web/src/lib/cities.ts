@@ -7,6 +7,11 @@
 // check) and match it against the same known, hardcoded list. Unmatched
 // locations fall into "otro".
 
+// Type-only import from events.ts, which itself imports values from this
+// file — a runtime import here would be circular, but `import type` is
+// erased at compile time so there's no actual cycle.
+import type { CityCounts } from "./events";
+
 export interface City {
   id: string;
   name: string;
@@ -72,6 +77,27 @@ export function cityIdFromRegionName(regionName: string): string | null {
 
 export function cityById(id: string): City {
   return KNOWN_CITIES.find((c) => c.id === id) ?? OTHER_CITY;
+}
+
+function hasEvents(counts: CityCounts | undefined): boolean {
+  return (counts?.inauguraciones ?? 0) > 0 || (counts?.exposActuales ?? 0) > 0;
+}
+
+// "Muestra lo que hay": a city with nothing to show today isn't a real
+// destination — filtered out of both the city picker and the "Arte en
+// todas partes" carousel. `alwaysIncludeCityId` (the currently-selected
+// city, in the picker's case) is a UX safety net, not a data override — a
+// city always passes if it's you, even at zero, so opening the picker
+// while viewing a currently-empty city never makes your own city vanish.
+export function citiesWithEvents(
+  cityCounts: Record<string, CityCounts>,
+  options: { excludeCityId?: string; alwaysIncludeCityId?: string } = {},
+): City[] {
+  return KNOWN_CITIES.filter((c) => {
+    if (c.id === options.excludeCityId) return false;
+    if (c.id === options.alwaysIncludeCityId) return true;
+    return hasEvents(cityCounts[c.id]);
+  });
 }
 
 // Vercel's IP geolocation returns a plain city name (casing/accents not
