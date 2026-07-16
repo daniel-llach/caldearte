@@ -36,12 +36,12 @@ const baseCandidate: EventCandidate = {
   sourceUrl: "https://example.cl/expo",
 };
 
-test("buildQueries produces the 3 validated templates with the month label", () => {
+test("buildQueries produces the 3 validated templates with the month label, appending ', Chile' to disambiguate comuna-name collisions (e.g. La Reina / Reina Sofía)", () => {
   const queries = buildQueries("Providencia", new Date("2026-07-12T12:00:00Z"));
   assert.equal(queries.length, 3);
-  assert.equal(queries[0], "inauguracion arte Providencia julio 2026");
-  assert.equal(queries[1], "exposicion arte Providencia julio 2026");
-  assert.equal(queries[2], "intervencion artistica Providencia julio 2026");
+  assert.equal(queries[0], "inauguracion arte Providencia, Chile julio 2026");
+  assert.equal(queries[1], "exposicion arte Providencia, Chile julio 2026");
+  assert.equal(queries[2], "intervencion artistica Providencia, Chile julio 2026");
 });
 
 test("firstOfMonthIso and currentMonthLabel agree on the month", () => {
@@ -182,9 +182,9 @@ test("searchUnit filters by score and dedups by URL across the 3 queries", async
   const now = new Date(2026, 6, 12);
   const result = { url: "https://a.cl/1", title: "A", content: "c", score: 0.9, images: [] };
   const fetchStub = stubTavilyFetch({
-    "inauguracion arte U julio 2026": { results: [result, { ...result, url: "https://low.cl", score: 0.05 }], usage: { credits: 2 } },
-    "exposicion arte U julio 2026": { results: [result], usage: { credits: 2 } }, // same URL again
-    "intervencion artistica U julio 2026": { results: [{ ...result, url: "https://b.cl/2" }], usage: { credits: 2 } },
+    "inauguracion arte U, Chile julio 2026": { results: [result, { ...result, url: "https://low.cl", score: 0.05 }], usage: { credits: 2 } },
+    "exposicion arte U, Chile julio 2026": { results: [result], usage: { credits: 2 } }, // same URL again
+    "intervencion artistica U, Chile julio 2026": { results: [{ ...result, url: "https://b.cl/2" }], usage: { credits: 2 } },
   });
 
   const { results, credits } = await searchUnit("key", "U", now, [], fetchStub);

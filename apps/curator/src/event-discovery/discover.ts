@@ -112,12 +112,26 @@ export function firstOfMonthIso(now: Date): string {
 // The 3 validated query templates — tested whether any pair of 2 would
 // suffice (reusing logged data, zero extra cost): dropping any one loses
 // 20-32% of unique results, including real approved candidates. All 3 stay.
+//
+// ", Chile" appended to the unit: comuna-name collisions with unrelated
+// foreign places (e.g. "La Reina" pulling in Madrid's Reina Sofía museum,
+// "Recoleta" pulling in Buenos Aires' Recoleta) are a real, measured
+// pattern (scripts/query-variant-test.ts, a Tavily-only A/B test, zero
+// Anthropic cost). ", Chile" was the clear winner over "Región
+// Metropolitana" and "comuna de {unit}": eliminated foreign hits entirely
+// for both collision-prone comunas tested (Recoleta 5→0, La Reina 3→0)
+// with no loss of result count, and didn't hurt a control comuna with no
+// collision problem (Ñuñoa). This was already a safety-net-only concern
+// even before the change — applyLocationFilter already rejects anything
+// that doesn't resolve to a real Chilean place, and none of these
+// collisions had ever produced an actual event — so this is a
+// signal-to-noise improvement, not a correctness fix.
 export function buildQueries(unit: string, now: Date): string[] {
   const monthLabel = currentMonthLabel(now);
   return [
-    `inauguracion arte ${unit} ${monthLabel}`,
-    `exposicion arte ${unit} ${monthLabel}`,
-    `intervencion artistica ${unit} ${monthLabel}`,
+    `inauguracion arte ${unit}, Chile ${monthLabel}`,
+    `exposicion arte ${unit}, Chile ${monthLabel}`,
+    `intervencion artistica ${unit}, Chile ${monthLabel}`,
   ];
 }
 

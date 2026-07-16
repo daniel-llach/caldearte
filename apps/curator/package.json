@@ -6,7 +6,8 @@
   "scripts": {
     "test": "node --import tsx --test src/**/*.test.ts",
     "discover-events": "node --import tsx src/index.ts",
-    "poc-tavily": "node --env-file=../../.env --import tsx scripts/poc-tavily-discover.ts"
+    "poc-tavily": "node --env-file=../../.env --import tsx scripts/poc-tavily-discover.ts",
+    "query-variant-test": "node --env-file=../../.env --import tsx scripts/query-variant-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
