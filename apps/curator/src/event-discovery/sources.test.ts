@@ -141,6 +141,34 @@ test("fetchBrightSources against the real KNOWN_SOURCES config for uchile.cl par
   assert.equal(results[0].images[0]?.url, "https://artes.uchile.cl/dam/uno.jpg");
 });
 
+test("fetchBrightSources against the real KNOWN_SOURCES config for molinomachmar.cl extracts an exhibition even when it sits past the whole-page-flatten's char cutoff (regression check against production config, real bug found 2026-07-16)", async () => {
+  const camm = KNOWN_SOURCES.find((s) => s.url.includes("molinomachmar.cl"));
+  assert.ok(camm?.extractor?.kind === "articleList");
+  const config = camm.extractor as ArticleListConfig;
+
+  // Padding simulates the real page's nav/header/other-event bulk that
+  // pushed exhibitions past sources.ts's 4000-char whole-page-flatten
+  // cutoff — proves the dedicated extractor reads the WHOLE page, not
+  // just a prefix.
+  const padding = "x".repeat(5000);
+  const html = `
+    <div>${padding}</div>
+    <article class="page-evento rpt-64 post-6328 camm_evento camm_tax_area-exposicion">
+      <img src="/web/wp-content/uploads/2026/06/paloma.jpg" alt="Foto">
+      <div class="evento-fecha ff-secondary rt-h1--2"><span>20 JUN</span><span>16 AGO</span></div>
+      <p class="evento-ano ff-secondary rt-h1--2">2026</p>
+      <h3 class="rtxl">UNA PALOMA EN EL MOLINO</h3>
+      <a href="/cartelera/una-paloma-en-el-molino/" title="Leer: UNA PALOMA EN EL MOLINO" class="page-evento__enlace no-tooltip"></a>
+    </article>
+  `;
+
+  const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([{ url: camm.url, note: camm.note, extractor: config }]));
+
+  assert.equal(results.length, 1);
+  assert.match(results[0].content, /UNA PALOMA EN EL MOLINO.*20 JUN 16 AGO 2026/);
+  assert.equal(results[0].images[0]?.url, "https://www.molinomachmar.cl/web/wp-content/uploads/2026/06/paloma.jpg");
+});
+
 test("mergeBrightSources dedups by domain with the hand-curated list winning", () => {
   const merged = mergeBrightSources([
     // Same domain as a KNOWN_SOURCES entry — must not appear twice.
