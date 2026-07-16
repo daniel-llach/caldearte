@@ -60,6 +60,18 @@ export const KNOWN_SOURCES: KnownSource[] = [
       endDateField: "meta.fecha_de_termino",
     },
   },
+  {
+    url: "https://www.mnba.gob.cl/cartelera",
+    note: 'Museo Nacional de Bellas Artes\' full listing page (NOT /cartelera/proximos — that variant only shows 1 near-term addition; the plain /cartelera page has the real current lineup, 6 events at last check, 5 of them "Exposición"). Drupal site, clean semantic markup per event.',
+    lastReviewedAt: "2026-07-16",
+    extractor: {
+      kind: "articleList",
+      blockRegex: /<article\s+class="node node--evento[^"]*">([\s\S]*?)<\/article>/g,
+      titleLinkRegex: /<h2 class="destacado__title"><a href="([^"]+)">([^<]*)<\/a><\/h2>/,
+      daysRegex: /field--name-field-fechas"[^>]*>([\s\S]*?)<\/div>/,
+      placeRegex: /field--name-institucion"><a[^>]*>([^<]*)<\/a>/,
+    },
+  },
 ];
 
 export function knownSourceDomain(url: string): string {
