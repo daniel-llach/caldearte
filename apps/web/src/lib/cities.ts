@@ -12,13 +12,23 @@ export interface City {
   name: string;
 }
 
-// Matches supabase/migrations/20260711190000_seed_initial_chile_regions.sql.
+// Originally matched supabase/migrations/20260711190000_seed_initial_chile_regions.sql
+// 1:1 (5 cities). Since then, real Gran Santiago comunas have been added
+// directly to `regions` as their own independent search units (a pilot for
+// the eventual ~346-comuna rollout, docs/region-discovery.md) — this list
+// has to be updated by hand to match whenever a new region row is added,
+// same "hardcoded duplicate, kept in sync manually" tradeoff as before.
 export const KNOWN_CITIES: City[] = [
   { id: "santiago", name: "Santiago" },
   { id: "valparaiso", name: "Valparaíso" },
   { id: "concepcion", name: "Concepción" },
   { id: "antofagasta", name: "Antofagasta" },
   { id: "arica", name: "Arica" },
+  { id: "providencia", name: "Providencia" },
+  { id: "nunoa", name: "Ñuñoa" },
+  { id: "recoleta", name: "Recoleta" },
+  { id: "la-reina", name: "La Reina" },
+  { id: "independencia", name: "Independencia" },
 ];
 
 export const OTHER_CITY: City = { id: "otro", name: "Otro" };
