@@ -112,7 +112,7 @@ const brightCandidates = [
     curationReasoning: "ok",
     imageUrl: "https://nuevositio.cl/obra2.jpg",
     status: "approved",
-    location: "Valparaíso, Chile",
+    location: "Rancagua, Chile",
     placeName: null,
     sourceUrl: "https://nuevositio.cl/expo-2",
   },
@@ -205,6 +205,13 @@ test(
         assert.ok(soloFin, "event with only run_end_date inserts successfully (real production bug, fixed)");
         assert.equal(soloFin.run_start_date, null);
         assert.equal(soloFin.run_end_date, "2026-08-15");
+
+        const concepcionRegion = await client.from("regions").select("id").eq("name", "Concepción").single();
+        assert.equal(
+          soloFin.region_id,
+          concepcionRegion.data?.id,
+          "'Concepción, Chile' matches via the leading segment, not just a trailing one",
+        );
       });
 
       await t.test("last_run_at is set and the unit is no longer due; excluded units never run", async () => {
@@ -270,7 +277,7 @@ test(
         assert.equal(brightByTitle.get("__test__ Brillante uno")?.place_name, "Plaza Sotomayor");
         assert.equal(brightByTitle.get("__test__ Brillante uno")?.region_id, valparaisoRegion.data?.id);
         assert.equal(brightByTitle.get("__test__ Brillante dos")?.place_name, null);
-        assert.equal(brightByTitle.get("__test__ Brillante dos")?.region_id, null, "'Chile' alone doesn't match any seeded region name");
+        assert.equal(brightByTitle.get("__test__ Brillante dos")?.region_id, null, "Rancagua isn't one of the 5 seeded regions");
 
         const { data: detected } = await client
           .from("detected_sources")
