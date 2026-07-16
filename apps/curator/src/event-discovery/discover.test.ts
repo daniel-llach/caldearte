@@ -5,6 +5,7 @@ import {
   applyLocationFilter,
   buildQueries,
   currentMonthLabel,
+  enforceSourceUrlInvariant,
   filterImageCandidates,
   filterKnownExclusions,
   firstOfMonthIso,
@@ -118,6 +119,19 @@ test("nullifyAggregatorSourceUrls ignores rejected candidates and null sourceUrl
   assert.equal(result[0].sourceUrl, shared);
   assert.equal(result[1].sourceUrl, shared, "rejected candidates pass through untouched");
   assert.equal(result[2].sourceUrl, null);
+});
+
+test("enforceSourceUrlInvariant forces approved events without sourceUrl to rejected (Haiku prompt violation)", () => {
+  const candidates = [
+    { ...baseCandidate, title: "Aprobado con URL", status: "approved" as const, sourceUrl: "https://x.cl" },
+    { ...baseCandidate, title: "Aprobado sin URL (invariante violado)", status: "approved" as const, sourceUrl: null },
+    { ...baseCandidate, title: "Rechazado sin URL (ok)", status: "rejected" as const, sourceUrl: null },
+  ];
+  const result = enforceSourceUrlInvariant(candidates);
+  assert.equal(result[0].status, "approved", "approved with sourceUrl passes through");
+  assert.equal(result[1].status, "rejected", "approved without sourceUrl is forced to rejected");
+  assert.match(result[1].curationReasoning, /invariante/);
+  assert.equal(result[2].status, "rejected", "rejected without sourceUrl is unchanged");
 });
 
 test("filterKnownExclusions drops a raw search result whose own title matches a known out-of-scope event, before it ever reaches Haiku", () => {

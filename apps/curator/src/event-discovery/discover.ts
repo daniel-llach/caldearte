@@ -301,6 +301,23 @@ export function applyLocationFilter(candidates: EventCandidate[]): EventCandidat
   );
 }
 
+// Enforce the sourceUrl invariant: approved events MUST have a sourceUrl
+// (either a specific per-event URL or at minimum the block's URL). If Haiku
+// violated this, force to rejected — a wrong link is worse than no link, but
+// no link on an approved event is a prompt-following failure that shouldn't
+// silently pass.
+export function enforceSourceUrlInvariant(candidates: EventCandidate[]): EventCandidate[] {
+  return candidates.map((c) =>
+    c.status === "approved" && !c.sourceUrl
+      ? {
+          ...c,
+          status: "rejected" as const,
+          curationReasoning: `${c.curationReasoning} [FILTRO DE CÓDIGO: evento aprobado sin sourceUrl viola el invariante; rechazado]`,
+        }
+      : c,
+  );
+}
+
 export interface CurateResult {
   candidates: EventCandidate[];
   usage: DiscoverUsage;
@@ -328,7 +345,9 @@ export async function curate(
     .join("");
 
   return {
-    candidates: applyKnownExclusionsFilter(nullifyAggregatorSourceUrls(applyLocationFilter(parseCandidates(text)))),
+    candidates: enforceSourceUrlInvariant(
+      applyKnownExclusionsFilter(nullifyAggregatorSourceUrls(applyLocationFilter(parseCandidates(text)))),
+    ),
     usage: {
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
