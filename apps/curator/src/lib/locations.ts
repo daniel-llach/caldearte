@@ -50,7 +50,7 @@ const CHILE_MARKERS = [
   "hualpen", "chiguayante", "san pedro de la paz", "coronel", "lota",
   "penco", "tome", "hualqui", "santa juana", "temuco", "padre las casas",
   "angol", "villarrica", "pucon", "valdivia", "la union", "puerto montt",
-  "osorno", "castro", "ancud", "puerto varas", "coyhaique",
+  "osorno", "castro", "ancud", "puerto varas", "frutillar", "coyhaique",
   "puerto aysen", "punta arenas", "puerto natales",
 ];
 
