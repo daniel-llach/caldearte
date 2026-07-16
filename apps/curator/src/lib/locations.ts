@@ -77,19 +77,29 @@ export interface RegionLike {
   name: string;
 }
 
-// Same trailing-comma-segment technique as isChileanLocation and as
-// apps/web/src/lib/cities.ts's deriveCityId — moved here so the match is
-// resolved once at write-time (a real events.region_id FK) instead of
+// Resolved once at write-time (a real events.region_id FK) instead of
 // re-guessed on every frontend render. Deliberately NOT the search unit
 // that produced the candidate (region-discovery.md is explicit: a
 // candidate's real location can differ from the unit searched for it, e.g.
 // "Las Condes" found while searching "Providencia") — always matched from
 // the candidate's own reported location text. Returns null when unmatched
 // (an event outside the current unit list — the "otro" case).
+//
+// Checks EVERY comma-segment, not just the trailing one — a real
+// production bug (found 2026-07-15): sources routinely cite "Ciudad,
+// Nombre-oficial-de-la-región" (e.g. "Concepción, Bío Bío", "Arica, Región
+// de Arica y Parinacota") instead of "barrio, Ciudad" — trailing-only
+// matching missed these even though the city itself (a seeded region) is
+// right there in the FIRST segment. Checking every segment catches both
+// shapes without over-matching: a segment like "Viña del Mar" (a real,
+// distinct comuna, not simply "Valparaíso" reworded) still correctly
+// won't match, since it isn't the literal region name in any segment.
 export function matchRegionId(location: string, regions: RegionLike[]): string | null {
   const normalized = stripAccents(location.toLowerCase());
   const segments = normalized.split(",").map((s) => s.trim());
-  const lastSegment = segments[segments.length - 1] ?? "";
-  const match = regions.find((r) => stripAccents(r.name.toLowerCase()) === lastSegment);
-  return match?.id ?? null;
+  for (const segment of segments) {
+    const match = regions.find((r) => stripAccents(r.name.toLowerCase()) === segment);
+    if (match) return match.id;
+  }
+  return null;
 }

@@ -1,5 +1,6 @@
 import CardImage from "./CardImage";
 import { anchorDateOnly, fmtOpeningHour, fmtPeriod } from "@/lib/date";
+import { deriveComuna } from "@/lib/comuna";
 import type { EventRecord } from "@/lib/events";
 
 interface EventCardBaseProps {
@@ -23,13 +24,20 @@ export default function EventCardBase({
   const period = anchor ? fmtPeriod(event.runStartDate, event.runEndDate, anchor) : null;
   const hourSuffix = event.openingDatetime ? ` - ${fmtOpeningHour(event.openingDatetime)}` : "";
 
+  const displayedVenue = event.placeName ?? event.freeformLocation;
+  const comuna = deriveComuna(event.freeformLocation, event.placeName);
+  // Don't repeat the comuna if it's already visible inside the venue text
+  // itself (e.g. "MAC Quinta Normal" already says Quinta Normal).
+  const comunaAlreadyShown = comuna !== null && displayedVenue.toLowerCase().includes(comuna.toLowerCase());
+  const venueLine = comuna && !comunaAlreadyShown ? `${displayedVenue} — ${comuna}` : displayedVenue;
+
   return (
     <div className="relative bg-black rounded-2xl overflow-hidden flex flex-col h-full">
       <div className={imageAspectClass}>
         <CardImage imageUrl={event.imageUrl} sourceUrl={event.sourceUrl} sensitivityTags={event.sensitivityTags} />
       </div>
       <div className={`flex flex-col gap-1.5 ${contentPaddingClass}`}>
-        <p className={`${venueClass} text-venue-gray truncate`}>{event.placeName ?? event.freeformLocation}</p>
+        <p className={`${venueClass} text-venue-gray truncate`}>{venueLine}</p>
         <p className={`${titleClass} text-white`}>{event.title}</p>
         {period && (
           <p className={`${periodClass} text-period-gray`}>
