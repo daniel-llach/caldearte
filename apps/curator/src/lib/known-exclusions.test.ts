@@ -8,6 +8,11 @@ test("matchesKnownExclusion matches a known excluded event regardless of edition
   assert.equal(matchesKnownExclusion("festival santiago a mil"), true);
 });
 
+test("matchesKnownExclusion matches 'La Florida Es Teatro', a community theater festival wrongly approved as intervencion_no_tradicional", () => {
+  assert.equal(matchesKnownExclusion("La Florida Es Teatro 2026"), true);
+  assert.equal(matchesKnownExclusion("la florida es teatro"), true);
+});
+
 test("matchesKnownExclusion returns false for unrelated titles", () => {
   assert.equal(matchesKnownExclusion("Exposición Colectiva Sala FEM 2026"), false);
   assert.equal(matchesKnownExclusion("Muestra Poética de las aguas"), false);
