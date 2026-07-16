@@ -1,3 +1,4 @@
+Connecting to db 5432
 export type Json =
   | string
   | number
@@ -190,6 +191,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      raw_search_results: {
+        Row: {
+          created_at: string
+          domain: string
+          id: string
+          score: number
+          title: string
+          unit_name: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          domain: string
+          id?: string
+          score: number
+          title: string
+          unit_name: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          domain?: string
+          id?: string
+          score?: number
+          title?: string
+          unit_name?: string
+          url?: string
+        }
+        Relationships: []
       }
       regions: {
         Row: {

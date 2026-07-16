@@ -303,6 +303,25 @@ going forward: most useful bright sources will keep surfacing this way,
 supplemented by occasional manual additions when a human notices something
 the pipeline structurally can't see (JS-only pages).
 
+**Finding the next one, deliberately manual, not automated:** every regular
+per-unit search result gets logged to `raw_search_results` (title, url,
+domain, score) — a 7-day rolling window, pruned automatically at the start
+of every run, not a permanent archive. `events` can't serve this purpose:
+a listing/aggregator page can show up in every search and, if Tavily's
+snippet of it is too thin, never produce even one candidate — so it would
+never appear there, even though the page itself might be genuinely rich
+(found this exact way: `mnba.gob.cl/cartelera`, added as a bright source
+after showing up repeatedly in Santiago searches with a weak yield). The
+review itself is ad-hoc SQL against this table (group by domain, look for
+ones that keep showing up) followed by manually fetching the page and
+testing a candidate `extractor` config — same process used for every
+bright source added so far, not a new capability. Deliberately not
+automated: an LLM inline-generating an extraction regex from raw HTML
+during curation would be expensive (full HTML pages are token-heavy) and,
+worse, would ship unvetted — every extractor config in `known-sources.ts`
+so far was hand-tested against real data before being trusted with no
+human in the loop after that.
+
 ## Ranking & expansion (superseded, kept for historical reference)
 
 The original design below — a precalculated global population/distance

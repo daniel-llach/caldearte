@@ -214,6 +214,14 @@ test(
         );
       });
 
+      await t.test("logs the raw search result for the unit's own domain", async () => {
+        const { data: raw } = await client.from("raw_search_results").select("*").eq("unit_name", TEST_UNIT);
+        assert.equal(raw?.length, 1);
+        assert.equal(raw?.[0].domain, "x.cl");
+        assert.equal(raw?.[0].url, "https://x.cl");
+        assert.equal(raw?.[0].score, 0.9);
+      });
+
       await t.test("last_run_at is set and the unit is no longer due; excluded units never run", async () => {
         const { data: updated } = await client.from("regions").select("last_run_at").eq("id", unit.id).single();
         assert.ok(updated?.last_run_at, "last_run_at set");
@@ -287,6 +295,28 @@ test(
         assert.match(detected![0].note, /2 eventos completos/);
       });
 
+      await t.test("prunes raw_search_results older than 7 days on the next run", async () => {
+        const old = new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000).toISOString();
+        await client.from("raw_search_results").insert({
+          unit_name: TEST_UNIT,
+          domain: "viejo.cl",
+          url: "https://viejo.cl",
+          title: "old",
+          score: 0.5,
+          created_at: old,
+        });
+
+        await run({
+          messagesClient,
+          searchUnitFn: async () => ({ results: [], credits: 0 }),
+          fetchBrightSourcesFn: async () => [],
+          now: NOW,
+        });
+
+        const { data: stillThere } = await client.from("raw_search_results").select("id").eq("domain", "viejo.cl");
+        assert.equal(stillThere?.length, 0, "row older than 7 days got pruned");
+      });
+
       await t.test("usage was recorded under the event_discovery purpose", async () => {
         // Filtered by this suite's own stub token counts — parallel test
         // files share the local DB, other suites may write their own
@@ -303,6 +333,7 @@ test(
     } finally {
       await client.from("events").delete().like("title", "__test__%");
       await client.from("detected_sources").delete().like("url", "%nuevositio.cl%");
+      await client.from("raw_search_results").delete().eq("unit_name", TEST_UNIT);
       // Surgical, by this suite's stub token counts — not by purpose alone
       // (would race with usage-tracking.test.ts's own rows).
       await client
