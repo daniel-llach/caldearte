@@ -8,6 +8,7 @@
 import { ART_SCOPE_POLICY, TEXT_CURATION_POLICY, INSTITUTIONAL_EXCLUSION_POLICY } from "../lib/curation-policy.js";
 import { tavilySearch, type FetchLike, type TavilyImage } from "../lib/tavily.js";
 import { isChileanLocation } from "../lib/locations.js";
+import { matchesKnownExclusion } from "../lib/known-exclusions.js";
 import { normalizeTitle } from "../lib/event-filters.js";
 
 export { normalizeTitle };
@@ -163,6 +164,20 @@ export async function searchUnit(
   return { results, credits };
 }
 
+// Deterministic backstop, applied BEFORE curation — drops a known
+// out-of-scope event's own search result so it never reaches Haiku's
+// input at all: saves both the input tokens for that result's content
+// and the output tokens Haiku would've spent generating (then discarding)
+// a candidate for it. Safe for regular per-unit search results (each
+// Tavily hit here is normally one page about one event, so matching the
+// result's own title is precise) — NOT applied to bright sources, whose
+// content bundles many events into one page; those rely on
+// applyKnownExclusionsFilter below instead, after Haiku has already
+// separated them into individual candidates.
+export function filterKnownExclusions(results: RawResult[]): RawResult[] {
+  return results.filter((r) => !matchesKnownExclusion(r.title));
+}
+
 export function formatImages(images: ImageCandidate[]): string {
   if (images.length === 0) return "";
   const lines = images
@@ -244,6 +259,21 @@ export function nullifyAggregatorSourceUrls(candidates: EventCandidate[]): Event
   return candidates.map((c) => (c.sourceUrl && (counts.get(c.sourceUrl) ?? 0) >= 2 ? { ...c, sourceUrl: null } : c));
 }
 
+// Backstop for known-out-of-scope events, applied AFTER curation (unlike
+// filterKnownExclusions above, which runs before) — catches candidates
+// filterKnownExclusions can't safely reach: bright-source content, where
+// many events share one page and Haiku is the one who first separates
+// them into individual titles, or a regular search hit whose own Tavily
+// title didn't happen to match even though Haiku's extracted title does.
+// No token savings here (Haiku already ran) — this is the safety net.
+export function applyKnownExclusionsFilter(candidates: EventCandidate[]): EventCandidate[] {
+  return candidates.map((c) =>
+    c.status === "approved" && matchesKnownExclusion(c.title)
+      ? { ...c, status: "rejected" as const, curationReasoning: `${c.curationReasoning} [FILTRO DE CÓDIGO: evento conocido fuera de alcance]` }
+      : c,
+  );
+}
+
 // Deterministic backstop over Haiku's own decision — see lib/locations.ts.
 export function applyLocationFilter(candidates: EventCandidate[]): EventCandidate[] {
   return candidates.map((c) =>
@@ -284,7 +314,7 @@ export async function curate(
     .join("");
 
   return {
-    candidates: nullifyAggregatorSourceUrls(applyLocationFilter(parseCandidates(text))),
+    candidates: applyKnownExclusionsFilter(nullifyAggregatorSourceUrls(applyLocationFilter(parseCandidates(text)))),
     usage: {
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,

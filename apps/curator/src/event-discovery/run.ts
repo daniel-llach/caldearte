@@ -18,6 +18,7 @@ import {
   curate,
   currentMonthLabel,
   EVENT_DISCOVERY_MODEL,
+  filterKnownExclusions,
   isCurrentOrUpcoming,
   normalizeTitle,
   searchUnit,
@@ -205,8 +206,16 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   console.log(`[event-discovery] ${units.length} unit(s) due, ${brightSources.length} bright source(s)`);
 
   for (const unit of units) {
-    const { results, credits } = await searchUnitFn(tavilyApiKey ?? "", unit.name, now, excludeDomains);
-    console.log(`[event-discovery] ${unit.name}: ${results.length} results, ${credits} Tavily credits`);
+    const { results: rawResults, credits } = await searchUnitFn(tavilyApiKey ?? "", unit.name, now, excludeDomains);
+    console.log(`[event-discovery] ${unit.name}: ${rawResults.length} results, ${credits} Tavily credits`);
+
+    // Drop known-out-of-scope results before they ever reach Haiku — saves
+    // both the input tokens for that result's content and the output
+    // tokens Haiku would've spent on a candidate we'd just discard anyway.
+    const results = filterKnownExclusions(rawResults);
+    if (results.length !== rawResults.length) {
+      console.log(`[event-discovery] ${unit.name}: dropped ${rawResults.length - results.length} known-excluded result(s) before curation`);
+    }
 
     let inserted = 0;
     if (results.length > 0) {
