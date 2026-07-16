@@ -29,6 +29,11 @@ export const KNOWN_CITIES: City[] = [
   { id: "recoleta", name: "Recoleta" },
   { id: "la-reina", name: "La Reina" },
   { id: "independencia", name: "Independencia" },
+  { id: "puente-alto", name: "Puente Alto" },
+  { id: "la-florida", name: "La Florida" },
+  { id: "maipu", name: "Maipú" },
+  { id: "renca", name: "Renca" },
+  { id: "frutillar", name: "Frutillar" },
 ];
 
 export const OTHER_CITY: City = { id: "otro", name: "Otro" };
