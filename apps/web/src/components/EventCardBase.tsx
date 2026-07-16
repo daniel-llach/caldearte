@@ -33,7 +33,7 @@ export default function EventCardBase({
 
   return (
     <div className="relative bg-black rounded-2xl overflow-hidden flex flex-col h-full">
-      <div className={imageAspectClass}>
+      <div className={`shrink-0 h-[185.53px] ${imageAspectClass}`}>
         <CardImage imageUrl={event.imageUrl} sourceUrl={event.sourceUrl} sensitivityTags={event.sensitivityTags} />
       </div>
       <div className={`flex flex-col gap-1.5 ${contentPaddingClass}`}>
