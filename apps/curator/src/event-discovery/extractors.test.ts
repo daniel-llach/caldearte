@@ -18,6 +18,11 @@ test("extractImgTags pulls src/alt pairs and treats empty alt as null", () => {
   ]);
 });
 
+test("extractImgTags decodes HTML entities in src (e.g. Drupal's correctly-escaped '&amp;' in image-style query strings)", () => {
+  const html = `<img src="/img.jpg?h=abc123&amp;itok=xyz789" alt="foto">`;
+  assert.deepEqual(extractImgTags(html), [{ url: "/img.jpg?h=abc123&itok=xyz789", description: "foto" }]);
+});
+
 test("filterKnownSourceImages resolves relative URLs, drops chrome, nulls 'vacio' alts", () => {
   const images = [
     { url: " /dam/expo-prev.jpg", description: "vacio" },

@@ -26,6 +26,15 @@ export function collapseWhitespace(text: string): string {
 // Pull <img src/alt> pairs out BEFORE stripping tags — the original crude
 // tag-strip threw away real per-exhibition thumbnails sitting right in the
 // HTML (a real bug, found against artes.uchile.cl's agenda).
+//
+// src attributes are real HTML, so a site is free to (correctly) escape
+// query-string "&" as "&amp;" — a real bug found against mnba.gob.cl's
+// Drupal image-style URLs (?h=...&amp;itok=...): stored verbatim, that
+// "&amp;" is literal text, not the "&" the real URL needs, breaking it.
+function decodeHtmlEntities(text: string): string {
+  return text.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
+
 export function extractImgTags(html: string): Array<{ url: string; description: string | null }> {
   const images: Array<{ url: string; description: string | null }> = [];
   const imgTagRegex = /<img\b[^>]*>/gi;
@@ -37,7 +46,7 @@ export function extractImgTags(html: string): Array<{ url: string; description: 
     const src = tag.match(srcRegex)?.[1];
     if (!src) continue;
     const alt = tag.match(altRegex)?.[1] ?? null;
-    images.push({ url: src, description: alt && alt.trim().length > 0 ? alt.trim() : null });
+    images.push({ url: decodeHtmlEntities(src), description: alt && alt.trim().length > 0 ? alt.trim() : null });
   }
 
   return images;
