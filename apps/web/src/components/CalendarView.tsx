@@ -129,7 +129,7 @@ export default function CalendarView({
 
           {exposActuales.length > 0 && (
             <section className="mt-16">
-              <h2 className="text-3xl md:text-[41px] font-black tracking-wide text-heading-gray mb-6">{esCL.sectionExposActuales}</h2>
+              <h2 className="text-3xl md:text-[41px] font-semibold tracking-wide text-heading-gray mb-6">{esCL.sectionExposActuales}</h2>
               <div style={{ display: "grid", gridTemplateColumns: `repeat(${isDesktop ? 3 : 1}, minmax(0,1fr))`, gap: "24px" }}>
                 {exposActuales.map((e) => (
                   <ExpoCard key={e.id} event={e} />

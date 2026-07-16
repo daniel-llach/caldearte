@@ -63,9 +63,9 @@ export default function Header({
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-baseline gap-3 flex-wrap">
           <span className="text-2xl md:text-5xl font-normal text-heading-gray">{esCL.appName}</span>
-          <span className="hidden md:inline text-5xl font-normal text-heading-gray">
+          <span className="hidden md:inline text-5xl font-extrabold text-heading-gray">
             {dateLabel}
-            <span className="text-lg text-muted-gray ml-2" suppressHydrationWarning>
+            <span className="text-lg text-muted-gray ml-2 font-normal" suppressHydrationWarning>
               {time}
             </span>
           </span>
