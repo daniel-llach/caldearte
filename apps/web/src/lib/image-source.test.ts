@@ -22,9 +22,9 @@ test("deriveImageSource: unparseable URL -> web with no domain, doesn't throw", 
   assert.deepEqual(deriveImageSource("not a url"), { kind: "web", domain: null });
 });
 
-test("resolveCardImage: real imageUrl wins regardless of source", () => {
+test("resolveCardImage: real imageUrl wins for an ordinary web source", () => {
   assert.deepEqual(
-    resolveCardImage({ imageUrl: "https://cdn.example.com/x.jpg", sourceUrl: "https://instagram.com/p/x" }),
+    resolveCardImage({ imageUrl: "https://cdn.example.com/x.jpg", sourceUrl: "https://uchile.cl/eventos/x" }),
     { type: "photo", url: "https://cdn.example.com/x.jpg" },
   );
 });
@@ -35,4 +35,18 @@ test("resolveCardImage: no imageUrl -> placeholder derived from sourceUrl", () =
     source: "facebook",
     domain: null,
   });
+});
+
+test("resolveCardImage: Instagram/Facebook always use the placeholder, even with a real imageUrl — those CDN links are signed and short-lived, guaranteed to rot", () => {
+  assert.deepEqual(
+    resolveCardImage({
+      imageUrl: "https://scontent.cdninstagram.com/v/t51.82787-15/example.jpg?oe=6A5CC572",
+      sourceUrl: "https://www.instagram.com/reel/abc123",
+    }),
+    { type: "placeholder", source: "instagram", domain: null },
+  );
+  assert.deepEqual(
+    resolveCardImage({ imageUrl: "https://scontent.xx.fbcdn.net/example.jpg", sourceUrl: "https://www.facebook.com/events/1" }),
+    { type: "placeholder", source: "facebook", domain: null },
+  );
 });

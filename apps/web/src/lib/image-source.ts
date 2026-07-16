@@ -28,10 +28,17 @@ export type CardImage =
   | { type: "photo"; url: string }
   | { type: "placeholder"; source: ImageSourceKind; domain: string | null };
 
-// Photo wins whenever a real image exists, regardless of source; otherwise
-// falls back to the source-branded placeholder.
+// Photo wins whenever a real image exists — EXCEPT for Instagram/Facebook
+// sources, where it never does. Confirmed in production: an imageUrl
+// scraped from an Instagram-sourced event is a signed, short-lived CDN
+// link (scontent.cdninstagram.com/...&oe=...) — it 403s within days
+// regardless of how "fresh" it was when captured, since the expiry is
+// baked into the URL itself. There's no reliable window where trusting it
+// is safe, so always use the branded placeholder for these two sources —
+// exactly what that placeholder exists for — rather than gambling on a
+// link that's guaranteed to rot.
 export function resolveCardImage(event: { imageUrl: string | null; sourceUrl: string | null }): CardImage {
-  if (event.imageUrl) return { type: "photo", url: event.imageUrl };
   const { kind, domain } = deriveImageSource(event.sourceUrl);
+  if (event.imageUrl && kind !== "instagram" && kind !== "facebook") return { type: "photo", url: event.imageUrl };
   return { type: "placeholder", source: kind, domain };
 }
