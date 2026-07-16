@@ -72,6 +72,11 @@ export const KNOWN_SOURCES: KnownSource[] = [
       placeRegex: /field--name-institucion"><a[^>]*>([^<]*)<\/a>/,
     },
   },
+  {
+    url: "https://www.molinomachmar.cl/cartelera/",
+    note: "Centro de Arte Molino Machmar (CAMM), Frutillar — events/expositions listing page. Mix of exposiciones (visual art, in scope) and performances/charlas (out of scope), which Haiku filters correctly. No structured extractor yet; uses whole-page flatten.",
+    lastReviewedAt: "2026-07-16",
+  },
 ];
 
 export function knownSourceDomain(url: string): string {
