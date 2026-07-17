@@ -112,7 +112,13 @@ const brightCandidates = [
     curationReasoning: "ok",
     imageUrl: "https://nuevositio.cl/obra2.jpg",
     status: "approved",
-    location: "Rancagua, Chile",
+    // A fictional place, not a real comuna — deliberately not "Rancagua"
+    // (used before the region-seeding migration added all 346 official
+    // comunas as rows; Rancagua is real and would now match). Still passes
+    // isChileanLocation (the trailing ", Chile" segment is enough), but
+    // can never match a real regions.name — the actual thing this test
+    // wants to exercise: an unmatched location gets region_id=null.
+    location: "Barrio Inventado, Chile",
     placeName: null,
     sourceUrl: "https://nuevositio.cl/expo-2",
   },
@@ -315,6 +321,16 @@ test(
         const { data: none } = await client.from("events").select("id").like("title", "__test__ Brillante%");
         assert.equal(none?.length ?? 0, 0);
 
+        // This test jumps "now" backward (Sep 20 -> Jul 13) purely to
+        // exercise month-staleness filtering in isolation — not a real
+        // same-session scenario, since real runs only ever move forward in
+        // time. Without clearing bright_source_fetch_state here, the first
+        // call above already marked every known/detected source as
+        // "just fetched" (at Sep 20), which the second call's earlier
+        // Jul 13 "now" would see as a NEGATIVE elapsed time — never due —
+        // silently skipping the bright-sources fetch entirely.
+        await client.from("bright_source_fetch_state").delete().neq("url", "");
+
         // Re-run within July: candidates are current, both insert, domain detected.
         await run({
           messagesClient,
@@ -334,7 +350,7 @@ test(
         assert.equal(brightByTitle.get("__test__ Brillante uno")?.place_name, "Plaza Sotomayor");
         assert.equal(brightByTitle.get("__test__ Brillante uno")?.region_id, valparaisoRegion.data?.id);
         assert.equal(brightByTitle.get("__test__ Brillante dos")?.place_name, null);
-        assert.equal(brightByTitle.get("__test__ Brillante dos")?.region_id, null, "Rancagua isn't one of the 5 seeded regions");
+        assert.equal(brightByTitle.get("__test__ Brillante dos")?.region_id, null, "a fictional place doesn't match any real seeded region");
 
         const { data: detected } = await client
           .from("detected_sources")
@@ -342,6 +358,48 @@ test(
           .like("url", "%nuevositio.cl%");
         assert.equal(detected?.length, 1);
         assert.match(detected![0].note, /2 eventos completos/);
+      });
+
+      await t.test("a bright source fetched recently is skipped until its own 2-week cadence elapses, independent of other sources", async () => {
+        await client.from("bright_source_fetch_state").delete().neq("url", "");
+        let fetchCallCount = 0;
+        const fetchBrightSourcesFn = async () => {
+          fetchCallCount += 1;
+          return [{ title: "fuente", url: "https://agenda.cl", content: "c", score: 1, images: [] }];
+        };
+
+        // First run: nothing fetched yet -> due -> fetch happens, state recorded.
+        await run({
+          messagesClient,
+          searchUnitFn: async () => ({ results: [], credits: 0 }),
+          fetchBrightSourcesFn,
+          now: new Date(2026, 6, 13), // July 13
+        });
+        assert.equal(fetchCallCount, 1);
+
+        // Second run, 3 days later — well under the 2-week interval —
+        // must be skipped: fetchBrightSourcesFn is not called again.
+        await run({
+          messagesClient,
+          searchUnitFn: async () => ({ results: [], credits: 0 }),
+          fetchBrightSourcesFn,
+          now: new Date(2026, 6, 16), // July 16
+        });
+        assert.equal(fetchCallCount, 1, "still 1 — 3 days is under the 2-week cadence");
+
+        // Third run, 15 days after the FIRST fetch — past the interval —
+        // due again, fetch happens.
+        await run({
+          messagesClient,
+          searchUnitFn: async () => ({ results: [], credits: 0 }),
+          fetchBrightSourcesFn,
+          now: new Date(2026, 6, 28), // July 28 — 15 days after July 13
+        });
+        assert.equal(fetchCallCount, 2, "due again once 2 weeks have passed since ITS OWN last fetch");
+
+        await client.from("events").delete().like("title", "__test__ Brillante%");
+        await client.from("detected_sources").delete().like("url", "%nuevositio.cl%");
+        await client.from("bright_source_fetch_state").delete().neq("url", "");
       });
 
       await t.test("prunes raw_search_results older than 7 days on the next run", async () => {
@@ -382,6 +440,7 @@ test(
     } finally {
       await client.from("events").delete().like("title", "__test__%");
       await client.from("detected_sources").delete().like("url", "%nuevositio.cl%");
+      await client.from("bright_source_fetch_state").delete().neq("url", "");
       await client.from("raw_search_results").delete().eq("unit_name", TEST_UNIT);
       // Surgical, by this suite's stub token counts — not by purpose alone
       // (would race with usage-tracking.test.ts's own rows).

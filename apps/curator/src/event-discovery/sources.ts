@@ -21,7 +21,7 @@
 // log-and-skip for a json-api source nobody's configured yet — better than
 // silently reusing another site's field names against it.
 import { KNOWN_SOURCES, knownSourceDomain } from "../lib/known-sources.js";
-import { type EventCandidate, type RawResult } from "./discover.js";
+import { type EventCandidate, type ImageCandidate, type RawResult } from "./discover.js";
 import {
   extractArticleList,
   extractImgTags,
@@ -36,29 +36,61 @@ export interface BrightSource {
   note: string;
   type?: "html" | "json-api";
   extractor?: ExtractorConfig;
+  // Extra URLs whose content gets fetched (same extractor) and appended to
+  // this source's single result — e.g. arteinformado.com's listing is
+  // paginated, and page 1 alone missed a real event ("Sín-tesis", found
+  // 2026-07-17) that only showed up on page 2. Kept small deliberately: a
+  // few pages costs a bit more Haiku input per fetch, but fetching this
+  // source's ~423 pages every run would be both expensive and mostly
+  // wasted — the site's own sort order isn't chronological, so later pages
+  // increasingly return events that have already ended (real check:
+  // page 5 already had events that ended ~2 months before today).
+  additionalPages?: string[];
 }
 
-async function fetchHtmlSource(source: BrightSource): Promise<RawResult> {
-  const res = await fetch(source.url);
+async function fetchHtmlPage(
+  pageUrl: string,
+  extractor: ExtractorConfig | undefined,
+): Promise<{ content: string; images: ImageCandidate[] }> {
+  const res = await fetch(pageUrl);
   if (!res.ok) {
-    throw new Error(`html source ${source.url} responded ${res.status}`);
+    throw new Error(`html source ${pageUrl} responded ${res.status}`);
   }
   const html = await res.text();
 
-  if (source.extractor?.kind === "articleList") {
-    const structured = extractArticleList(html, source.url, source.extractor);
-    if (structured) {
-      return { title: source.note, url: source.url, content: structured.content, score: 1, images: structured.images };
-    }
+  if (extractor?.kind === "articleList") {
+    const structured = extractArticleList(html, pageUrl, extractor);
+    if (structured) return structured;
   }
 
   // Fallback: no configured extractor, or the configured one didn't match
   // this page's actual markup — whole-page flatten, as before (script/
   // style CONTENTS stripped first, not just the tags, so JS/CSS source
   // doesn't leak into the text Haiku reads).
-  const images = filterKnownSourceImages(extractImgTags(html), source.url);
+  const images = filterKnownSourceImages(extractImgTags(html), pageUrl);
   const text = collapseWhitespace(html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "")).slice(0, 4000);
-  return { title: source.note, url: source.url, content: text, score: 1, images };
+  return { content: text, images };
+}
+
+async function fetchHtmlSource(source: BrightSource): Promise<RawResult> {
+  const primary = await fetchHtmlPage(source.url, source.extractor);
+  let content = primary.content;
+  let images = primary.images;
+
+  for (const pageUrl of source.additionalPages ?? []) {
+    try {
+      const page = await fetchHtmlPage(pageUrl, source.extractor);
+      content += "\n" + page.content;
+      images = images.concat(page.images);
+    } catch (err) {
+      // Losing one extra page shouldn't drop the whole source's primary
+      // page too — only the primary page's own failure propagates (kept
+      // as a throw, unchanged from before additionalPages existed).
+      console.error(`[event-discovery] additional page failed for ${source.url}: ${pageUrl}: ${(err as Error).message}`);
+    }
+  }
+
+  return { title: source.note, url: source.url, content, score: 1, images };
 }
 
 async function fetchJsonApiSource(source: BrightSource): Promise<RawResult> {

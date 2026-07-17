@@ -97,6 +97,60 @@ test("fetchBrightSources falls back to a whole-page flatten for an html source w
   assert.doesNotMatch(results[0].content, /ignoreme/);
 });
 
+test("fetchBrightSources merges additionalPages into ONE result — content concatenated, images combined (pagination, e.g. arteinformado.com page 2)", async () => {
+  const source: BrightSource = {
+    url: "https://sitio.cl/agenda",
+    note: "sitio",
+    extractor: {
+      kind: "articleList",
+      blockRegex: /<li class="ev">([\s\S]*?)<\/li>/g,
+      titleLinkRegex: /<a href="([^"]+)">([^<]*)<\/a>/,
+    },
+    additionalPages: ["https://sitio.cl/agenda/2"],
+  };
+  const byUrl: Record<string, string> = {
+    "https://sitio.cl/agenda": `<ul><li class="ev"><a href="/e/1">Página uno</a></li></ul>`,
+    "https://sitio.cl/agenda/2": `<ul><li class="ev"><a href="/e/2">Página dos</a></li></ul>`,
+  };
+
+  const results = await withStubFetch(
+    (async (url: string) => textResponse(byUrl[url])) as unknown as StubFetch,
+    () => fetchBrightSources([source]),
+  );
+
+  // ONE result for the whole logical source, not one per page.
+  assert.equal(results.length, 1);
+  assert.match(results[0].content, /Página uno/);
+  assert.match(results[0].content, /Página dos/);
+  // The result is still keyed by the source's own primary url — page URLs
+  // are an implementation detail, not a separate bright source.
+  assert.equal(results[0].url, "https://sitio.cl/agenda");
+});
+
+test("fetchBrightSources keeps the primary page's result even when an additional page fails — losing one extra page shouldn't drop the whole source", async () => {
+  const source: BrightSource = {
+    url: "https://sitio.cl/agenda",
+    note: "sitio",
+    extractor: {
+      kind: "articleList",
+      blockRegex: /<li class="ev">([\s\S]*?)<\/li>/g,
+      titleLinkRegex: /<a href="([^"]+)">([^<]*)<\/a>/,
+    },
+    additionalPages: ["https://sitio.cl/agenda/2"],
+  };
+  const stub = (async (url: string) => {
+    if (url === "https://sitio.cl/agenda/2") {
+      return { ok: false, status: 500, text: async () => "", json: async () => ({}) };
+    }
+    return textResponse(`<ul><li class="ev"><a href="/e/1">Página uno</a></li></ul>`);
+  }) as unknown as StubFetch;
+
+  const results = await withStubFetch(stub, () => fetchBrightSources([source]));
+
+  assert.equal(results.length, 1);
+  assert.match(results[0].content, /Página uno/);
+});
+
 test("fetchBrightSources dispatches a wordpressRestApi-configured source to the registry parser", async () => {
   const source: BrightSource = {
     url: "https://sitio.cl/wp-json/wp/v2/events",

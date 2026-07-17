@@ -86,6 +86,46 @@ async function loadDetectedSources(): Promise<BrightSource[]> {
   }));
 }
 
+// Per-source independent fetch cadence — until now, EVERY bright source got
+// fetched on EVERY run with no gating at all. Same "due" shape as regions'
+// isDueForRun/RUN_INTERVAL_MS, but 2 weeks (not a month) and keyed by the
+// source's own url (see the bright_source_fetch_state migration for why:
+// KNOWN_SOURCES is hand-curated in code, not a DB row, so url is the only
+// identity both hand-curated and auto-detected sources share).
+const BRIGHT_SOURCE_INTERVAL_MS = 14 * 24 * 60 * 60 * 1000;
+
+function isSourceDue(lastFetchedAt: string | undefined, now: Date): boolean {
+  if (!lastFetchedAt) return true;
+  return now.getTime() - new Date(lastFetchedAt).getTime() >= BRIGHT_SOURCE_INTERVAL_MS;
+}
+
+async function loadBrightSourceFetchState(): Promise<Map<string, string>> {
+  const { data, error } = await getSupabaseClient().from("bright_source_fetch_state").select("url, last_fetched_at");
+
+  if (error) {
+    throw new Error(`Failed to load bright source fetch state: ${error.message}`);
+  }
+
+  return new Map((data ?? []).map((row) => [row.url, row.last_fetched_at]));
+}
+
+// Records an attempt, not just a success — fetchBrightSources already
+// swallows a single source's failure (network error, 404, etc.) and logs
+// it rather than throwing, so by the time this runs there's no per-source
+// success/failure signal left to key off. Retrying a broken source every
+// single run wastes just as much time as retrying a working one; the
+// 2-week backoff applies equally, same posture as regions' own due-check
+// (which doesn't distinguish a zero-yield run from a failed one either).
+async function recordBrightSourcesFetched(urls: string[], now: Date): Promise<void> {
+  const client = getSupabaseClient();
+  for (const url of urls) {
+    const { error } = await client.from("bright_source_fetch_state").upsert({ url, last_fetched_at: now.toISOString() });
+    if (error) {
+      console.error(`[event-discovery] failed to record fetch state for ${url}: ${error.message}`);
+    }
+  }
+}
+
 // Cross-run dedup: don't re-insert an event already in the calendar (e.g.
 // a mid-July re-run must not duplicate everything found on July 1st).
 // Two keys, either one is enough to count as a duplicate:
@@ -259,13 +299,21 @@ export async function run(deps: RunDeps = {}): Promise<void> {
 
   const systemPrompt = buildSystemPrompt(currentMonthLabel(now));
   const brightSources = mergeBrightSources(await loadDetectedSources());
+  // excludeDomains stays based on EVERY known bright source, not just the
+  // due ones — a domain we've decided to treat as a bright source should
+  // never resurface via regular Tavily search, independent of whether
+  // we're actually re-fetching it this particular run.
   const excludeDomains = brightSources.map((s) => knownSourceDomain(s.url));
+  const fetchState = await loadBrightSourceFetchState();
+  const dueBrightSources = brightSources.filter((s) => isSourceDue(fetchState.get(s.url), now));
   const seenKeys = await loadExistingKeys();
   const regions = await loadAllRegions();
   const allCandidates: EventCandidate[] = [];
 
   const units = await getUnitsDueForRun(now);
-  console.log(`[event-discovery] ${units.length} unit(s) due, ${brightSources.length} bright source(s)`);
+  console.log(
+    `[event-discovery] ${units.length} unit(s) due, ${dueBrightSources.length}/${brightSources.length} bright source(s) due`,
+  );
 
   for (const unit of units) {
     const { results: rawResults, credits } = await searchUnitFn(tavilyApiKey ?? "", unit.name, now, excludeDomains);
@@ -308,16 +356,23 @@ export async function run(deps: RunDeps = {}): Promise<void> {
 
   // Bright sources: fetched directly and curated ONCE per run, in their own
   // call — not attached to each unit's prompt (real runs showed Haiku
-  // inconsistently surfacing that content when attached per-unit).
-  const brightResults = await fetchBrightSourcesFn(brightSources);
-  if (brightResults.length > 0) {
-    const block = buildBlock("Fuentes brillantes (no específicas a ninguna comuna)", brightResults);
-    const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
-    await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
-    await enrichMissingImages(candidates, pageFetchFn);
-    allCandidates.push(...candidates);
-    const inserted = await insertCandidates(candidates, regions, seenKeys, now);
-    console.log(`[event-discovery] bright sources: ${inserted} new approved event(s)`);
+  // inconsistently surfacing that content when attached per-unit). Only
+  // the ones due for their own 2-week cadence get fetched at all.
+  if (dueBrightSources.length > 0) {
+    const brightResults = await fetchBrightSourcesFn(dueBrightSources);
+    if (brightResults.length > 0) {
+      const block = buildBlock("Fuentes brillantes (no específicas a ninguna comuna)", brightResults);
+      const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
+      await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
+      await enrichMissingImages(candidates, pageFetchFn);
+      allCandidates.push(...candidates);
+      const inserted = await insertCandidates(candidates, regions, seenKeys, now);
+      console.log(`[event-discovery] bright sources: ${inserted} new approved event(s)`);
+    }
+    await recordBrightSourcesFetched(
+      dueBrightSources.map((s) => s.url),
+      now,
+    );
   }
 
   await persistNewBrightSources(allCandidates, now, excludeDomains);

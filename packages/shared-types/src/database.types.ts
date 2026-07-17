@@ -84,6 +84,21 @@ export type Database = {
           },
         ]
       }
+      bright_source_fetch_state: {
+        Row: {
+          last_fetched_at: string
+          url: string
+        }
+        Insert: {
+          last_fetched_at: string
+          url: string
+        }
+        Update: {
+          last_fetched_at?: string
+          url?: string
+        }
+        Relationships: []
+      }
       detected_sources: {
         Row: {
           created_at: string
