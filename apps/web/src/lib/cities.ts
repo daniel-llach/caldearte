@@ -149,6 +149,7 @@ export function buildRegionMetaByCityId(regions: RegionMeta[]): Map<string, Regi
 export interface AdminRegionGroup {
   adminRegionName: string;
   adminRegionOrder: number;
+  adminRegionNumeral: string | null;
   cities: City[];
 }
 
@@ -183,7 +184,12 @@ export function groupCitiesByRegion(cities: City[], metaByCityId: Map<string, Re
 
     let region = group.regions.find((r) => r.adminRegionName === meta.adminRegionName);
     if (!region) {
-      region = { adminRegionName: meta.adminRegionName, adminRegionOrder: meta.adminRegionOrder, cities: [] };
+      region = {
+        adminRegionName: meta.adminRegionName,
+        adminRegionOrder: meta.adminRegionOrder,
+        adminRegionNumeral: meta.adminRegionNumeral,
+        cities: [],
+      };
       group.regions.push(region);
     }
     region.cities.push(city);

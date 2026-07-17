@@ -26,8 +26,16 @@ function countsPhrase(inauguracionesCount: number, exposCount: number, joiner: s
 export const esCL = {
   appName: "CALDEARTE",
   chooseCity: "Elegí tu ciudad",
-  citySearchPlaceholder: "Buscá tu comuna o región",
-  noCityResults: "No encontramos ninguna comuna con ese nombre.",
+  cityPickerAriaLabel: "Selector de ciudad",
+  closeCityPicker: "Cerrar selector de ciudad",
+  citySearchPlaceholder: "Buscá comuna o región...",
+  citySearchAriaLabel: "Buscar comuna o región",
+  noCityResults: "No encontramos resultados.",
+  cityPickerHints: {
+    navigate: "↑↓ navegar",
+    select: "↵ seleccionar",
+    close: "esc cerrar",
+  },
   menu: "Menú",
   curatoria: "Curatoria",
   familyMode: "Modo familiar",
