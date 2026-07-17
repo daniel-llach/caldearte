@@ -6,12 +6,13 @@ interface CityPickerPanelProps {
   open: boolean;
   cityId: string;
   cityCounts: Record<string, CityCounts>;
+  cityNames: Record<string, string>;
   onClose: () => void;
   onSelect: (city: City) => void;
 }
 
-export default function CityPickerPanel({ open, cityId, cityCounts, onClose, onSelect }: CityPickerPanelProps) {
-  const cities = citiesWithEvents(cityCounts, { alwaysIncludeCityId: cityId });
+export default function CityPickerPanel({ open, cityId, cityCounts, cityNames, onClose, onSelect }: CityPickerPanelProps) {
+  const cities = citiesWithEvents(cityCounts, cityNames, { alwaysIncludeCityId: cityId });
 
   return (
     <>

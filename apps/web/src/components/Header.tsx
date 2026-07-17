@@ -1,11 +1,11 @@
 "use client";
 
 import { esCL } from "@/i18n/es-CL";
-import { cityById } from "@/lib/cities";
+import type { City } from "@/lib/cities";
 import { fmtHeaderDate } from "@/lib/date";
 
 interface HeaderProps {
-  cityId: string;
+  city: City;
   familyMode: boolean;
   today: string; // YYYY-MM-DD
   inauguracionesCount: number;
@@ -44,7 +44,7 @@ function FamilyModeToggle({ on, onToggle }: { on: boolean; onToggle: () => void 
 }
 
 export default function Header({
-  cityId,
+  city,
   familyMode,
   today,
   inauguracionesCount,
@@ -54,7 +54,6 @@ export default function Header({
   onOpenCuratoria,
   onToggleFamilyMode,
 }: HeaderProps) {
-  const city = cityById(cityId);
   const dateLabel = fmtHeaderDate(today);
   const time = loadTime();
 

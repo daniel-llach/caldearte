@@ -6,6 +6,7 @@ import {
   filterByCity,
   splitInauguracionesYExpos,
   countByCity,
+  cityNamesFromEvents,
   findNextEvent,
   type EventRecord,
 } from "./events";
@@ -71,17 +72,34 @@ test("splitInauguracionesYExpos: opening today -> inauguración, else -> expo ac
   );
 });
 
-test("countByCity tallies inauguraciones/expos per known city, dropping 'otro'", () => {
+test("countByCity tallies inauguraciones/expos per city, dropping 'otro', for ANY comuna a real event resolves to — not just a fixed list", () => {
   const events = [
     event({ id: "a", freeformLocation: "Galería X, Santiago", openingDatetime: "2026-07-11T22:00:00+00:00" }),
     event({ id: "b", freeformLocation: "Sala Y, Santiago" }),
     event({ id: "c", freeformLocation: "Sala Z, Valparaíso" }),
-    event({ id: "d", freeformLocation: "Algo, Rancagua" }), // unmatched -> "otro"
+    // Real production gap, fixed 2026-07-17: a comuna not in the old
+    // hardcoded KNOWN_CITIES list used to silently fall into "otro" even
+    // though it's a real, curator-validated comuna — now counted properly.
+    event({ id: "d", freeformLocation: "Galeria NAC, Las Condes" }),
+    event({ id: "e", freeformLocation: "" }), // genuinely unmatchable -> "otro"
   ];
   const counts = countByCity(events, TODAY);
   assert.deepEqual(counts.santiago, { inauguraciones: 1, exposActuales: 1 });
   assert.deepEqual(counts.valparaiso, { inauguraciones: 0, exposActuales: 1 });
+  assert.deepEqual(counts["las-condes"], { inauguraciones: 0, exposActuales: 1 });
   assert.equal(counts.otro, undefined);
+});
+
+test("cityNamesFromEvents builds id -> real display name from regionName (preferred) or the freeform_location trailing segment", () => {
+  const events = [
+    event({ id: "a", freeformLocation: "Galería X, Santiago", regionName: "Santiago" }),
+    event({ id: "b", freeformLocation: "Galeria NAC, Las Condes" }), // no regionName -> falls back to trailing segment
+    event({ id: "c", freeformLocation: "" }), // "otro" — never included
+  ];
+  const names = cityNamesFromEvents(events);
+  assert.equal(names.santiago, "Santiago");
+  assert.equal(names["las-condes"], "Las Condes");
+  assert.equal(names.otro, undefined);
 });
 
 test("findNextEvent finds the earliest current-or-upcoming anchor date", () => {

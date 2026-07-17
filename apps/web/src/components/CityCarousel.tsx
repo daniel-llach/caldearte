@@ -7,6 +7,7 @@ import type { CityCounts } from "@/lib/events";
 
 interface CityCarouselProps {
   cityCounts: Record<string, CityCounts>;
+  cityNames: Record<string, string>;
   excludeCityId: string;
   onSelectCity: (cityId: string) => void;
 }
@@ -16,8 +17,8 @@ interface CityCarouselProps {
 // count. "Otro" is never shown here (no sensible "Explorar" destination).
 // A city with nothing to show today (0 inauguraciones AND 0 exposiciones)
 // isn't a real "explore this" destination either — "muestra lo que hay".
-export default function CityCarousel({ cityCounts, excludeCityId, onSelectCity }: CityCarouselProps) {
-  const cities = citiesWithEvents(cityCounts, { excludeCityId });
+export default function CityCarousel({ cityCounts, cityNames, excludeCityId, onSelectCity }: CityCarouselProps) {
+  const cities = citiesWithEvents(cityCounts, cityNames, { excludeCityId });
   const scrollRef = useRef<HTMLDivElement>(null);
   const [activeDot, setActiveDot] = useState(0);
 

@@ -19,6 +19,7 @@ interface CalendarViewProps {
   inauguraciones: EventRecord[];
   exposActuales: EventRecord[];
   cityId: string;
+  cityNames: Record<string, string>; // real observed comuna names, id -> name — see cities.ts
   familyMode: boolean;
   today: string; // YYYY-MM-DD, computed server-side for SSR/CSR consistency
   cityCounts: Record<string, CityCounts>;
@@ -35,6 +36,7 @@ export default function CalendarView({
   inauguraciones,
   exposActuales,
   cityId,
+  cityNames,
   familyMode,
   today,
   cityCounts,
@@ -47,7 +49,7 @@ export default function CalendarView({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerView, setDrawerView] = useState<"menu" | "curatoria">("menu");
 
-  const city = cityById(cityId);
+  const city = cityById(cityId, cityNames);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -79,7 +81,7 @@ export default function CalendarView({
   return (
     <div ref={containerRef} className="w-full relative">
       <Header
-        cityId={cityId}
+        city={city}
         familyMode={familyMode}
         today={today}
         inauguracionesCount={inauguraciones.length}
@@ -140,11 +142,18 @@ export default function CalendarView({
         </>
       )}
 
-      <CityCarousel cityCounts={cityCounts} excludeCityId={cityId} onSelectCity={goToCity} />
+      <CityCarousel cityCounts={cityCounts} cityNames={cityNames} excludeCityId={cityId} onSelectCity={goToCity} />
 
       <Footer />
 
-      <CityPickerPanel open={locationOpen} cityId={cityId} cityCounts={cityCounts} onClose={() => setLocationOpen(false)} onSelect={selectCity} />
+      <CityPickerPanel
+        open={locationOpen}
+        cityId={cityId}
+        cityCounts={cityCounts}
+        cityNames={cityNames}
+        onClose={() => setLocationOpen(false)}
+        onSelect={selectCity}
+      />
 
       <MenuDrawer
         open={drawerOpen}

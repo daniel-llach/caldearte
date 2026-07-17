@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@caldearte/shared-types";
-import { cityIdFromRegionName, deriveCityId, KNOWN_CITIES } from "./cities";
+import { cityIdFromRegionName, deriveCityId, OTHER_CITY } from "./cities";
 import { activeRange, anchorDateOnly, dateOnlyFromIso, isCurrentOrUpcoming, rangesOverlap, type EventDates } from "./date";
 
 export interface EventRecord extends EventDates {
@@ -60,13 +60,34 @@ export async function fetchApprovedEvents(client: SupabaseClient<Database>): Pro
 // Prefers the curator's own region match (exact, resolved at write time)
 // over the frontend's freeform_location guess — the guess only covers rows
 // from before region_id existed, or whose location text didn't match any
-// seeded region.
+// seeded region. cityIdFromRegionName always succeeds (no whitelist to
+// fall outside of — see cities.ts), so regionName wins whenever present.
 function resolveCityId(event: EventRecord): string {
-  if (event.regionName) {
-    const matched = cityIdFromRegionName(event.regionName);
-    if (matched) return matched;
-  }
+  if (event.regionName) return cityIdFromRegionName(event.regionName);
   return deriveCityId(event.freeformLocation);
+}
+
+function displayNameForCity(event: EventRecord): string {
+  if (event.regionName) return event.regionName;
+  const segments = event.freeformLocation.split(",").map((s) => s.trim());
+  return segments[segments.length - 1] || event.freeformLocation;
+}
+
+// id -> display name, built from real observed events (not a static
+// list) — every city that has ever had at least one event (not just
+// active-today) gets a proper name here, so directly navigating to a
+// city via cookie still shows its real name even when it currently has
+// zero active events. First name seen for a given id wins; in practice
+// all events resolving to the same id share the same regionName anyway
+// (both derive from the exact same seeded `regions.name`).
+export function cityNamesFromEvents(events: EventRecord[]): Record<string, string> {
+  const names: Record<string, string> = {};
+  for (const e of events) {
+    const id = resolveCityId(e);
+    if (id === OTHER_CITY.id) continue;
+    if (!(id in names)) names[id] = displayNameForCity(e);
+  }
+  return names;
 }
 
 export function filterFamilyMode(events: EventRecord[], familyModeOn: boolean): EventRecord[] {
@@ -132,16 +153,17 @@ export interface CityCounts {
 }
 
 // Per-city counts for the "Arte en todas partes" carousel — run over the
-// full (not city-filtered) active-today + family-mode-filtered set, so a
-// city with zero events today still doesn't need a live query to know that.
+// full (not city-filtered) active-today + family-mode-filtered set. Only
+// ever creates an entry for a city with at least one real event right
+// now — not seeded from any fixed list — so citiesWithEvents (cities.ts)
+// naturally offers exactly "the cities with something to show today",
+// whichever real comunas those turn out to be.
 export function countByCity(events: EventRecord[], todayStr: string): Record<string, CityCounts> {
   const counts: Record<string, CityCounts> = {};
-  for (const city of KNOWN_CITIES) {
-    counts[city.id] = { inauguraciones: 0, exposActuales: 0 };
-  }
   for (const e of events) {
     const cityId = resolveCityId(e);
-    if (!(cityId in counts)) continue; // "otro" isn't shown in the carousel
+    if (cityId === OTHER_CITY.id) continue; // "otro" isn't shown in the carousel
+    if (!(cityId in counts)) counts[cityId] = { inauguraciones: 0, exposActuales: 0 };
     const isInauguracion = e.openingDatetime !== null && dateOnlyFromIso(e.openingDatetime) === todayStr;
     counts[cityId][isInauguracion ? "inauguraciones" : "exposActuales"] += 1;
   }
