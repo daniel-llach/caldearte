@@ -175,52 +175,72 @@ hard cap — the user is comfortable spending up to **$50/month** if quality
 justifies it, given real per-run costs are far below that even at
 meaningfully larger scale.
 
-### Cadence — simplified, not yet implemented in production code
+### Cadence — weekly batch rollout across all 346 comunas (implemented 2026-07-17)
 
-**Decided:** a fixed monthly search per unit, no adaptive weekly cadence,
-no saturation state machine, no automatic region expansion. The existing
-production `run.ts` still has all of that machinery (`status`:
-`active`/`saturated`/`excluded`, `search_frequency`, `consecutive_zero_yield_runs`,
-and a real, still-unfixed bug where `maybeExpandToNextRegion` only ever
-triggers when zero regions are active) — none of it has been removed yet,
-since this whole design hasn't been wired into production. No migration
-is needed to simplify this later — the columns just go unread once the
-application code stops using them.
+**Supersedes the earlier "~100 hand-curated units, monthly cadence"
+plan below.** All 346 official Chilean comunas are seeded as `regions`
+rows (346 total: the original 15 as `status='active'`/`'excluded'`,
+the other 331 as `status='not_started'` — cross-checked against a
+structured dataset rather than typed from memory, see the
+`20260717000000_seed_remaining_chile_comunas_excluded` migration).
+`status='not_started'` is distinct from `status='excluded'`:
+`'excluded'` is a hard, permanent editorial opt-out (OFAC-style);
+`'not_started'` just means "not yet in the batch rotation" — both are
+filtered out of `getUnitsDueForRun`'s `.neq('status', 'excluded')`
+query only for the former, so `'not_started'` comunas are genuinely
+eligible to be picked up.
 
-### The ~100-unit list — designed, deferred
+**Why weekly batches, not one run through everything:** the run is a
+**sequential** for-loop, no parallelization (~82s/unit measured) — 346
+units sequentially ≈ 7.9 hours, over GitHub Actions' 6-hour default job
+timeout. `getUnitsDueForRun` caps each run to `weekly_batch_size`
+(`system_config`, no redeploy to change), sorted oldest-`last_run_at`-
+first (never-run sorts before any real timestamp) — the same "due"
+28-day check as before, just capped and prioritized. This rotates
+through every comuna once, then cycles forever with no reset logic: a
+comuna that just ran becomes the newest, falls out of the due pool for
+28 days, and re-enters it once that elapses.
 
-**Decided scope, not yet built:** ~50 Chilean cities treated as single
-units, plus Gran Santiago/Valparaíso/Concepción split by comuna (~34+6+11)
+A comuna's first real run also flips its `status` from `'not_started'`
+to `'active'` (`run.ts`'s per-unit loop) — restores real meaning to the
+column, which was previously written once at seed time and never
+touched again.
+
+**Batch size, chosen to stay inside Tavily's free tier indefinitely:**
+`weekly_batch_size × 6 Tavily credits/comuna × ~4.33 weeks/month ≤
+1,000` (the free monthly credit allotment) → max ~38/week. Running at
+**35/week** (a small safety margin) completes a full 346-comuna
+rotation in **~9.9 weeks (~2.3 months)**, entirely inside Tavily's free
+tier — no pay-as-you-go needed. A faster rotation (e.g. 80/week, ~1
+month) is possible but requires enabling Tavily pay-as-you-go
+(≈$8.61/month overage at that size) — not the default, since bright
+sources already refresh every 2 weeks independent of the comuna
+rotation (a plain HTTP fetch, zero Tavily cost) and most exhibitions
+run well over a month anyway. The real trade-off of a slower rotation:
+events *outside* official museums/galleries (pop-ups, one-off
+interventions, small independent spaces not yet known as a bright
+source) are exactly what a comuna's own direct search is needed for,
+and a 2+ month cadence risks missing short-lived ones. Revisit once a
+few rotations' worth of real coverage data exists.
+
+**No internal spend-gating code** — `isOverBudget()`/`isOverRegionCap()`
+(`apps/curator/src/lib/usage-tracking.ts`) exist but aren't wired into
+`run.ts`. The real hard control is Anthropic's own prepaid-credit
+model (the API stops working once the loaded balance runs out — no
+risk of silent overspend) and, if ever enabled, Tavily's own
+dashboard-level pay-as-you-go cap. `isOverRegionCap()`'s query does
+count only `'active'`/`'saturated'` (not `'not_started'`) — fixed
+2026-07-17 alongside the batch rollout, since counting `'not_started'`
+too would have tripped the cap immediately with 331 such rows now
+seeded.
+
+### The ~100-unit list — superseded by the above
+
+Earlier plan, kept for history: ~50 Chilean cities as single units,
+plus Gran Santiago/Valparaíso/Concepción split by comuna (~34+6+11)
 where a single city-level query would blur together genuinely distinct
-neighborhood art scenes — roughly 100 units total, covering all 16
-administrative regions so none is excluded. Never verified against INE
-data. **Deliberately deferred** until the mechanisms above are fully
-implemented and validated in production — building the list is the last
-step before actually spending real, ongoing money at scale, not a
-prerequisite for finishing everything else first.
-
-### All 346 comuna names seeded as `status='excluded'` — tagging only, not search coverage
-
-**Not to be confused with the ~100-unit *active-search* list above.**
-2026-07-17: every official Chilean comuna (346 total, cross-checked
-against a structured dataset rather than typed from memory — see the
-`20260717000000_seed_remaining_chile_comunas_excluded` migration) got
-seeded as a `regions` row with `status='excluded'`. This does **not**
-expand active search coverage or spend any Tavily/Anthropic budget:
-`getUnitsDueForRun` filters `.neq('status', 'excluded')`, so none of
-these enter the per-unit search loop. What it *does* fix: `matchRegionId`
-(`apps/curator/src/lib/locations.ts`) only tags an event's `region_id`
-when its `freeform_location` text matches a NAME already present in this
-table, regardless of that region's status (`loadAllRegions` in `run.ts`
-loads every region for this purpose, not just active ones). Bright
-sources like arteinformado.com already return real events from comunas
-that weren't seeded yet (Las Condes, Vitacura, El Bosque — found
-2026-07-17) — those events were landing with `region_id=null` (the
-"otro" bucket) purely because the comuna's name didn't exist as a row,
-not because there wasn't real data for it. Turning any of these 331 into
-a genuinely *active* search unit is still the separate, deliberate
-~100-unit rollout decision above — this migration only fixes tagging for
-whatever a comuna already organically surfaces.
+neighborhood art scenes — roughly 100 units total. Never built; the
+all-346-comuna weekly-batch rollout above replaced it before it shipped.
 
 ## Fuentes brillantes (bright sources)
 
