@@ -1,13 +1,19 @@
 name: Run Event Discovery
 
-# Manual trigger only, deliberately — no `schedule:` yet. Run this by hand
-# (Actions tab or `gh workflow run`) and check the resulting `events` rows
-# for quality before committing to the automatic monthly cadence.
+# Weekly batch rollout (2026-07-17, see docs/region-discovery.md): every
+# Monday, getUnitsDueForRun caps itself to `weekly_batch_size`
+# (system_config, no redeploy to change) due comunas, oldest-last_run_at-
+# first — rotates through all 346 seeded comunas forever, no reset logic
+# needed. workflow_dispatch stays available for a manual run any time
+# (e.g. right after raising weekly_batch_size, to see the new size take
+# effect immediately instead of waiting for next Monday).
 #
 # Requires the TAVILY_API_KEY repo secret (searches run via Tavily, not
 # Anthropic's web_search tool — see docs/region-discovery.md).
 on:
   workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 * * 1" # every Monday, 06:00 UTC
 
 jobs:
   discover:

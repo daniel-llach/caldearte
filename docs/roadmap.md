@@ -24,13 +24,13 @@ Closed out the initial project brief, moved into a dedicated repo.
 
 ## Phase 1a — Core loop (no inbound-mail flows yet)
 
-- Event Discovery scoped to a fixed, hand-curated list of Chilean units
-  (~50 cities plus Gran Santiago/Valparaíso/Concepción split by comuna,
-  ~100 total) on a simple fixed monthly cadence — **decided, list not yet
-  built**, deferred until the mechanisms below are fully wired into
-  production (see [region-discovery.md](region-discovery.md)). This
-  replaces the original weekly/saturation/automatic-expansion design,
-  which is no longer planned.
+- Event Discovery covers all 346 official Chilean comunas via a weekly
+  rotating batch (`weekly_batch_size` comunas/run, oldest-`last_run_at`-
+  first, cycling forever — **implemented 2026-07-17**), replacing the
+  earlier "~100 hand-curated units, monthly cadence" plan before it
+  shipped. See [region-discovery.md](region-discovery.md) for the batch
+  sizing (35/week keeps Tavily usage inside its free tier indefinitely)
+  and cost breakdown.
 - Search via Tavily (not Anthropic's `web_search`), curated by Claude
   Haiku 4.5 — no venue matching, every event has a freeform `location`.
   Includes a "fuentes brillantes" mechanism (known-rich sources fetched
@@ -84,9 +84,10 @@ Closed out the initial project brief, moved into a dedicated repo.
   background. There is no venue list anymore, and the
   ranking/automatic-expansion machinery isn't in active use — see
   [region-discovery.md](region-discovery.md#ranking--expansion-superseded-kept-for-historical-reference).
-  Expanding beyond Chile's ~100-unit list is planned as a manual, deliberate
-  step once that list is live and validated, not an automatic background
-  process — no rebuilt design exists yet for what comes after Chile.
+  Expanding beyond Chile's 346-comuna weekly-batch rollout is planned as a
+  manual, deliberate step once that rollout is validated at full scale,
+  not an automatic background process — no rebuilt design exists yet for
+  what comes after Chile.
 
 ## Phase 2 — Geo/temporal personalization
 

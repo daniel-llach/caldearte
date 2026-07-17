@@ -12,6 +12,54 @@ const hasLocalSupabase = Boolean(
 const TEST_UNIT = "__test_unit__";
 const NOW = new Date(2026, 6, 12); // July 12, 2026
 
+// getUnitsDueForRun now caps its result to weekly_batch_size and sorts
+// oldest-last_run_at-first — with 300+ real seeded comunas also due
+// (null last_run_at, sorting before any real timestamp), a test's own
+// units can get non-deterministically crowded out, or a large enough
+// batch size can end up actually PROCESSING every real comuna (harmless
+// API-wise, since searchUnitFn is always stubbed in these tests — but it
+// also flips each 'not_started' comuna to 'active' and sets last_run_at,
+// permanently mutating real seed data as an unwanted test side effect).
+// Temporarily excluding every non-test region isolates the due/batch
+// universe to just a test's own seeded units; call `restore()` in a
+// `finally` block to put every real region back exactly as it was.
+//
+// Filters the UPDATE by the same `name NOT LIKE '__test%'` clause used
+// for the snapshot SELECT, rather than collecting IDs into `.in()` — with
+// 300+ UUIDs that query string is long enough to fail silently against
+// PostgREST (confirmed directly: no error surfaced, but the update
+// matched nothing). The restore step chunks its own `.in()` calls for
+// the same reason.
+async function excludeRealRegionsForTest(
+  client: ReturnType<typeof import("../lib/supabase-client.js").getSupabaseClient>,
+): Promise<{ restore: () => Promise<void> }> {
+  const { data: realRegions } = await client.from("regions").select("id, status").not("name", "like", "__test%");
+  const snapshot = realRegions ?? [];
+
+  if (snapshot.length > 0) {
+    const { error } = await client.from("regions").update({ status: "excluded" }).not("name", "like", "__test%");
+    if (error) throw new Error(`Failed to temporarily exclude real regions: ${error.message}`);
+  }
+
+  return {
+    async restore() {
+      const CHUNK_SIZE = 50;
+      const idsByStatus = new Map<string, string[]>();
+      for (const r of snapshot) {
+        if (!idsByStatus.has(r.status)) idsByStatus.set(r.status, []);
+        idsByStatus.get(r.status)!.push(r.id);
+      }
+      for (const [status, ids] of idsByStatus) {
+        for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+          const chunk = ids.slice(i, i + CHUNK_SIZE);
+          const { error } = await client.from("regions").update({ status }).in("id", chunk);
+          if (error) throw new Error(`Failed to restore region status: ${error.message}`);
+        }
+      }
+    },
+  };
+}
+
 const unitCandidates = [
   {
     title: "__test__ Muestra vigente",
@@ -148,6 +196,8 @@ test(
       .insert({ name: "__test_excluded__", country: "Testland", language: "es", status: "excluded" })
       .select()
       .single();
+
+    const realRegions = await excludeRealRegionsForTest(client);
 
     // Stubbed search: only the test unit yields results; every other unit
     // (including the real seeded Chile regions in the local DB) gets [].
@@ -451,6 +501,111 @@ test(
         .eq("input_tokens", 100)
         .eq("output_tokens", 50);
       await client.from("regions").delete().like("name", "__test_%");
+      await realRegions.restore();
+    }
+  },
+);
+
+test(
+  "getUnitsDueForRun batch cap (requires local Supabase)",
+  { skip: !hasLocalSupabase && "SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set" },
+  async (t) => {
+    const { getUnitsDueForRun } = await import("./run.js");
+    const { getSupabaseClient } = await import("../lib/supabase-client.js");
+    const client = getSupabaseClient();
+
+    const { data: originalBatchSize } = await client
+      .from("system_config")
+      .select("value")
+      .eq("key", "weekly_batch_size")
+      .single();
+    const realRegions = await excludeRealRegionsForTest(client);
+
+    try {
+      // Three never-run test regions, seeded in a deliberately scrambled
+      // insert order — proves sorting happens on last_run_at, not
+      // insertion/id order. Both timestamps must be >28 days before NOW
+      // (July 12) to count as "due" at all under isDueForRun's own check.
+      const older = new Date(2026, 4, 1).toISOString(); // May 1
+      const newer = new Date(2026, 4, 20).toISOString(); // May 20
+      await client.from("regions").insert([
+        { name: "__test_batch_c__", country: "Testland", language: "es", status: "not_started", last_run_at: newer },
+        { name: "__test_batch_a__", country: "Testland", language: "es", status: "not_started", last_run_at: null },
+        { name: "__test_batch_b__", country: "Testland", language: "es", status: "not_started", last_run_at: older },
+      ]);
+
+      await t.test("caps the due list to weekly_batch_size", async () => {
+        await client.from("system_config").update({ value: "2" }).eq("key", "weekly_batch_size");
+        const due = await getUnitsDueForRun(NOW);
+        const testUnits = due.filter((r) => r.name.startsWith("__test_batch_"));
+        assert.equal(testUnits.length, 2, "only 2 of the 3 due test regions fit in a batch size of 2");
+      });
+
+      await t.test("oldest last_run_at first — never-run (null) sorts before any real timestamp", async () => {
+        await client.from("system_config").update({ value: "10000" }).eq("key", "weekly_batch_size");
+        const due = await getUnitsDueForRun(NOW);
+        const names = due.filter((r) => r.name.startsWith("__test_batch_")).map((r) => r.name);
+        assert.deepEqual(names, ["__test_batch_a__", "__test_batch_b__", "__test_batch_c__"]);
+      });
+    } finally {
+      await client.from("regions").delete().like("name", "__test_batch_%");
+      await realRegions.restore();
+      if (originalBatchSize) {
+        await client.from("system_config").update({ value: originalBatchSize.value }).eq("key", "weekly_batch_size");
+      }
+    }
+  },
+);
+
+test(
+  "a 'not_started' comuna flips to 'active' the first time it actually runs (requires local Supabase)",
+  { skip: !hasLocalSupabase && "SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set" },
+  async () => {
+    const { run } = await import("./run.js");
+    const { getSupabaseClient } = await import("../lib/supabase-client.js");
+    const client = getSupabaseClient();
+    const unitName = "__test_not_started__";
+
+    const { data: originalBatchSize } = await client
+      .from("system_config")
+      .select("value")
+      .eq("key", "weekly_batch_size")
+      .single();
+    const realRegions = await excludeRealRegionsForTest(client);
+
+    try {
+      const { data: unit, error } = await client
+        .from("regions")
+        .insert({ name: unitName, country: "Testland", language: "es", status: "not_started" })
+        .select()
+        .single();
+      if (error || !unit) throw new Error(`Failed to seed test unit: ${error?.message}`);
+
+      await client.from("system_config").update({ value: "10000" }).eq("key", "weekly_batch_size");
+
+      await run({
+        messagesClient: {
+          messages: { create: async () => ({ content: [{ type: "text", text: fencedJson([]) }], usage: { input_tokens: 100, output_tokens: 50 } }) },
+        },
+        searchUnitFn: async () => ({ results: [], credits: 0 }),
+        fetchBrightSourcesFn: async () => [],
+        now: NOW,
+      });
+
+      const { data: after } = await client.from("regions").select("status").eq("id", unit.id).single();
+      assert.equal(after?.status, "active");
+    } finally {
+      await client.from("regions").delete().eq("name", unitName);
+      await realRegions.restore();
+      await client
+        .from("api_usage_log")
+        .delete()
+        .eq("purpose", "event_discovery")
+        .eq("input_tokens", 100)
+        .eq("output_tokens", 50);
+      if (originalBatchSize) {
+        await client.from("system_config").update({ value: originalBatchSize.value }).eq("key", "weekly_batch_size");
+      }
     }
   },
 );

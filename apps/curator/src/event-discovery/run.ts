@@ -1,14 +1,26 @@
 // Event Discovery orchestrator — deliberately simple (docs/region-discovery.md):
-// every unit in `regions` gets a fixed monthly pass, no saturation state
-// machine, no adaptive cadence, no automatic expansion. The old
-// status/search_frequency/consecutive_zero_yield_runs columns are ignored
-// entirely (they stay in the schema unread — no migration needed to stop
-// using them); only status='excluded' is still honored, since exclusion
-// (e.g. OFAC) is an editorial decision, not cadence machinery.
+// every unit in `regions` gets a fixed cadence pass, no saturation state
+// machine, no adaptive cadence. The old search_frequency/
+// consecutive_zero_yield_runs columns are ignored entirely (they stay in
+// the schema unread — no migration needed to stop using them);
+// status='excluded' is still honored as a hard, editorial opt-out (e.g.
+// OFAC), distinct from status='not_started' (a comuna simply not yet in
+// the weekly batch rotation — see the 346-comuna rollout, below).
+//
+// Weekly batch rotation (2026-07-17): with all 346 official comunas
+// seeded, running every due one every time would exceed GitHub Actions'
+// 6-hour job timeout (346 sequential units ≈ 7.9h at ~82s/unit measured).
+// getUnitsDueForRun caps each run to `weekly_batch_size` (system_config,
+// no redeploy to change), oldest-last_run_at-first — a comuna that's
+// never run (last_run_at null) sorts first, so the rotation naturally
+// works through every comuna once before any repeats, then cycles
+// forever with no special "reset" needed: a comuna that just ran becomes
+// the newest, falls out of the "due" pool for RUN_INTERVAL_MS, and
+// re-enters it once that elapses, same as always.
 import Anthropic from "@anthropic-ai/sdk";
 import type { Tables } from "@caldearte/shared-types";
 import { getSupabaseClient } from "../lib/supabase-client.js";
-import { recordUsage } from "../lib/usage-tracking.js";
+import { recordUsage, getConfigNumber } from "../lib/usage-tracking.js";
 import { knownSourceDomain } from "../lib/known-sources.js";
 import { matchRegionId, type RegionLike } from "../lib/locations.js";
 import { enrichMissingImages, type FetchLike as PageFetchLike } from "../lib/page-fetch.js";
@@ -44,6 +56,16 @@ function isDueForRun(region: Region, now: Date): boolean {
   return now.getTime() - new Date(region.last_run_at).getTime() >= RUN_INTERVAL_MS;
 }
 
+// Oldest last_run_at first; never-run (null) sorts before every real
+// timestamp, so brand-new comunas get priority into the batch over ones
+// merely due for a refresh.
+function byOldestLastRunFirst(a: Region, b: Region): number {
+  if (!a.last_run_at && !b.last_run_at) return 0;
+  if (!a.last_run_at) return -1;
+  if (!b.last_run_at) return 1;
+  return a.last_run_at.localeCompare(b.last_run_at);
+}
+
 export async function getUnitsDueForRun(now: Date = new Date()): Promise<Region[]> {
   const { data, error } = await getSupabaseClient()
     .from("regions")
@@ -54,7 +76,9 @@ export async function getUnitsDueForRun(now: Date = new Date()): Promise<Region[
     throw new Error(`Failed to load units: ${error.message}`);
   }
 
-  return (data ?? []).filter((r) => isDueForRun(r, now));
+  const due = (data ?? []).filter((r) => isDueForRun(r, now)).sort(byOldestLastRunFirst);
+  const batchSize = await getConfigNumber("weekly_batch_size");
+  return due.slice(0, batchSize);
 }
 
 // All regions, regardless of status — region_id is a location tag, not a
@@ -343,9 +367,14 @@ export async function run(deps: RunDeps = {}): Promise<void> {
       inserted = await insertCandidates(candidates, regions, seenKeys, now);
     }
 
+    // A comuna's first real run graduates it out of 'not_started' — restores
+    // real meaning to `status` (previously written once at seed time, then
+    // never touched again by a run). 'active'/'excluded' otherwise pass
+    // through untouched; only 'not_started' ever flips here.
+    const nextStatus = unit.status === "not_started" ? "active" : unit.status;
     const { error } = await client
       .from("regions")
-      .update({ last_run_at: now.toISOString() })
+      .update({ last_run_at: now.toISOString(), status: nextStatus })
       .eq("id", unit.id);
     if (error) {
       throw new Error(`Failed to update last_run_at for ${unit.name}: ${error.message}`);

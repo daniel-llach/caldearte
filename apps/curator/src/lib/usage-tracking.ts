@@ -80,12 +80,18 @@ export async function isOverBudget(): Promise<boolean> {
 }
 
 // Secondary sanity check, not the primary control — catches runaway growth
-// (e.g. a bug) independent of dollar spend.
+// (e.g. a bug) independent of dollar spend. Counts only 'active'/'saturated'
+// — regions actually being searched — not 'not_started' (seeded but never
+// run yet; see the 346-comuna weekly-batch rollout, 2026-07-17) or
+// 'excluded' (opted out on purpose). Before that rollout this counted
+// `.neq('status', 'excluded')`, which worked only because 'not_started'
+// barely existed in practice; with 331 such rows now seeded, that query
+// would count them all as "active" and trip the cap immediately.
 export async function isOverRegionCap(): Promise<boolean> {
   const [{ count, error }, maxTotalRegions] = await Promise.all([
-    getSupabaseClient().from("regions").select("id", { count: "exact", head: true }).neq(
+    getSupabaseClient().from("regions").select("id", { count: "exact", head: true }).in(
       "status",
-      "excluded",
+      ["active", "saturated"],
     ),
     getConfigNumber("max_total_regions"),
   ]);
