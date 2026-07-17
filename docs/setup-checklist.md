@@ -6,8 +6,9 @@ done — it should always reflect reality, not the original plan.
 
 ## Done
 
-- **Domain** — bought on GoDaddy (`caldearte.com`). DNS not configured yet —
-  waiting on Vercel/Resend to hand over the exact records to load.
+- **Domain** — bought on GoDaddy (`caldearte.com`). Resend's DNS records
+  (domain verification) added 2026-07-17. Vercel's DNS records (custom
+  domain routing) still pending — see below.
 - **GitHub** — `caldearte/caldearte` repo created, public, first commit in.
 - **Supabase account** — project `caldearte` created, region `us-west-2`
   (Oregon). Deliberate choice: proximity to South America wasn't prioritized
@@ -17,7 +18,11 @@ done — it should always reflect reality, not the original plan.
 - **Anthropic API key** — generated at console.anthropic.com, saved in a
   password manager, and loaded into `.env.local` and GitHub secrets — Event
   Discovery's code calls the API (see `apps/curator/src/event-discovery/`).
-- **Resend account** — created.
+- **Resend account** — created. `caldearte.com` verified as a sending
+  domain (2026-07-17) — freed up the account's one free-tier domain slot
+  from an old project and pointed it at `caldearte.com` via DNS at GoDaddy,
+  rather than paying for a second slot. `apps/web/src/app/api/contact/route.ts`
+  sends from `contacto@caldearte.com`.
 - **Vercel account** — created. Repo not imported yet — happens once
   `apps/web` has a first commit.
 - **Local tooling:** Node LTS + pnpm, Docker Desktop, Supabase CLI
@@ -64,10 +69,15 @@ done — it should always reflect reality, not the original plan.
   for now (see [risks.md](risks.md) for the commercial-use ToS caveat —
   deliberately not resolved yet, revisit once monetization or Probable SPA
   branding actually goes on the site). Needs these Vercel project env vars:
-  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (copy from
-  local `apps/web/.env.local`), and `RESEND_API_KEY` (server-only, for the
-  `/contacto` form's outbound email — see the Resend cost caveat below,
-  the existing account's key works without any new domain verification).
+  - `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` — copy the
+    values from local `apps/web/.env.local` (same file, same values —
+    nothing new to generate).
+  - `RESEND_API_KEY` — generate one at
+    [resend.com/api-keys](https://resend.com/api-keys) (Resend dashboard →
+    API Keys → Create API Key; sending permission is enough, doesn't need
+    full account access). Now that `caldearte.com` is verified as a
+    sending domain, this key sends real `@caldearte.com` mail — no
+    fallback/shared-domain caveat left.
 - **Add `caldearte.com` as the Vercel project's custom domain** — Vercel
   will provide the exact DNS records; add them at the registrar. SSL
   auto-provisions once DNS resolves.
@@ -85,23 +95,13 @@ done — it should always reflect reality, not the original plan.
 - **Remaining GitHub/Vercel secrets:**
   - `RESEND_API_KEY` — needed now (Vercel env var, not a GitHub secret —
     the `/contacto` form's `apps/web/src/app/api/contact/route.ts` reads
-    it at request time). The key itself works today with **zero new
-    cost**, sending from Resend's shared `onboarding@resend.dev` domain —
-    the route already defaults to that. Verifying `caldearte.com` as its
-    own sending domain (for real `@caldearte.com` deliverability) is
-    still the part blocked on cost: it needs a second verified domain,
-    which needs Resend's paid plan (~$20/month), since the free-tier
-    domain slot is already used by another project. Not needed for
-    launch — revisit only if `onboarding@resend.dev` deliverability
-    becomes a real problem.
+    it at request time), generate at resend.com/api-keys (see above).
   - `RESEND_WEBHOOK_SECRET` — still Phase 1b only (inbound mail flows),
     unrelated to the outbound-only contact form above.
   - `APPROVAL_TOKEN_SECRET` — a random string, would be generated if/when
     the email-approval flow gets built (Phase 1a's ambiguous-case emails,
     deferred for the same reason — ambiguous events land as `pending_review`
     without it instead).
-- **Verify `caldearte.com` in Resend** — blocked on cost, see above; not
-  needed for launch.
 - **Enable PostGIS in Supabase** — Phase 2 (geo/temporal ranking), from the
   Supabase dashboard (Database → Extensions).
 - **Meta/TikTok app review** — Phase 4 only, once there's real content

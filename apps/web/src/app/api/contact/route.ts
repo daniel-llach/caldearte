@@ -39,13 +39,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "not_configured" }, { status: 500 });
   }
 
-  // Resend's shared test domain until caldearte.com is verified in Resend
-  // (DNS TXT/DKIM records, see the launch plan) — switch this to
-  // "Caldearte <contacto@caldearte.com>" once that's done, for real
-  // deliverability instead of the shared-domain fallback.
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({
-    from: "Caldearte <onboarding@resend.dev>",
+    from: "Caldearte <contacto@caldearte.com>",
     to: CONTACT_RECIPIENT,
     replyTo: email,
     subject: `Caldearte — mensaje de ${name}`,
