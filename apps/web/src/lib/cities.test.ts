@@ -21,7 +21,8 @@ function regionMeta(overrides: Partial<RegionMeta> = {}): RegionMeta {
     name: "Santiago",
     country: "Chile",
     adminRegionName: "Región Metropolitana de Santiago",
-    adminRegionOrder: 16,
+    adminRegionOrder: 7, // RM's real geographic slot: between V Valparaíso (6) and VI O'Higgins (8)
+    adminRegionNumeral: "RM",
     ...overrides,
   };
 }
@@ -151,6 +152,12 @@ test("groupCitiesByRegion groups by country then macro-región (geographic order
     ["Las Condes", "Vitacura"],
     "comunas alphabetical within their región",
   );
+});
+
+test("groupCitiesByRegion passes adminRegionNumeral through onto each región group — used for the city picker's numeral pill", () => {
+  const metaByCityId = buildRegionMetaByCityId([regionMeta({ name: "Arica", adminRegionName: "Arica y Parinacota", adminRegionOrder: 1, adminRegionNumeral: "XV" })]);
+  const groups = groupCitiesByRegion([{ id: "arica", name: "Arica" }], metaByCityId);
+  assert.equal(groups[0].regions[0].adminRegionNumeral, "XV");
 });
 
 test("groupCitiesByRegion puts comunas with no admin_region_name into an 'ungrouped' bucket, not dropped", () => {

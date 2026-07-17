@@ -2,7 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { esCL } from "@/i18n/es-CL";
-import { buildRegionMetaByCityId, citiesWithEvents, groupCitiesByRegion, matchesQuery, type City } from "@/lib/cities";
+import {
+  buildRegionMetaByCityId,
+  citiesWithEvents,
+  groupCitiesByRegion,
+  matchesQuery,
+  type AdminRegionGroup,
+  type City,
+  type CountryGroup,
+} from "@/lib/cities";
 import { sumCounts, type CityCounts, type RegionMeta } from "@/lib/events";
 
 interface CityPickerPanelProps {
@@ -16,197 +24,380 @@ interface CityPickerPanelProps {
 }
 
 const ZERO_COUNTS: CityCounts = { inauguraciones: 0, exposActuales: 0 };
+const SEARCH_DEBOUNCE_MS = 200;
 
-function phraseFor(cities: City[], cityCounts: Record<string, CityCounts>): string {
-  const { inauguraciones, exposActuales } = sumCounts(cities.map((c) => cityCounts[c.id] ?? ZERO_COUNTS));
-  return esCL.cityStats(inauguraciones, exposActuales);
+function countsFor(cities: City[], cityCounts: Record<string, CityCounts>): CityCounts {
+  return sumCounts(cities.map((c) => cityCounts[c.id] ?? ZERO_COUNTS));
 }
 
-function optionId(cityId: string): string {
+// Regions are grouped first by país (see cities.ts), so a región's key
+// needs the país in it too — otherwise a same-named región in a future
+// second country would collide with Chile's.
+function regionKey(country: string, adminRegionName: string): string {
+  return `${country}::${adminRegionName}`;
+}
+
+function cityOptionId(cityId: string): string {
   return `city-option-${cityId}`;
 }
 
-interface CityOptionProps {
+function regionOptionId(key: string): string {
+  return `region-option-${key}`;
+}
+
+type NavEntry = { type: "region"; key: string } | { type: "city"; city: City };
+
+interface CityRowProps {
   city: City;
+  counts: CityCounts;
   selected: boolean;
   active: boolean;
   onSelect: (city: City) => void;
-  onHover: (city: City) => void;
+  onHover: () => void;
 }
 
-function CityOption({ city, selected, active, onSelect, onHover }: CityOptionProps) {
+function CityRow({ city, counts, selected, active, onSelect, onHover }: CityRowProps) {
   return (
     <button
-      id={optionId(city.id)}
+      id={cityOptionId(city.id)}
       role="option"
       aria-selected={selected}
       ref={active ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
       onClick={() => onSelect(city)}
-      onMouseEnter={() => onHover(city)}
-      className={`w-full text-left text-sm px-3 py-2.5 rounded-lg mb-1 transition-colors ${
-        selected ? "bg-city-pill-bg text-city-pill-fg" : active ? "bg-stone-100 text-heading-gray" : "text-heading-gray hover:bg-stone-100"
+      onMouseEnter={onHover}
+      className={`w-full flex items-center gap-2 pl-[52px] pr-3 py-2.5 rounded-lg text-left transition-colors ${
+        selected ? "bg-heading-gray" : active ? "bg-stone-100" : "hover:bg-stone-50"
       }`}
     >
-      {city.name}
+      <span className={`flex-grow text-sm ${selected ? "font-semibold text-white" : "text-heading-gray"}`}>{city.name}</span>
+      {counts.exposActuales > 0 && (
+        <span
+          className={`text-[11px] font-medium rounded px-2 py-0.5 shrink-0 ${
+            selected ? "bg-white/15 text-white" : "bg-picker-subtle text-muted-gray"
+          }`}
+        >
+          {counts.exposActuales} expos
+        </span>
+      )}
+      {counts.inauguraciones > 0 && (
+        <span
+          className={`text-[11px] font-medium rounded px-2 py-0.5 shrink-0 ${
+            selected ? "bg-white/15 text-white" : "bg-picker-badge-inaug-bg text-picker-badge-inaug-fg"
+          }`}
+        >
+          {counts.inauguraciones} inaug
+        </span>
+      )}
+    </button>
+  );
+}
+
+interface RegionRowProps {
+  region: AdminRegionGroup;
+  navKey: string;
+  expanded: boolean;
+  active: boolean;
+  totalCount: number;
+  onToggle: () => void;
+  onHover: () => void;
+}
+
+function RegionRow({ region, navKey, expanded, active, totalCount, onToggle, onHover }: RegionRowProps) {
+  return (
+    <button
+      id={regionOptionId(navKey)}
+      aria-expanded={expanded}
+      ref={active ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+      onClick={onToggle}
+      onMouseEnter={onHover}
+      className={`w-full flex items-center gap-2.5 px-3 py-3.5 text-left rounded-lg transition-colors ${
+        active ? "bg-stone-100" : "hover:bg-stone-50"
+      }`}
+    >
+      <span className="text-[11px] text-picker-placeholder w-3 shrink-0">{expanded ? "▾" : "▸"}</span>
+      {region.adminRegionNumeral && (
+        <span className="text-[10px] font-semibold text-muted-gray bg-picker-subtle rounded px-1.5 py-0.5 shrink-0">
+          {region.adminRegionNumeral}
+        </span>
+      )}
+      <span className="flex-grow text-sm font-medium text-heading-gray">{region.adminRegionName}</span>
+      <span className="text-[13px] text-picker-placeholder">{totalCount}</span>
     </button>
   );
 }
 
 export default function CityPickerPanel({ open, cityId, cityCounts, cityNames, regions, onClose, onSelect }: CityPickerPanelProps) {
   const [query, setQuery] = useState("");
+  const [filterQuery, setFilterQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [expandedRegions, setExpandedRegions] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Reset the search/highlight state whenever the panel transitions to
-  // open — computed during render (React's documented pattern for
-  // resetting state in response to a prop change), not inside an effect,
-  // which would cause an extra cascading render.
+  const metaByCityId = useMemo(() => buildRegionMetaByCityId(regions), [regions]);
+
+  // Reset search + expand state whenever the modal transitions to open —
+  // computed during render (React's documented pattern for resetting
+  // state in response to a prop change), not inside an effect, which
+  // would cause an extra cascading render. The currently-selected
+  // comuna's región starts expanded, everything else starts collapsed.
   const [prevOpen, setPrevOpen] = useState(open);
   if (open !== prevOpen) {
     setPrevOpen(open);
     if (open) {
       setQuery("");
+      setFilterQuery("");
       setActiveIndex(0);
+      const selectedMeta = metaByCityId.get(cityId);
+      setExpandedRegions(
+        selectedMeta?.adminRegionName ? new Set([regionKey(selectedMeta.country, selectedMeta.adminRegionName)]) : new Set(),
+      );
     }
   }
 
-  // Focusing the DOM input is a real external-system side effect, so it
-  // stays in an effect (unlike the state resets above).
+  // Focusing the DOM input and locking body scroll are real
+  // external-system side effects, so they stay in effects (unlike the
+  // state resets above).
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  const metaByCityId = useMemo(() => buildRegionMetaByCityId(regions), [regions]);
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
+
+  // Debounced filter: `query` echoes the input instantly (so typing feels
+  // immediate), `filterQuery` — what actually drives filtering below —
+  // lags 200ms behind the last keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => setFilterQuery(query), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   // "Muestra lo que hay", same as before — only comunas with events, plus
   // the currently-selected one so opening the picker never makes your own
   // (possibly zero-count) city vanish.
   const allCities = useMemo(() => citiesWithEvents(cityCounts, cityNames, { alwaysIncludeCityId: cityId }), [cityCounts, cityNames, cityId]);
 
+  const trimmedQuery = filterQuery.trim();
+  const isSearching = trimmedQuery !== "";
+
   const filteredCities = useMemo(() => {
-    const trimmed = query.trim();
-    if (!trimmed) return allCities;
+    if (!trimmedQuery) return allCities;
     return allCities.filter((c) => {
-      if (matchesQuery(c.name, trimmed)) return true;
+      if (matchesQuery(c.name, trimmedQuery)) return true;
       const adminRegionName = metaByCityId.get(c.id)?.adminRegionName;
-      return adminRegionName ? matchesQuery(adminRegionName, trimmed) : false;
+      return adminRegionName ? matchesQuery(adminRegionName, trimmedQuery) : false;
     });
-  }, [allCities, query, metaByCityId]);
+  }, [allCities, trimmedQuery, metaByCityId]);
 
   // A región/país only appears here if it has at least one comuna left
   // after the events + search filters above — no separate pass needed.
-  const groups = useMemo(() => groupCitiesByRegion(filteredCities, metaByCityId), [filteredCities, metaByCityId]);
+  const groups: CountryGroup[] = useMemo(() => groupCitiesByRegion(filteredCities, metaByCityId), [filteredCities, metaByCityId]);
 
-  // One flat, display-order list drives keyboard navigation regardless of
-  // how many país/región headers sit in between.
-  const flatCities = useMemo(() => groups.flatMap((g) => [...g.regions.flatMap((r) => r.cities), ...g.ungrouped]), [groups]);
-  const indexByCityId = useMemo(() => new Map(flatCities.map((c, i) => [c.id, i])), [flatCities]);
+  // While actively searching, every región left standing (i.e. containing
+  // a match) shows fully expanded regardless of manual toggle state — "si
+  // el texto matchea una comuna, mostrar la comuna y su región
+  // (expandida)". Clearing the search reverts to whatever the user
+  // manually toggled.
+  function isRegionExpanded(key: string): boolean {
+    return isSearching || expandedRegions.has(key);
+  }
+
+  // One flat, display-order list — región rows interleaved with their
+  // comunas only when expanded — drives keyboard navigation regardless of
+  // how many regions/comunas are actually visible right now.
+  const navEntries = useMemo(() => {
+    const entries: NavEntry[] = [];
+    for (const group of groups) {
+      for (const region of group.regions) {
+        const key = regionKey(group.country, region.adminRegionName);
+        entries.push({ type: "region", key });
+        if (isSearching || expandedRegions.has(key)) {
+          for (const city of region.cities) entries.push({ type: "city", city });
+        }
+      }
+      for (const city of group.ungrouped) entries.push({ type: "city", city });
+    }
+    return entries;
+  }, [groups, expandedRegions, isSearching]);
+
+  const navIndexByKey = useMemo(() => {
+    const map = new Map<string, number>();
+    navEntries.forEach((entry, i) => map.set(entry.type === "region" ? `region:${entry.key}` : `city:${entry.city.id}`, i));
+    return map;
+  }, [navEntries]);
 
   // Same render-time reset pattern as the open-transition above: a new
-  // query means a new result set, so the highlighted option snaps back
-  // to the top of it.
-  const [prevQuery, setPrevQuery] = useState(query);
-  if (query !== prevQuery) {
-    setPrevQuery(query);
+  // (debounced) query means a new result set, so the highlighted row
+  // snaps back to the top of it.
+  const [prevFilterQuery, setPrevFilterQuery] = useState(filterQuery);
+  if (filterQuery !== prevFilterQuery) {
+    setPrevFilterQuery(filterQuery);
     setActiveIndex(0);
   }
 
-  const activeCity = flatCities[activeIndex];
+  const activeEntry = navEntries[activeIndex];
 
-  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+  function toggleRegion(key: string) {
+    setExpandedRegions((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function handleInputKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIndex((i) => Math.min(i + 1, flatCities.length - 1));
+      setActiveIndex((i) => Math.min(i + 1, navEntries.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActiveIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (activeCity) onSelect(activeCity);
+      if (!activeEntry) return;
+      if (activeEntry.type === "region") toggleRegion(activeEntry.key);
+      else onSelect(activeEntry.city);
     } else if (e.key === "Escape") {
       e.preventDefault();
+      onClose();
+    } else if (e.key === "Tab") {
+      // Lightweight focus trap: only two real DOM tab stops (input, close
+      // button) — every región/comuna row is virtually highlighted via
+      // aria-activedescendant, never actually DOM-focused, same combobox
+      // pattern as the arrow-key navigation above.
+      e.preventDefault();
+      closeButtonRef.current?.focus();
+    }
+  }
+
+  function handleCloseKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      inputRef.current?.focus();
+    } else if (e.key === "Escape") {
       onClose();
     }
   }
 
-  function renderOption(city: City) {
-    return (
-      <CityOption
-        key={city.id}
-        city={city}
-        selected={city.id === cityId}
-        active={indexByCityId.get(city.id) === activeIndex}
-        onSelect={onSelect}
-        onHover={(c) => setActiveIndex(indexByCityId.get(c.id) ?? 0)}
-      />
-    );
-  }
+  const activeDescendantId = activeEntry
+    ? activeEntry.type === "region"
+      ? regionOptionId(activeEntry.key)
+      : cityOptionId(activeEntry.city.id)
+    : undefined;
+
+  const hasAnyCityResult = navEntries.some((e) => e.type === "city");
 
   return (
-    <>
-      <div
-        className={`fixed inset-0 z-30 bg-black/30 transition-opacity duration-300 ${
-          open ? "opacity-100" : "opacity-0 pointer-events-none"
-        }`}
-        onClick={onClose}
-      />
-      <div
-        className={`fixed top-0 left-0 right-0 z-40 bg-white px-5 py-4 shadow-lg transition-transform duration-300 ease-out ${
-          open ? "translate-y-0" : "-translate-y-full"
-        }`}
-      >
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-sm font-bold text-heading-gray">{esCL.chooseCity}</p>
-          <button onClick={onClose} className="text-muted-gray text-sm">
-            ✕
-          </button>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={esCL.cityPickerAriaLabel}
+      // `inert` (not just visual hiding) pulls the whole modal out of the
+      // tab order and accessibility tree while closed — it's always
+      // mounted (so the opacity transition can play), but a closed modal
+      // must never be reachable by Tab or a screen reader.
+      inert={!open}
+      className={`fixed inset-0 z-40 bg-white flex flex-col transition-opacity duration-150 ${
+        open ? "opacity-100" : "opacity-0 pointer-events-none"
+      }`}
+    >
+      <div className="relative shrink-0 pt-12 pb-5 px-4">
+        <button
+          ref={closeButtonRef}
+          onClick={onClose}
+          onKeyDown={handleCloseKeyDown}
+          aria-label={esCL.closeCityPicker}
+          className="absolute top-6 right-6 text-[18px] text-muted-gray"
+        >
+          ✕
+        </button>
+        <h2 className="text-[24px] md:text-[32px] font-bold text-heading-gray text-center mb-6">{esCL.chooseCity}</h2>
+        <div className="max-w-[680px] mx-auto">
+          <input
+            ref={inputRef}
+            type="text"
+            role="searchbox"
+            aria-label={esCL.citySearchAriaLabel}
+            aria-controls="city-picker-listbox"
+            aria-activedescendant={activeDescendantId}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleInputKeyDown}
+            placeholder={esCL.citySearchPlaceholder}
+            className="w-full text-[15px] px-4 py-3 rounded-xl bg-picker-subtle border border-picker-border text-heading-gray placeholder:text-picker-placeholder focus:outline-none"
+          />
         </div>
+      </div>
 
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={esCL.citySearchPlaceholder}
-          role="combobox"
-          aria-expanded={open}
-          aria-controls="city-picker-listbox"
-          aria-autocomplete="list"
-          aria-activedescendant={activeCity ? optionId(activeCity.id) : undefined}
-          aria-label={esCL.chooseCity}
-          className="w-full text-sm px-3 py-2 mb-3 rounded-lg border border-stone-300 text-heading-gray focus:outline-none focus:border-city-pill-bg"
-        />
-
-        <div id="city-picker-listbox" role="listbox" aria-label={esCL.chooseCity} className="max-h-[70vh] overflow-y-auto">
-          {flatCities.length === 0 ? (
-            <p className="text-sm text-muted-gray px-3 py-2.5">{esCL.noCityResults}</p>
+      <div id="city-picker-listbox" role="listbox" aria-label={esCL.chooseCity} className="flex-grow overflow-y-auto px-4 pb-10">
+        <div className="max-w-[680px] mx-auto">
+          {!hasAnyCityResult ? (
+            <p className="text-sm text-muted-gray text-center py-10">{esCL.noCityResults}</p>
           ) : (
             groups.map((group) => {
               const countryCities = [...group.regions.flatMap((r) => r.cities), ...group.ungrouped];
-              const countryPhrase = phraseFor(countryCities, cityCounts);
+              const countryCounts = countsFor(countryCities, cityCounts);
+              const countryPhrase = esCL.cityStats(countryCounts.inauguraciones, countryCounts.exposActuales);
               return (
                 <div key={group.country}>
-                  <p className="text-xs font-bold uppercase tracking-wide text-muted-gray px-3 pt-2 pb-1 sticky top-0 bg-white">
-                    {group.country}
-                    {countryPhrase ? ` · ${countryPhrase}` : ""}
-                  </p>
+                  <div className="flex items-center justify-between py-2 border-b border-picker-border/60">
+                    <span className="text-sm font-semibold text-heading-gray">{group.country}</span>
+                    {countryPhrase && <span className="text-[13px] text-muted-gray">{countryPhrase}</span>}
+                  </div>
                   {group.regions.map((region) => {
-                    const headingId = `region-heading-${group.country}-${region.adminRegionName}`;
-                    const regionPhrase = phraseFor(region.cities, cityCounts);
+                    const key = regionKey(group.country, region.adminRegionName);
+                    const expanded = isRegionExpanded(key);
+                    const total = countsFor(region.cities, cityCounts);
                     return (
-                      <div key={region.adminRegionName} role="group" aria-labelledby={headingId}>
-                        <p id={headingId} className="text-xs font-semibold text-muted-gray px-3 pt-2 pb-1 sticky top-6 bg-white">
-                          {region.adminRegionName}
-                          {regionPhrase ? ` · ${regionPhrase}` : ""}
-                        </p>
-                        {region.cities.map(renderOption)}
+                      <div key={key} className="border-b border-picker-border/30">
+                        <RegionRow
+                          region={region}
+                          navKey={key}
+                          expanded={expanded}
+                          active={activeEntry?.type === "region" && activeEntry.key === key}
+                          totalCount={total.inauguraciones + total.exposActuales}
+                          onToggle={() => toggleRegion(key)}
+                          onHover={() => setActiveIndex(navIndexByKey.get(`region:${key}`) ?? 0)}
+                        />
+                        {expanded && (
+                          <div role="listbox" aria-labelledby={regionOptionId(key)}>
+                            {region.cities.map((city) => (
+                              <CityRow
+                                key={city.id}
+                                city={city}
+                                counts={cityCounts[city.id] ?? ZERO_COUNTS}
+                                selected={city.id === cityId}
+                                active={activeEntry?.type === "city" && activeEntry.city.id === city.id}
+                                onSelect={onSelect}
+                                onHover={() => setActiveIndex(navIndexByKey.get(`city:${city.id}`) ?? 0)}
+                              />
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
                   {group.ungrouped.length > 0 && (
-                    <div role="group" aria-label={group.country}>
-                      {group.ungrouped.map(renderOption)}
+                    <div>
+                      {group.ungrouped.map((city) => (
+                        <CityRow
+                          key={city.id}
+                          city={city}
+                          counts={cityCounts[city.id] ?? ZERO_COUNTS}
+                          selected={city.id === cityId}
+                          active={activeEntry?.type === "city" && activeEntry.city.id === city.id}
+                          onSelect={onSelect}
+                          onHover={() => setActiveIndex(navIndexByKey.get(`city:${city.id}`) ?? 0)}
+                        />
+                      ))}
                     </div>
                   )}
                 </div>
@@ -215,6 +406,14 @@ export default function CityPickerPanel({ open, cityId, cityCounts, cityNames, r
           )}
         </div>
       </div>
-    </>
+
+      <div className="shrink-0 border-t border-picker-border px-6 pt-3.5 pb-4">
+        <div className="hidden md:flex items-center justify-center gap-6 text-[11px] text-picker-placeholder">
+          <span>{esCL.cityPickerHints.navigate}</span>
+          <span>{esCL.cityPickerHints.select}</span>
+          <span>{esCL.cityPickerHints.close}</span>
+        </div>
+      </div>
+    </div>
   );
 }

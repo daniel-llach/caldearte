@@ -39,15 +39,20 @@ function toEventRecord(row: EventRow, regionNameById: Map<string, string>): Even
 // One row per comuna (see cities.ts's header comment on the `regions`
 // table's naming) — admin_region_name/admin_region_order are the Chilean
 // administrative macro-region (I-XVI, Región Metropolitana) and its
-// geographic north-to-south rank, both nullable so a future country's
-// comunas can be seeded before that data exists for them (see
-// groupCitiesByRegion in cities.ts for the fallback this enables).
+// geographic north-to-south rank (RM sits at position 7, between V
+// Valparaíso and VI O'Higgins — its real geographic slot, NOT its roman
+// numeral); admin_region_numeral is the separate, non-geographic official
+// numbering shown as a pill in the city picker ("II", "V", "RM", "XV"...).
+// All three nullable so a future country's comunas can be seeded before
+// this data exists for them (see groupCitiesByRegion in cities.ts for the
+// fallback this enables).
 export interface RegionMeta {
   id: string;
   name: string;
   country: string;
   adminRegionName: string | null;
   adminRegionOrder: number | null;
+  adminRegionNumeral: string | null;
 }
 
 // RLS already restricts anon reads to curation_status='approved' — see
@@ -64,7 +69,7 @@ export async function fetchApprovedEvents(
 ): Promise<{ events: EventRecord[]; regions: RegionMeta[] }> {
   const [eventsRes, regionsRes] = await Promise.all([
     client.from("events").select("*"),
-    client.from("regions").select("id, name, country, admin_region_name, admin_region_order"),
+    client.from("regions").select("id, name, country, admin_region_name, admin_region_order, admin_region_numeral"),
   ]);
   if (eventsRes.error) {
     throw new Error(`Failed to fetch events: ${eventsRes.error.message}`);
@@ -80,6 +85,7 @@ export async function fetchApprovedEvents(
     country: r.country,
     adminRegionName: r.admin_region_name,
     adminRegionOrder: r.admin_region_order,
+    adminRegionNumeral: r.admin_region_numeral,
   }));
   return { events: (eventsRes.data ?? []).map((row) => toEventRecord(row, regionNameById)), regions };
 }
