@@ -49,3 +49,9 @@ test("isChileanLocation recognizes Frutillar (real production bug: a legitimate 
   assert.equal(isChileanLocation("Frutillar"), true);
   assert.equal(isChileanLocation("Teatro del Lago, Frutillar"), true);
 });
+
+test("isChileanLocation returns false (not Chilean, doesn't throw) for null/undefined location — real production bug: Haiku returned status:'approved' with location:null, crashing the whole weekly batch run on `null.toLowerCase()`", () => {
+  assert.equal(isChileanLocation(null), false);
+  assert.equal(isChileanLocation(undefined), false);
+  assert.equal(isChileanLocation(""), false);
+});

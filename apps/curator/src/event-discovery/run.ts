@@ -340,47 +340,64 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   );
 
   for (const unit of units) {
-    const { results: rawResults, credits } = await searchUnitFn(tavilyApiKey ?? "", unit.name, now, excludeDomains);
-    console.log(`[event-discovery] ${unit.name}: ${rawResults.length} results, ${credits} Tavily credits`);
-    await logRawSearchResults(unit.name, rawResults);
+    // Real production bug (2026-07-17, weekly-batch rollout's first live
+    // run): an uncaught exception processing ONE unit (Haiku returned
+    // status:"approved" with location:null, crashing isChileanLocation)
+    // killed the entire run — losing every remaining unit in the batch,
+    // not just the bad one, and none of them got their last_run_at
+    // updated despite Tavily credits/Haiku tokens already spent on the
+    // ones that DID complete first. A weekly batch of 25+ units makes
+    // this much more costly than it was as a single-digit-unit risk
+    // before. Isolating per-unit like insertCandidates already isolates
+    // per-candidate: one broken unit is logged and skipped, not fatal to
+    // the rest of the batch. Deliberately does NOT update last_run_at/
+    // status for a failed unit — it stays "due" and gets retried next
+    // run, rather than being silently marked done with no real data.
+    try {
+      const { results: rawResults, credits } = await searchUnitFn(tavilyApiKey ?? "", unit.name, now, excludeDomains);
+      console.log(`[event-discovery] ${unit.name}: ${rawResults.length} results, ${credits} Tavily credits`);
+      await logRawSearchResults(unit.name, rawResults);
 
-    // Drop known-out-of-scope results before they ever reach Haiku — saves
-    // both the input tokens for that result's content and the output
-    // tokens Haiku would've spent on a candidate we'd just discard anyway.
-    const results = filterKnownExclusions(rawResults);
-    if (results.length !== rawResults.length) {
-      console.log(`[event-discovery] ${unit.name}: dropped ${rawResults.length - results.length} known-excluded result(s) before curation`);
+      // Drop known-out-of-scope results before they ever reach Haiku — saves
+      // both the input tokens for that result's content and the output
+      // tokens Haiku would've spent on a candidate we'd just discard anyway.
+      const results = filterKnownExclusions(rawResults);
+      if (results.length !== rawResults.length) {
+        console.log(`[event-discovery] ${unit.name}: dropped ${rawResults.length - results.length} known-excluded result(s) before curation`);
+      }
+
+      let inserted = 0;
+      if (results.length > 0) {
+        const block = buildBlock(`Resultados de búsqueda para "${unit.name}"`, results);
+        const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
+        await recordUsage({
+          purpose: "event_discovery",
+          model: EVENT_DISCOVERY_MODEL,
+          regionId: unit.id,
+          usage,
+        });
+        await enrichMissingImages(candidates, pageFetchFn);
+        allCandidates.push(...candidates);
+        inserted = await insertCandidates(candidates, regions, seenKeys, now);
+      }
+
+      // A comuna's first real run graduates it out of 'not_started' — restores
+      // real meaning to `status` (previously written once at seed time, then
+      // never touched again by a run). 'active'/'excluded' otherwise pass
+      // through untouched; only 'not_started' ever flips here.
+      const nextStatus = unit.status === "not_started" ? "active" : unit.status;
+      const { error } = await client
+        .from("regions")
+        .update({ last_run_at: now.toISOString(), status: nextStatus })
+        .eq("id", unit.id);
+      if (error) {
+        throw new Error(`Failed to update last_run_at for ${unit.name}: ${error.message}`);
+      }
+
+      console.log(`[event-discovery] ${unit.name}: ${inserted} new approved event(s)`);
+    } catch (err) {
+      console.error(`[event-discovery] ${unit.name}: unit failed, skipping (stays due for next run): ${(err as Error).message}`);
     }
-
-    let inserted = 0;
-    if (results.length > 0) {
-      const block = buildBlock(`Resultados de búsqueda para "${unit.name}"`, results);
-      const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
-      await recordUsage({
-        purpose: "event_discovery",
-        model: EVENT_DISCOVERY_MODEL,
-        regionId: unit.id,
-        usage,
-      });
-      await enrichMissingImages(candidates, pageFetchFn);
-      allCandidates.push(...candidates);
-      inserted = await insertCandidates(candidates, regions, seenKeys, now);
-    }
-
-    // A comuna's first real run graduates it out of 'not_started' — restores
-    // real meaning to `status` (previously written once at seed time, then
-    // never touched again by a run). 'active'/'excluded' otherwise pass
-    // through untouched; only 'not_started' ever flips here.
-    const nextStatus = unit.status === "not_started" ? "active" : unit.status;
-    const { error } = await client
-      .from("regions")
-      .update({ last_run_at: now.toISOString(), status: nextStatus })
-      .eq("id", unit.id);
-    if (error) {
-      throw new Error(`Failed to update last_run_at for ${unit.name}: ${error.message}`);
-    }
-
-    console.log(`[event-discovery] ${unit.name}: ${inserted} new approved event(s)`);
   }
 
   // Bright sources: fetched directly and curated ONCE per run, in their own
