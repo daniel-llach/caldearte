@@ -199,13 +199,74 @@ implemented and validated in production — building the list is the last
 step before actually spending real, ongoing money at scale, not a
 prerequisite for finishing everything else first.
 
+### All 346 comuna names seeded as `status='excluded'` — tagging only, not search coverage
+
+**Not to be confused with the ~100-unit *active-search* list above.**
+2026-07-17: every official Chilean comuna (346 total, cross-checked
+against a structured dataset rather than typed from memory — see the
+`20260717000000_seed_remaining_chile_comunas_excluded` migration) got
+seeded as a `regions` row with `status='excluded'`. This does **not**
+expand active search coverage or spend any Tavily/Anthropic budget:
+`getUnitsDueForRun` filters `.neq('status', 'excluded')`, so none of
+these enter the per-unit search loop. What it *does* fix: `matchRegionId`
+(`apps/curator/src/lib/locations.ts`) only tags an event's `region_id`
+when its `freeform_location` text matches a NAME already present in this
+table, regardless of that region's status (`loadAllRegions` in `run.ts`
+loads every region for this purpose, not just active ones). Bright
+sources like arteinformado.com already return real events from comunas
+that weren't seeded yet (Las Condes, Vitacura, El Bosque — found
+2026-07-17) — those events were landing with `region_id=null` (the
+"otro" bucket) purely because the comuna's name didn't exist as a row,
+not because there wasn't real data for it. Turning any of these 331 into
+a genuinely *active* search unit is still the separate, deliberate
+~100-unit rollout decision above — this migration only fixes tagging for
+whatever a comuna already organically surfaces.
+
 ## Fuentes brillantes (bright sources)
 
 A "fuente brillante" is a URL that reliably lists several real events in
 one place — fetched **directly** (plain `fetch`, not via Tavily search)
-every run, and excluded from regular Tavily searches for that domain (via
-`exclude_domains`) so the search budget isn't spent re-discovering what's
-already covered directly.
+when due (see cadence below), and excluded from regular Tavily searches
+for that domain (via `exclude_domains`) so the search budget isn't spent
+re-discovering what's already covered directly.
+
+**Per-source 2-week fetch cadence, independent per source** — until
+2026-07-17, every known+detected source was fetched on every single run
+with no gating at all. Same shape as `regions`' own `last_run_at` +
+28-day "due" check (`apps/curator/src/event-discovery/run.ts`'s
+`isDueForRun`), but a 14-day interval and keyed by the source's own `url`
+in a standalone `bright_source_fetch_state` table (not a column on
+`regions` or `detected_sources` — `KNOWN_SOURCES` is hand-curated in
+code, not a DB row, so `url` is the only identity both hand-curated and
+auto-detected sources share). Records an *attempt*, not just a success —
+`fetchBrightSources` already swallows a single source's own fetch failure
+(network error, 404, etc.) and logs it rather than throwing, so there's
+no separate success/failure signal left by the time the cadence gets
+recorded; retrying a broken source every run wastes just as much time as
+retrying a working one. `excludeDomains` (what regular per-unit Tavily
+search won't surface) stays based on *every* known bright source
+regardless of due-state — a domain shouldn't resurface via Tavily search
+just because we happen to not be re-fetching it directly this particular
+run.
+
+**Pagination via `additionalPages`** — some listing pages are big enough
+that page 1 alone misses real, current events. Real find (2026-07-17):
+arteinformado.com's Chile listing isn't sorted chronologically or by
+"vigencia" — it's sorted by whatever their editors most recently added,
+so page 1 alone missed a real exhibition ("Sín-tesis", Galería NAC) that
+only showed up on page 2. `KnownSource.additionalPages?: string[]` lists
+extra URLs whose content (same `extractor`) gets fetched and appended
+into the SAME single `RawResult` as the primary page — one logical
+source, not one per page, so `mergeBrightSources`'s per-domain dedup and
+the run's overall "one bright-sources curate() call" shape stay intact.
+Kept deliberately small (arteinformado.com: 2 pages of ~423 total) — the
+site's own sort order means later pages increasingly return events that
+have *already ended* (a real check: page 5 already had events that ended
+~2 months before the check date), so fetching many pages would mostly
+waste Haiku input tokens on content that gets filtered out downstream
+anyway. A failure fetching an *additional* page is logged and skipped,
+not fatal to the source — only the primary page's own failure still
+fails the whole source, unchanged from before `additionalPages` existed.
 
 **`type` decides how a source is fetched** (`apps/curator/src/lib/known-sources.ts`):
 - `"html"` (default) — a plain page fetch.
