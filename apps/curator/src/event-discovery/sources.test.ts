@@ -169,6 +169,55 @@ test("fetchBrightSources against the real KNOWN_SOURCES config for molinomachmar
   assert.equal(results[0].images[0]?.url, "https://www.molinomachmar.cl/web/wp-content/uploads/2026/06/paloma.jpg");
 });
 
+test("fetchBrightSources against the real KNOWN_SOURCES config for arteinformado.com extracts per-event links, not the aggregator page's own URL (regression check against production config, real bug found 2026-07-16)", async () => {
+  const arteinformado = KNOWN_SOURCES.find((s) => s.url.includes("arteinformado.com"));
+  assert.ok(arteinformado?.extractor?.kind === "articleList");
+  const config = arteinformado.extractor as ArticleListConfig;
+
+  // Real markup shape: NOT a per-event wrapper element — each event is two
+  // sibling <div class="col-md-2..."> (image link) + <div class="col-md-4...">
+  // (title/dates/place) columns in a row, back to back with the next event's
+  // pair. Two events here to prove the blockRegex's lookahead boundary
+  // correctly splits them instead of swallowing both into one block.
+  const html = `
+    <div class="row top30">
+      <div class="col-md-2 col-sm-4 bottom30">
+        <a href="https://www.arteinformado.com/agenda/f/existen-otros-mundos-243857" onclick="showEntity(event, this)">
+          <img src="/docs/evento/57/f.uno.jpg" alt="Existen otros mundos">
+        </a>
+      </div>
+      <div class="col-md-4 col-sm-8 bottom30">
+        <h3><a href="https://www.arteinformado.com/agenda/f/existen-otros-mundos-243857" onclick="showEntity(event, this)">Existen otros mundos, pero están en este</a></h3>
+        <div class="min-alto-agenda">
+          <span class="txt-date txt-gris">25 abr de 2026 - 23 ago de 2026</span>
+          <div class="font17">MAC - Espacio Quinta Normal</div>
+          <div class="font17 txt-gris">Avda. Matucana, 464, Santiago</div>
+        </div>
+      </div><div class="col-md-2 col-sm-4 bottom30">
+        <a href="https://www.arteinformado.com/agenda/f/sin-tesis-999999" onclick="showEntity(event, this)">
+          <img src="/docs/evento/99/f.dos.jpg" alt="Sín-tesis">
+        </a>
+      </div>
+      <div class="col-md-4 col-sm-8 bottom30">
+        <h3><a href="https://www.arteinformado.com/agenda/f/sin-tesis-999999" onclick="showEntity(event, this)">Sín-tesis</a></h3>
+        <div class="min-alto-agenda">
+          <span class="txt-date txt-gris">01 jul de 2026 - 15 ago de 2026</span>
+          <div class="font17">Galeria NAC</div>
+          <div class="font17 txt-gris">Américo Vespucio Norte #2878, Santiago</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([{ url: arteinformado.url, note: arteinformado.note, extractor: config }]));
+
+  assert.equal(results.length, 1);
+  assert.match(results[0].content, /Existen otros mundos.*existen-otros-mundos-243857/);
+  assert.match(results[0].content, /Sín-tesis.*sin-tesis-999999/);
+  // The two events' own detail-page links, NOT the single aggregator page URL.
+  assert.equal(results[0].images.length, 2);
+});
+
 test("mergeBrightSources dedups by domain with the hand-curated list winning", () => {
   const merged = mergeBrightSources([
     // Same domain as a KNOWN_SOURCES entry — must not appear twice.
