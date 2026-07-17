@@ -20,7 +20,7 @@
 // file is already a real, validated Chilean comuna — trusting it directly
 // is safe, no separate frontend whitelist needed.
 
-import type { CityCounts } from "./events";
+import type { CityCounts, RegionMeta } from "./events";
 
 export interface City {
   id: string;
@@ -51,6 +51,14 @@ function stripAccents(text: string): string {
 
 function normalize(text: string): string {
   return stripAccents(text.toLowerCase()).trim();
+}
+
+// Accent/case-insensitive substring match — same normalization slugify
+// already uses, exported so the city picker's search box filters
+// consistently with how ids themselves are derived (typing "valparaiso"
+// matches "Valparaíso" either way).
+export function matchesQuery(text: string, query: string): boolean {
+  return normalize(text).includes(normalize(query));
 }
 
 // A stable, deterministic id for any comuna/city name — spaces and
@@ -129,4 +137,65 @@ export function matchCityByGeoName(geoCity: string | undefined): string {
   if (!geoCity) return DEFAULT_CITY_ID;
   const slug = slugify(geoCity);
   return slug in SEED_CITY_NAMES ? slug : DEFAULT_CITY_ID;
+}
+
+// Keyed by the same slugified id every City already uses (cityIdFromRegionName),
+// so it joins directly against citiesWithEvents' output with no extra
+// lookup step.
+export function buildRegionMetaByCityId(regions: RegionMeta[]): Map<string, RegionMeta> {
+  return new Map(regions.map((r) => [slugify(r.name), r]));
+}
+
+export interface AdminRegionGroup {
+  adminRegionName: string;
+  adminRegionOrder: number;
+  cities: City[];
+}
+
+export interface CountryGroup {
+  country: string;
+  regions: AdminRegionGroup[]; // sorted by adminRegionOrder, ascending (north to south in Chile)
+  ungrouped: City[]; // comunas with no admin_region_name yet — see the migration's header comment
+}
+
+// City picker grouping: country -> macro-región (geographically ordered)
+// -> comuna (alphabetical). Built ONLY from the `cities` array passed in
+// (already "has events"-filtered, e.g. citiesWithEvents' output) — a
+// región with zero qualifying comunas simply never gets an entry, which
+// is exactly "only show regions with comunas that have events", for free,
+// with no separate filtering pass. Grouping first by `country` (a real
+// column already on every row) is the multi-country scalability hook:
+// a second country's comunas fall into their own CountryGroup automatically,
+// no code change needed when that day comes.
+export function groupCitiesByRegion(cities: City[], metaByCityId: Map<string, RegionMeta>): CountryGroup[] {
+  const byCountry = new Map<string, CountryGroup>();
+
+  for (const city of cities) {
+    const meta = metaByCityId.get(city.id);
+    const country = meta?.country ?? "otro";
+    if (!byCountry.has(country)) byCountry.set(country, { country, regions: [], ungrouped: [] });
+    const group = byCountry.get(country)!;
+
+    if (!meta || meta.adminRegionName === null || meta.adminRegionOrder === null) {
+      group.ungrouped.push(city);
+      continue;
+    }
+
+    let region = group.regions.find((r) => r.adminRegionName === meta.adminRegionName);
+    if (!region) {
+      region = { adminRegionName: meta.adminRegionName, adminRegionOrder: meta.adminRegionOrder, cities: [] };
+      group.regions.push(region);
+    }
+    region.cities.push(city);
+  }
+
+  for (const group of byCountry.values()) {
+    group.regions.sort((a, b) => a.adminRegionOrder - b.adminRegionOrder);
+    for (const region of group.regions) {
+      region.cities.sort((a, b) => a.name.localeCompare(b.name, "es"));
+    }
+    group.ungrouped.sort((a, b) => a.name.localeCompare(b.name, "es"));
+  }
+
+  return [...byCountry.values()];
 }

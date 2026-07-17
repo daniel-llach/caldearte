@@ -9,6 +9,14 @@ migrations change.
 ```
 regions
   id, name, country, language, lat, lng, population,
+  admin_region_name, admin_region_order (Chilean administrative
+    macro-region — e.g. "Región Metropolitana de Santiago" — and its
+    geographic north-to-south rank; both nullable so a future country's
+    comunas can be seeded before this data exists for them. Backfilled for
+    all 346 Chile rows in
+    20260717030000_add_admin_region_to_regions.sql. Used by the frontend
+    city picker to group comunas as país -> región -> comuna — see
+    apps/web/src/lib/cities.ts's groupCitiesByRegion),
   expansion_rank (position in the precalculated global population/distance
     ranking — see region-discovery.md for the log-compressed formula),
   status (not_started | active | saturated | excluded),

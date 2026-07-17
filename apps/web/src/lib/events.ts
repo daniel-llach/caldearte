@@ -36,16 +36,35 @@ function toEventRecord(row: EventRow, regionNameById: Map<string, string>): Even
   };
 }
 
+// One row per comuna (see cities.ts's header comment on the `regions`
+// table's naming) — admin_region_name/admin_region_order are the Chilean
+// administrative macro-region (I-XVI, Región Metropolitana) and its
+// geographic north-to-south rank, both nullable so a future country's
+// comunas can be seeded before that data exists for them (see
+// groupCitiesByRegion in cities.ts for the fallback this enables).
+export interface RegionMeta {
+  id: string;
+  name: string;
+  country: string;
+  adminRegionName: string | null;
+  adminRegionOrder: number | null;
+}
+
 // RLS already restricts anon reads to curation_status='approved' — see
 // supabase/migrations/20260711171717_create_core_schema.sql. `regions` is
 // public-read (added alongside events.region_id, specifically so the
 // frontend can resolve region_id -> name) — fetched alongside events so
 // resolveCityId below can prefer the backend's exact match over the
-// freeform_location guess.
-export async function fetchApprovedEvents(client: SupabaseClient<Database>): Promise<EventRecord[]> {
+// freeform_location guess. `regions` is also returned in full (not just
+// the subset referenced by events) so the city picker can group EVERY
+// comuna with events by its macro-región, not only ones that happen to
+// also appear in regionNameById.
+export async function fetchApprovedEvents(
+  client: SupabaseClient<Database>,
+): Promise<{ events: EventRecord[]; regions: RegionMeta[] }> {
   const [eventsRes, regionsRes] = await Promise.all([
     client.from("events").select("*"),
-    client.from("regions").select("id, name"),
+    client.from("regions").select("id, name, country, admin_region_name, admin_region_order"),
   ]);
   if (eventsRes.error) {
     throw new Error(`Failed to fetch events: ${eventsRes.error.message}`);
@@ -53,8 +72,16 @@ export async function fetchApprovedEvents(client: SupabaseClient<Database>): Pro
   if (regionsRes.error) {
     throw new Error(`Failed to fetch regions: ${regionsRes.error.message}`);
   }
-  const regionNameById = new Map((regionsRes.data ?? []).map((r) => [r.id, r.name]));
-  return (eventsRes.data ?? []).map((row) => toEventRecord(row, regionNameById));
+  const regionRows = regionsRes.data ?? [];
+  const regionNameById = new Map(regionRows.map((r) => [r.id, r.name]));
+  const regions: RegionMeta[] = regionRows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    country: r.country,
+    adminRegionName: r.admin_region_name,
+    adminRegionOrder: r.admin_region_order,
+  }));
+  return { events: (eventsRes.data ?? []).map((row) => toEventRecord(row, regionNameById)), regions };
 }
 
 // Prefers the curator's own region match (exact, resolved at write time)
@@ -168,6 +195,17 @@ export function countByCity(events: EventRecord[], todayStr: string): Record<str
     counts[cityId][isInauguracion ? "inauguraciones" : "exposActuales"] += 1;
   }
   return counts;
+}
+
+// One place that adds up {inauguraciones, exposActuales} pairs — used for
+// both the región-level and Chile-level totals in the city picker, so a
+// región's count is just sumCounts of its comunas' CityCounts, and the
+// country total is sumCounts of every visible comuna's.
+export function sumCounts(counts: CityCounts[]): CityCounts {
+  return counts.reduce(
+    (acc, c) => ({ inauguraciones: acc.inauguraciones + c.inauguraciones, exposActuales: acc.exposActuales + c.exposActuales }),
+    { inauguraciones: 0, exposActuales: 0 },
+  );
 }
 
 // Cascading empty-state support: the earliest current-or-upcoming event
