@@ -238,6 +238,8 @@ export type Database = {
       }
       regions: {
         Row: {
+          admin_region_name: string | null
+          admin_region_order: number | null
           consecutive_zero_yield_runs: number
           country: string
           created_at: string
@@ -254,6 +256,8 @@ export type Database = {
           status: string
         }
         Insert: {
+          admin_region_name?: string | null
+          admin_region_order?: number | null
           consecutive_zero_yield_runs?: number
           country: string
           created_at?: string
@@ -270,6 +274,8 @@ export type Database = {
           status?: string
         }
         Update: {
+          admin_region_name?: string | null
+          admin_region_order?: number | null
           consecutive_zero_yield_runs?: number
           country?: string
           created_at?: string

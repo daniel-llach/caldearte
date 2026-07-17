@@ -1,7 +1,30 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deriveCityId, cityById, cityIdFromRegionName, citiesWithEvents, slugify, matchCityByGeoName, OTHER_CITY, DEFAULT_CITY_ID } from "./cities";
-import type { CityCounts } from "./events";
+import {
+  deriveCityId,
+  cityById,
+  cityIdFromRegionName,
+  citiesWithEvents,
+  slugify,
+  matchCityByGeoName,
+  matchesQuery,
+  buildRegionMetaByCityId,
+  groupCitiesByRegion,
+  OTHER_CITY,
+  DEFAULT_CITY_ID,
+} from "./cities";
+import type { CityCounts, RegionMeta } from "./events";
+
+function regionMeta(overrides: Partial<RegionMeta> = {}): RegionMeta {
+  return {
+    id: "id",
+    name: "Santiago",
+    country: "Chile",
+    adminRegionName: "Región Metropolitana de Santiago",
+    adminRegionOrder: 16,
+    ...overrides,
+  };
+}
 
 test("slugify normalizes accents, case, and punctuation into a hyphenated id", () => {
   assert.equal(slugify("Valparaíso"), "valparaiso");
@@ -86,4 +109,60 @@ test("matchCityByGeoName only confidently matches a well-established seed city �
   assert.equal(matchCityByGeoName("VALPARAISO"), "valparaiso");
   assert.equal(matchCityByGeoName("Las Condes"), DEFAULT_CITY_ID, "a real but non-seed comuna still defaults safely");
   assert.equal(matchCityByGeoName(undefined), DEFAULT_CITY_ID);
+});
+
+test("matchesQuery is accent/case-insensitive substring matching", () => {
+  assert.ok(matchesQuery("Valparaíso", "valpara"));
+  assert.ok(matchesQuery("Valparaíso", "VALPARAISO"));
+  assert.ok(!matchesQuery("Valparaíso", "santiago"));
+});
+
+test("buildRegionMetaByCityId keys by the same slugified id City.id already uses", () => {
+  const map = buildRegionMetaByCityId([regionMeta({ name: "Las Condes" })]);
+  assert.ok(map.has("las-condes"));
+  assert.equal(map.get("las-condes")?.name, "Las Condes");
+});
+
+test("groupCitiesByRegion groups by country then macro-región (geographic order), comunas alphabetical within each región", () => {
+  const meta = [
+    regionMeta({ name: "Valparaíso", adminRegionName: "Valparaíso", adminRegionOrder: 6 }),
+    regionMeta({ name: "Arica", adminRegionName: "Arica y Parinacota", adminRegionOrder: 1 }),
+    regionMeta({ name: "Vitacura", adminRegionName: "Región Metropolitana de Santiago", adminRegionOrder: 16 }),
+    regionMeta({ name: "Las Condes", adminRegionName: "Región Metropolitana de Santiago", adminRegionOrder: 16 }),
+  ];
+  const metaByCityId = buildRegionMetaByCityId(meta);
+  const cities = [
+    { id: "vitacura", name: "Vitacura" },
+    { id: "arica", name: "Arica" },
+    { id: "las-condes", name: "Las Condes" },
+    { id: "valparaiso", name: "Valparaíso" },
+  ];
+  const groups = groupCitiesByRegion(cities, metaByCityId);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].country, "Chile");
+  assert.deepEqual(
+    groups[0].regions.map((r) => r.adminRegionName),
+    ["Arica y Parinacota", "Valparaíso", "Región Metropolitana de Santiago"],
+    "regions come out in geographic north-to-south order, not insertion order",
+  );
+  const rm = groups[0].regions.find((r) => r.adminRegionName === "Región Metropolitana de Santiago")!;
+  assert.deepEqual(
+    rm.cities.map((c) => c.name),
+    ["Las Condes", "Vitacura"],
+    "comunas alphabetical within their región",
+  );
+});
+
+test("groupCitiesByRegion puts comunas with no admin_region_name into an 'ungrouped' bucket, not dropped", () => {
+  const metaByCityId = buildRegionMetaByCityId([regionMeta({ name: "Nueva Comuna", adminRegionName: null, adminRegionOrder: null })]);
+  const groups = groupCitiesByRegion([{ id: "nueva-comuna", name: "Nueva Comuna" }], metaByCityId);
+  assert.equal(groups[0].regions.length, 0);
+  assert.deepEqual(groups[0].ungrouped, [{ id: "nueva-comuna", name: "Nueva Comuna" }]);
+});
+
+test("groupCitiesByRegion groups a comuna with no RegionMeta at all into a fallback 'otro' country bucket", () => {
+  const groups = groupCitiesByRegion([{ id: "unknown", name: "Unknown" }], new Map());
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].country, "otro");
+  assert.deepEqual(groups[0].ungrouped, [{ id: "unknown", name: "Unknown" }]);
 });

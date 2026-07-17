@@ -20,7 +20,7 @@ export default async function HomePage() {
   const familyMode = Boolean(cookieStore.get(FAMILY_MODE_COOKIE)?.value);
   const today = todayInSantiago();
 
-  const allEvents = await fetchApprovedEvents(getSupabaseClient());
+  const { events: allEvents, regions } = await fetchApprovedEvents(getSupabaseClient());
   // Family-mode filtering happens here, server-side, before anything is
   // sent to the client — excluded events never reach the HTML/JS, which is
   // what actually satisfies "no flash of unblurred content" (overview.md).
@@ -57,6 +57,7 @@ export default async function HomePage() {
         today={today}
         cityCounts={cityCounts}
         nextEvent={nextEvent}
+        regions={regions}
       />
     </main>
   );

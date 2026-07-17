@@ -8,6 +8,7 @@ import {
   countByCity,
   cityNamesFromEvents,
   findNextEvent,
+  sumCounts,
   type EventRecord,
 } from "./events";
 
@@ -110,4 +111,18 @@ test("findNextEvent finds the earliest current-or-upcoming anchor date", () => {
 
 test("findNextEvent returns null when there's nothing upcoming", () => {
   assert.equal(findNextEvent([], TODAY), null);
+});
+
+test("sumCounts adds up inauguraciones/exposActuales across multiple CityCounts — used for región- and Chile-level totals", () => {
+  assert.deepEqual(
+    sumCounts([
+      { inauguraciones: 1, exposActuales: 2 },
+      { inauguraciones: 3, exposActuales: 0 },
+    ]),
+    { inauguraciones: 4, exposActuales: 2 },
+  );
+});
+
+test("sumCounts of an empty array is all zeros", () => {
+  assert.deepEqual(sumCounts([]), { inauguraciones: 0, exposActuales: 0 });
 });

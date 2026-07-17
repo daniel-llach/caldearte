@@ -6,7 +6,7 @@ import { esCL } from "@/i18n/es-CL";
 import { cityById, type City } from "@/lib/cities";
 import { CITY_COOKIE, FAMILY_MODE_COOKIE } from "@/lib/cookies";
 import { fmtShort } from "@/lib/date";
-import type { CityCounts, EventRecord } from "@/lib/events";
+import type { CityCounts, EventRecord, RegionMeta } from "@/lib/events";
 import Header from "./Header";
 import InauguracionCard from "./InauguracionCard";
 import ExpoCard from "./ExpoCard";
@@ -24,6 +24,7 @@ interface CalendarViewProps {
   today: string; // YYYY-MM-DD, computed server-side for SSR/CSR consistency
   cityCounts: Record<string, CityCounts>;
   nextEvent: EventRecord | null; // empty-state fallback, beyond "today"
+  regions: RegionMeta[]; // for the city picker's región grouping
 }
 
 function setCookie(name: string, value: string): void {
@@ -41,9 +42,11 @@ export default function CalendarView({
   today,
   cityCounts,
   nextEvent,
+  regions,
 }: CalendarViewProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
+  const cityPickerTriggerRef = useRef<HTMLButtonElement>(null);
   const [isDesktop, setIsDesktop] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -87,6 +90,7 @@ export default function CalendarView({
         inauguracionesCount={inauguraciones.length}
         exposCount={exposActuales.length}
         onOpenCityPicker={() => setLocationOpen(true)}
+        cityPickerTriggerRef={cityPickerTriggerRef}
         onOpenMobileMenu={() => {
           setDrawerView("menu");
           setDrawerOpen(true);
@@ -151,7 +155,11 @@ export default function CalendarView({
         cityId={cityId}
         cityCounts={cityCounts}
         cityNames={cityNames}
-        onClose={() => setLocationOpen(false)}
+        regions={regions}
+        onClose={() => {
+          setLocationOpen(false);
+          cityPickerTriggerRef.current?.focus();
+        }}
         onSelect={selectCity}
       />
 

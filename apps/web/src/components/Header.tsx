@@ -1,5 +1,6 @@
 "use client";
 
+import type { RefObject } from "react";
 import { esCL } from "@/i18n/es-CL";
 import type { City } from "@/lib/cities";
 import { fmtHeaderDate } from "@/lib/date";
@@ -11,6 +12,7 @@ interface HeaderProps {
   inauguracionesCount: number;
   exposCount: number;
   onOpenCityPicker: () => void;
+  cityPickerTriggerRef: RefObject<HTMLButtonElement | null>;
   onOpenMobileMenu: () => void;
   onOpenCuratoria: () => void;
   onToggleFamilyMode: () => void;
@@ -50,6 +52,7 @@ export default function Header({
   inauguracionesCount,
   exposCount,
   onOpenCityPicker,
+  cityPickerTriggerRef,
   onOpenMobileMenu,
   onOpenCuratoria,
   onToggleFamilyMode,
@@ -92,6 +95,7 @@ export default function Header({
       <div className="mt-3 md:mt-4 flex items-center gap-2 flex-wrap text-[15px] md:text-xl text-heading-gray">
         <span>{esCL.headerSummary(inauguracionesCount, exposCount)}</span>
         <button
+          ref={cityPickerTriggerRef}
           onClick={onOpenCityPicker}
           className="inline-flex items-center gap-1.5 bg-city-pill-bg text-city-pill-fg rounded-lg px-3 py-1.5 text-sm"
         >
