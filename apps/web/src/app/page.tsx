@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { getSupabaseClient } from "@/lib/supabase-client";
 import {
   fetchApprovedEvents,
@@ -10,14 +10,20 @@ import {
   cityNamesFromEvents,
   findNextEvent,
 } from "@/lib/events";
-import { DEFAULT_CITY_ID } from "@/lib/cities";
+import { DEFAULT_CITY_ID, buildRegionMetaByCityId, resolveDefaultCityId } from "@/lib/cities";
 import { todayInSantiago } from "@/lib/date";
 import { CITY_COOKIE, FAMILY_MODE_COOKIE } from "@/lib/cookies";
 import CalendarView from "@/components/CalendarView";
 
 export default async function HomePage() {
   const cookieStore = await cookies();
-  const familyMode = Boolean(cookieStore.get(FAMILY_MODE_COOKIE)?.value);
+  const headerStore = await headers();
+  // Absent cookie means family mode ON — a first-time visitor sees
+  // filtered content by default; explicitly turning it off (empty-string
+  // cookie value, set by CalendarView.tsx's toggleFamilyMode) is the only
+  // way to see everything.
+  const familyModeCookie = cookieStore.get(FAMILY_MODE_COOKIE)?.value;
+  const familyMode = familyModeCookie === undefined ? true : Boolean(familyModeCookie);
   const today = todayInSantiago();
 
   const { events: allEvents, regions } = await fetchApprovedEvents(getSupabaseClient());
@@ -31,13 +37,30 @@ export default async function HomePage() {
   // Built from ALL events (not just active-today), so a directly-navigated
   // city still shows its proper name even with zero active events right now.
   const cityNames = cityNamesFromEvents(allEvents);
-  const rawCityId = cookieStore.get(CITY_COOKIE)?.value ?? DEFAULT_CITY_ID;
-  const cityId = rawCityId in cityNames || rawCityId === DEFAULT_CITY_ID ? rawCityId : DEFAULT_CITY_ID;
 
   // Home shows only what's visitable *today* — nothing not yet started,
   // nothing already ended.
   const activeToday = filterActiveToday(visible, today);
   const cityCounts = countByCity(activeToday, today);
+
+  // A manual pick (CITY_COOKIE) always wins and is never re-resolved. With
+  // no cookie yet, resolve fresh from Vercel's IP-geolocation headers every
+  // render — own comuna (if it has events) -> a comuna in the same admin
+  // región that does -> Santiago if outside Chile or nothing matched.
+  // These headers don't exist on localhost (no-op there, falls through to
+  // Santiago) — real geo-detection only happens on an actual Vercel deploy.
+  const cityCookieValue = cookieStore.get(CITY_COOKIE)?.value;
+  const cityId =
+    cityCookieValue !== undefined
+      ? cityCookieValue in cityNames || cityCookieValue === DEFAULT_CITY_ID
+        ? cityCookieValue
+        : DEFAULT_CITY_ID
+      : resolveDefaultCityId(
+          headerStore.get("x-vercel-ip-city") ?? undefined,
+          headerStore.get("x-vercel-ip-country") ?? undefined,
+          buildRegionMetaByCityId(regions),
+          cityCounts,
+        );
 
   const cityEventsToday = filterByCity(activeToday, cityId);
   const { inauguraciones, exposActuales } = splitInauguracionesYExpos(cityEventsToday, today);

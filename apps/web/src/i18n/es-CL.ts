@@ -71,7 +71,31 @@ export const esCL = {
     copyright: (year: number) => `© ${year} Caldearte`,
     acercaDe: "Acerca de",
     contacto: "Contacto",
+    privacidad: "Privacidad",
     instagram: "Instagram",
+  },
+
+  privacidad: {
+    title: "Privacidad y curatoría",
+    dataTitle: "Qué datos guardamos",
+    dataBody:
+      "Guardamos dos cookies de preferencia — la ciudad que elegiste y si tenés activado el modo familiar — por un año, solo en tu navegador. No creamos cuentas, no usamos rastreadores de terceros, y no guardamos nada de lo que escribas en el formulario de contacto: solo lo reenviamos por correo. Usamos Vercel Analytics para ver estadísticas agregadas de visitas, sin cookies ni datos que te identifiquen.",
+    curationTitle: "Cómo curamos",
+    contactTitle: "¿Encontraste un error o algo que reportar?",
+    contactBody: "Escribinos desde el ",
+    contactLinkLabel: "formulario de contacto",
+  },
+
+  contacto: {
+    title: "Contacto",
+    intro: "¿Viste algo mal curado, una inauguración que nos falta, o simplemente querés escribirnos? Dejanos tu mensaje.",
+    nameLabel: "Nombre (opcional)",
+    emailLabel: "Tu email",
+    messageLabel: "Mensaje",
+    submit: "Enviar",
+    sending: "Enviando...",
+    success: "¡Gracias! Recibimos tu mensaje.",
+    error: "Algo falló al enviar tu mensaje. Probá de nuevo en un rato.",
   },
 
   // Verbatim from docs/mockup.jsx's CURATORIA_TEXT — already-approved copy,

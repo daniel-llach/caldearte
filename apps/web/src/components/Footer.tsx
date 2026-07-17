@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { esCL } from "@/i18n/es-CL";
 
 export default function Footer() {
@@ -8,10 +9,11 @@ export default function Footer() {
         <p className="text-xs text-muted-gray mt-1">{esCL.footer.tagline}</p>
         <p className="text-xs text-muted-gray mt-1">{esCL.footer.copyright(new Date().getFullYear())}</p>
       </div>
-      {/* TODO gap: real destinations for these links don't exist yet — see the frontend plan's decision #6. */}
+      {/* "Acerca de"/"Instagram" still have no real destination — out of scope here. */}
       <div className="flex gap-6 text-xs text-muted-gray">
         <a href="#">{esCL.footer.acercaDe}</a>
-        <a href="#">{esCL.footer.contacto}</a>
+        <Link href="/contacto">{esCL.footer.contacto}</Link>
+        <Link href="/privacidad">{esCL.footer.privacidad}</Link>
         <a href="#">{esCL.footer.instagram}</a>
       </div>
     </footer>

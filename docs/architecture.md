@@ -56,31 +56,44 @@ Geolocation API is an optional enhancement, not the default.**
 Key finding: Vercel injects IP-geolocation headers (`x-vercel-ip-city`,
 country, region, approximate lat/lng) on every request to Vercel
 Functions/Edge Middleware, for free, with no external service call, available
-in SSR — the `@vercel/functions` package exposes them via
-`geolocation(request)`. This makes contracting a third-party IP-geolocation
-service unnecessary: the ones evaluated (ipapi.co, ipinfo.io) are either not
+in SSR. This makes contracting a third-party IP-geolocation service
+unnecessary: the ones evaluated (ipapi.co, ipinfo.io) are either not
 production-viable on their free tier, or their free tier only gives
-country-level precision, not city. Limitation to keep in mind: doesn't work
-on `localhost` in development.
+country-level precision, not city.
 
-Proposed flow:
+Actual implementation (as of the production-launch pass, 2026-07-17):
 
-1. Next.js middleware reads the IP-based city on every request; if there's
-   no `caldearte_city` cookie yet, it sets one with that value — this allows
-   ordering events by distance+time from the very first render, with no JS
-   and no permission prompt.
-2. A manual city selector, always visible in the header, overwrites the
-   cookie and takes precedence over IP on future visits — covers the cases
-   where IP fails (VPN, mobile network, local dev) and gives the user
-   control.
-3. Browser Geolocation API as an optional action ("Use my exact location"),
-   not automatic — asking for permission on the first visit is unjustified
-   friction for an art calendar, and a good share of users would decline it.
-4. Fallback with no cookie/header/choice: a reasonable default city (e.g.
-   Santiago) or an unordered list with a banner inviting the user to pick a
-   city.
-5. One line in the privacy policy explaining IP-based city inference,
-   without tying it to an account or storing it beyond the preference
-   cookie.
+1. `apps/web/src/app/page.tsx` (a server component, NOT edge middleware —
+   an earlier version resolved this in `proxy.ts` via `@vercel/functions`'
+   `geolocation(request)`, which was removed because it only has access to
+   the geo headers, not live event/región data, and could only recognize a
+   fixed 5-city allowlist as a result) reads the raw `x-vercel-ip-city`/
+   `x-vercel-ip-country` headers directly via `next/headers`' `headers()`
+   on every request that has no `caldearte_city` cookie yet — recomputed
+   fresh each time, never permanently pinned, so a visitor's default
+   improves automatically as more comunas get events.
+2. `apps/web/src/lib/cities.ts`'s `resolveDefaultCityId` does the actual
+   matching, three tiers in order: (a) if the geo country isn't Chile,
+   Santiago immediately, no city matching attempted; (b) if the geo city
+   is a real seeded comuna AND has events today, use it directly — any of
+   the 346 comunas, not a hardcoded whitelist; (c) else, a comuna in the
+   same admin región that has events today ("una cercana de la misma
+   región"); (d) else Santiago.
+3. A manual city selector, always visible in the header, sets the
+   `caldearte_city` cookie client-side and takes precedence over IP
+   resolution on every later visit — covers the cases where IP fails (VPN,
+   mobile network, local dev) and gives the user control. Once set, this
+   cookie is never re-evaluated against geolocation again.
+4. Browser Geolocation API as an optional action ("Use my exact location")
+   remains unbuilt — not automatic, still just an idea, not a regression
+   from a prior working version.
+5. `/privacidad` (`apps/web/src/app/privacidad/page.tsx`) explains IP-based
+   city inference in plain terms, without tying it to an account or storing
+   it beyond the preference cookie.
+
+Limitation to keep in mind: IP geolocation doesn't work on `localhost` in
+development — the geo headers are absent there, so `resolveDefaultCityId`
+always falls through to Santiago locally; real geo-detection only happens
+on an actual Vercel deploy.
 
 Sources: [Vercel — geolocation IP headers](https://vercel.com/kb/guide/geo-ip-headers-geolocation-vercel-functions), [ipapi.co pricing](https://ipapi.co/pricing/), [IPinfo pricing](https://ipinfo.io/pricing), [IPinfo Lite](https://ipinfo.io/lite).
