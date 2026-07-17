@@ -64,7 +64,19 @@ export function stripAccents(text: string): string {
   return text.normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
-export function isChileanLocation(location: string): boolean {
+// `location` is typed as a required `string` in EventCandidate, but real
+// production bug (found 2026-07-17, weekly-batch rollout's first live
+// run): Haiku returned status:"approved" with location:null for a
+// candidate, crashing the WHOLE run (uncaught TypeError on
+// `null.toLowerCase()`) — losing every remaining unit in that batch, not
+// just the one bad candidate. Same class of failure as sourceUrl's null
+// violations, fixed the same way: treat a missing location as "can't
+// confirm it's Chilean" (reject) rather than trusting the type and
+// crashing. `| null | undefined` in the signature documents that this
+// function must survive exactly the input that broke it, not just the
+// declared type.
+export function isChileanLocation(location: string | null | undefined): boolean {
+  if (!location) return false;
   const normalized = stripAccents(location.toLowerCase());
   const segments = normalized.split(",").map((s) => s.trim());
   const lastSegment = segments[segments.length - 1];

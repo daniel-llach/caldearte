@@ -558,6 +558,83 @@ test(
 );
 
 test(
+  "one unit throwing doesn't crash the rest of the batch — real production bug (2026-07-17): an uncaught exception in ONE unit killed the entire weekly-batch run, losing every remaining unit",
+  { skip: !hasLocalSupabase && "SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set" },
+  async () => {
+    const { run, getUnitsDueForRun } = await import("./run.js");
+    const { getSupabaseClient } = await import("../lib/supabase-client.js");
+    const client = getSupabaseClient();
+    const brokenUnit = "__test_broken__";
+    const okUnit = "__test_ok__";
+    const realRegions = await excludeRealRegionsForTest(client);
+    const { data: originalBatchSize } = await client
+      .from("system_config")
+      .select("value")
+      .eq("key", "weekly_batch_size")
+      .single();
+
+    try {
+      const { data: broken, error: e1 } = await client
+        .from("regions")
+        .insert({ name: brokenUnit, country: "Testland", language: "es", status: "active" })
+        .select()
+        .single();
+      const { data: ok, error: e2 } = await client
+        .from("regions")
+        .insert({ name: okUnit, country: "Testland", language: "es", status: "active" })
+        .select()
+        .single();
+      if (e1 || !broken || e2 || !ok) throw new Error(`Failed to seed test units: ${e1?.message} ${e2?.message}`);
+
+      await client.from("system_config").update({ value: "10000" }).eq("key", "weekly_batch_size");
+
+      const searchUnitFn = async (_key: string, unitName: string) => {
+        if (unitName === brokenUnit) throw new Error("simulated search failure");
+        return unitName === okUnit
+          ? { results: [{ title: "r", url: "https://x.cl", content: "c", score: 0.9, images: [] }], credits: 6 }
+          : { results: [], credits: 0 };
+      };
+      const messagesClient = {
+        messages: {
+          create: async () => ({
+            content: [{ type: "text", text: fencedJson([]) }],
+            usage: { input_tokens: 100, output_tokens: 50 },
+          }),
+        },
+      };
+
+      // getUnitsDueForRun sorts by last_run_at, both null (tied) — insert
+      // order alone doesn't guarantee brokenUnit runs first, so force it
+      // explicitly by checking due-order and, if needed, aborting isn't an
+      // option here; instead assert on outcomes only, not processing order.
+      await run({ messagesClient, searchUnitFn, fetchBrightSourcesFn: async () => [], now: NOW });
+
+      const { data: brokenAfter } = await client.from("regions").select("last_run_at").eq("id", broken.id).single();
+      assert.equal(brokenAfter?.last_run_at, null, "broken unit stays due — not silently marked done with no real data");
+
+      const { data: okAfter } = await client.from("regions").select("last_run_at").eq("id", ok.id).single();
+      assert.ok(okAfter?.last_run_at, "the OTHER unit still completed and got its last_run_at set");
+
+      const due = await getUnitsDueForRun(NOW);
+      assert.ok(due.some((r) => r.id === broken.id), "broken unit is still due for retry next run");
+    } finally {
+      await client.from("regions").delete().in("name", [brokenUnit, okUnit]);
+      await client.from("raw_search_results").delete().eq("unit_name", okUnit);
+      await client
+        .from("api_usage_log")
+        .delete()
+        .eq("purpose", "event_discovery")
+        .eq("input_tokens", 100)
+        .eq("output_tokens", 50);
+      await realRegions.restore();
+      if (originalBatchSize) {
+        await client.from("system_config").update({ value: originalBatchSize.value }).eq("key", "weekly_batch_size");
+      }
+    }
+  },
+);
+
+test(
   "a 'not_started' comuna flips to 'active' the first time it actually runs (requires local Supabase)",
   { skip: !hasLocalSupabase && "SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set" },
   async () => {
