@@ -174,7 +174,15 @@ export function detectNewBrightSources(
     if (c.status !== "approved" || !c.sourceUrl || !isCompleteEvent(c, now)) continue;
     let domain: string;
     try {
-      domain = new URL(c.sourceUrl).hostname.replace(/^www\./, "");
+      // Real production bug (2026-07-17): this used to strip "www." here
+      // but knownSourceDomain() (used to build `existingDomains` in
+      // run.ts) doesn't — "www.arteinformado.com" in existingDomains
+      // never matched this function's own "arteinformado.com", so an
+      // ALREADY-known source kept getting flagged "new" every run,
+      // eventually hitting detected_sources' unique constraint on url
+      // and crashing the whole run. Reusing the same function both sides
+      // makes the two domain computations consistent by construction.
+      domain = knownSourceDomain(c.sourceUrl);
     } catch {
       continue;
     }
