@@ -281,6 +281,17 @@ async function logRawSearchResults(unitName: string, results: RawResult[]): Prom
   }
 }
 
+// Ancillary bookkeeping, same posture as pruneOldRawSearchResults/
+// recordBrightSourcesFetched — a failure here must never fail the whole
+// run, since by the time this runs (the very last step) every unit and
+// bright source has already been fully processed and saved. Real
+// production bug (2026-07-17): a domain-normalization mismatch (fixed in
+// detectNewBrightSources) let an ALREADY-known source repeatedly get
+// flagged "new", hitting detected_sources' unique constraint on url and
+// crashing an otherwise-fully-successful run at the last step. Even with
+// that root cause fixed, this loop stays defensive — a duplicate/race
+// here is a real possibility (e.g. two runs overlapping) and shouldn't
+// be allowed to mark real, already-saved event data as a failed run.
 async function persistNewBrightSources(candidates: EventCandidate[], now: Date, excludeDomains: string[]): Promise<void> {
   const detected = detectNewBrightSources(candidates, now, excludeDomains);
   if (detected.length === 0) return;
@@ -292,7 +303,8 @@ async function persistNewBrightSources(candidates: EventCandidate[], now: Date, 
       note: source.note,
     });
     if (error) {
-      throw new Error(`Failed to persist detected source ${source.url}: ${error.message}`);
+      console.error(`[event-discovery] failed to persist detected source ${source.url}: ${error.message}`);
+      continue;
     }
     console.log(`[event-discovery] new bright source auto-added: ${source.url}`);
   }

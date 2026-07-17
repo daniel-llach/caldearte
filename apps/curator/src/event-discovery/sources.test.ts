@@ -329,3 +329,18 @@ test("detectNewBrightSources ignores rejected candidates", () => {
   );
   assert.equal(detected.length, 0);
 });
+
+test("detectNewBrightSources domain-matches consistently with knownSourceDomain (real production bug, 2026-07-17): a 'www.' host in existingDomains correctly excludes a candidate whose sourceUrl is also 'www.'-prefixed", () => {
+  // run.ts builds existingDomains via knownSourceDomain(), which does NOT
+  // strip "www." — this function used to strip it internally, so
+  // "www.arteinformado.com" in existingDomains never matched this
+  // function's own "arteinformado.com", and an ALREADY-known source kept
+  // getting flagged "new" every run, eventually crashing on
+  // detected_sources' unique constraint on url.
+  const candidates: EventCandidate[] = [
+    { ...completeCandidate, title: "Uno", sourceUrl: "https://www.arteinformado.com/agenda/f/uno" },
+    { ...completeCandidate, title: "Dos", sourceUrl: "https://www.arteinformado.com/agenda/f/dos" },
+  ];
+  const detected = detectNewBrightSources(candidates, NOW, ["www.arteinformado.com"]);
+  assert.equal(detected.length, 0, "already-known www.-prefixed domain must not be re-detected as new");
+});
