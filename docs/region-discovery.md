@@ -444,20 +444,21 @@ event-sourcing pipeline now, and it never produces or matches venues. See
 git history (`apps/curator/src/event-crawler/`, deleted) for the retired
 implementation if it's ever needed for reference.
 
-### No email approval flow yet (cost-driven, not a design gap)
+### No email approval flow yet (not worth building on current evidence)
 
 **Decided:** ambiguous events would land with `events.curation_status =
 'pending_review'` and no email — resolved manually in Supabase. The original
 design called for an email with two approve/reject buttons (Supabase Edge
-Function + one-time token), but adding `caldearte.com` to Resend requires
-their paid plan (~$20/month) since the free-tier domain slot is already used
-by another of the user's projects — not justified yet. Revisit once this
-becomes genuinely mandatory (real volume, or the cost becomes worth it some
-other way), not before. **Currently moot in practice:** Event Discovery's
+Function + one-time token). The original blocker (Resend's paid plan needed
+to add `caldearte.com` as a sending domain) is gone — `caldearte.com` is
+verified in Resend as of the production launch (2026-07-17/18), used by the
+`/contacto` form. But that no longer matters in practice: Event Discovery's
 curation call is binary (`approved`/`rejected` only, see
 curation-policy.md#human-escalation-not-currently-implemented) — nothing in
-production sets `pending_review` today, so this flow has nothing to trigger
-it yet either.
+production sets `pending_review` today, and real data (271 events as of
+2026-07-18, 0 genuine escalations) shows Haiku's binary call isn't leaving
+anything genuinely ambiguous. Parked, not an active line item — see
+[roadmap.md](roadmap.md)'s Phase 1a.
 
 ---
 
