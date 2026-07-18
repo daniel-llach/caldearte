@@ -12,8 +12,8 @@ critical stance.
 
 Product decision: this specific curatorial stance **is the value
 proposition**, not something to hide. It's worth making explicit on the site
-itself (e.g. an "About the curation" section) — see the live copy in
-[figma-make-brief.md](figma-make-brief.md).
+itself — shipped as `/privacidad`'s "Cómo curamos" section, see
+`apps/web/src/i18n/es-CL.ts`'s `curatoriaText` for the live copy.
 
 ## Core rule: default-exclude, no middle ground
 
