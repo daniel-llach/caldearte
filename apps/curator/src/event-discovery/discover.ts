@@ -236,6 +236,8 @@ Importante sobre fechas: la búsqueda no filtra perfectamente por fecha aunque s
 
 Cuidado especial con publicaciones de redes sociales (Instagram, Facebook, TikTok) que mencionan solo día y mes SIN año (ej. "del 1 al 28 de julio"): estas publicaciones a veces reaparecen en la búsqueda aunque tengan más de un año de antigüedad, y el buscador no siempre lo detecta. NO asumas automáticamente que se refieren a ${monthLabel} solo porque coincide con el mes actual. Antes de asignar el año actual a esa fecha, busca alguna señal de vigencia real en el propio texto (el año escrito explícitamente, una mención a "hoy", "esta semana", "recién inaugurada", u otro indicio de actualidad). Si la única pista es "día de mes" sin año y no hay ninguna señal de vigencia, rechaza el candidato por precaución en vez de asumir que es de ${monthLabel}.
 
+Regla dura sobre el año: si la fuente menciona un año explícitamente (ej. "13 de junio 2025"), usa ESE año tal cual — nunca lo reemplaces por el año de ${monthLabel} solo porque el día/mes coincide con lo buscado. Muchos sitios de agenda cultural conservan páginas de eventos ya realizados, a veces marcadas explícitamente con avisos como "Este evento ha pasado" o "Evento finalizado" — si ves ese tipo de aviso, o si el año explícito de la fuente hace que el evento ya haya terminado, rechaza el candidato sin importar que el día/mes parezca vigente.
+
 Etiqueta también: \`mediumType\` ("tradicional" o "intervencion_no_tradicional") y \`sensitivityTags\` (array de ["desnudo_erotismo", "guerra_violencia", "memoria_dictadura"], vacío si no aplica). Escribe un \`curationReasoning\` breve explicando tu decisión.
 
 \`status\` es binario: "approved" o "rejected" — no hay estado intermedio.
