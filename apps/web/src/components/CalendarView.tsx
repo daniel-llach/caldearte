@@ -50,7 +50,6 @@ export default function CalendarView({
   const [isDesktop, setIsDesktop] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerView, setDrawerView] = useState<"menu" | "curatoria">("menu");
 
   const city = cityById(cityId, cityNames);
 
@@ -91,14 +90,7 @@ export default function CalendarView({
         exposCount={exposActuales.length}
         onOpenCityPicker={() => setLocationOpen(true)}
         cityPickerTriggerRef={cityPickerTriggerRef}
-        onOpenMobileMenu={() => {
-          setDrawerView("menu");
-          setDrawerOpen(true);
-        }}
-        onOpenCuratoria={() => {
-          setDrawerView("curatoria");
-          setDrawerOpen(true);
-        }}
+        onOpenMobileMenu={() => setDrawerOpen(true)}
         onToggleFamilyMode={toggleFamilyMode}
       />
 
@@ -165,10 +157,8 @@ export default function CalendarView({
 
       <MenuDrawer
         open={drawerOpen}
-        view={drawerView}
         familyMode={familyMode}
         onClose={() => setDrawerOpen(false)}
-        onViewChange={setDrawerView}
         onToggleFamilyMode={toggleFamilyMode}
       />
     </div>

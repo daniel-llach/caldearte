@@ -1,6 +1,7 @@
 "use client";
 
 import type { RefObject } from "react";
+import Link from "next/link";
 import { esCL } from "@/i18n/es-CL";
 import type { City } from "@/lib/cities";
 import { fmtHeaderDate } from "@/lib/date";
@@ -14,7 +15,6 @@ interface HeaderProps {
   onOpenCityPicker: () => void;
   cityPickerTriggerRef: RefObject<HTMLButtonElement | null>;
   onOpenMobileMenu: () => void;
-  onOpenCuratoria: () => void;
   onToggleFamilyMode: () => void;
 }
 
@@ -39,8 +39,13 @@ function loadTime(): string {
 
 function FamilyModeToggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
-    <button onClick={onToggle} className={`w-10 h-6 rounded-full relative transition-colors ${on ? "bg-city-pill-bg" : "bg-stone-300"}`}>
-      <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${on ? "translate-x-4" : "translate-x-0.5"}`} />
+    <button
+      onClick={onToggle}
+      className={`appearance-none flex items-center shrink-0 w-10 h-6 p-0.5 rounded-full transition-colors border-2 ${
+        on ? "justify-end bg-city-pill-bg border-city-pill-bg" : "justify-start bg-white border-stone-300"
+      }`}
+    >
+      <span className={`w-5 h-5 rounded-full ${on ? "bg-white" : "bg-stone-300"}`} />
     </button>
   );
 }
@@ -54,7 +59,6 @@ export default function Header({
   onOpenCityPicker,
   cityPickerTriggerRef,
   onOpenMobileMenu,
-  onOpenCuratoria,
   onToggleFamilyMode,
 }: HeaderProps) {
   const dateLabel = fmtHeaderDate(today);
@@ -74,7 +78,7 @@ export default function Header({
         </div>
 
         <div className="hidden md:flex items-center gap-4 text-[15px] text-heading-gray shrink-0 pt-2">
-          <button onClick={onOpenCuratoria}>{esCL.curatoria}</button>
+          <Link href="/privacidad">{esCL.curatoria}</Link>
           <span className="text-stone-300">-</span>
           <span>{esCL.familyMode}</span>
           <FamilyModeToggle on={familyMode} onToggle={onToggleFamilyMode} />
