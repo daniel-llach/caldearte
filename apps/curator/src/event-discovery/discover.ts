@@ -234,6 +234,8 @@ Importante sobre ubicación: no descartes un candidato solo porque la ubicación
 
 Importante sobre fechas: la búsqueda no filtra perfectamente por fecha aunque se le haya pedido un mes específico. La regla es a nivel de MES, no de día exacto: descarta un candidato solo si su \`runEndDate\` (o, si no hay \`runEndDate\`, su \`runStartDate\`) corresponde a un mes ANTERIOR a ${monthLabel}, sin indicación de que siga vigente. No lo descartes solo porque su fecha específica dentro de ${monthLabel} ya pasó respecto al día de hoy, ni porque su apertura caiga en un mes posterior (un evento futuro encontrado de casualidad sigue siendo válido).
 
+Cuidado especial con publicaciones de redes sociales (Instagram, Facebook, TikTok) que mencionan solo día y mes SIN año (ej. "del 1 al 28 de julio"): estas publicaciones a veces reaparecen en la búsqueda aunque tengan más de un año de antigüedad, y el buscador no siempre lo detecta. NO asumas automáticamente que se refieren a ${monthLabel} solo porque coincide con el mes actual. Antes de asignar el año actual a esa fecha, busca alguna señal de vigencia real en el propio texto (el año escrito explícitamente, una mención a "hoy", "esta semana", "recién inaugurada", u otro indicio de actualidad). Si la única pista es "día de mes" sin año y no hay ninguna señal de vigencia, rechaza el candidato por precaución en vez de asumir que es de ${monthLabel}.
+
 Etiqueta también: \`mediumType\` ("tradicional" o "intervencion_no_tradicional") y \`sensitivityTags\` (array de ["desnudo_erotismo", "guerra_violencia", "memoria_dictadura"], vacío si no aplica). Escribe un \`curationReasoning\` breve explicando tu decisión.
 
 \`status\` es binario: "approved" o "rejected" — no hay estado intermedio.
