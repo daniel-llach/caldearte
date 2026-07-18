@@ -1,5 +1,17 @@
 # Caldearte — Testing Strategy (E2E)
 
+**Status: plan, not yet built.** None of this exists in the repo today —
+no `e2e/` package, no `playwright.config.ts`, no `.github/workflows/e2e.yml`,
+no `playwright` dependency anywhere. Actual current testing in `apps/web`
+is exclusively lib-level unit tests via Node's built-in test runner
+(`apps/web/package.json`'s `"test": "node --import tsx --test
+src/**/*.test.ts"` — covers `events.ts`, `date.ts`, `cities.ts`,
+`comuna.ts`, `es-CL.ts`, `image-source.ts`; no component/DOM testing, no
+jsdom, no browser automation). This doc is kept as the plan for when E2E
+coverage is actually built, not a description of current practice — worth
+revisiting the "what to test first" list below against the app as it
+actually shipped (see the note on item 2) before building any of this.
+
 Two distinct uses of Playwright in the same repo — worth not conflating: as
 a curator dependency (Phase 1a, headless browser for JS-rendered sources a
 plain `fetch` can't handle) and as the frontend's testing tool. They live in
@@ -38,14 +50,20 @@ is the check before review, not a replacement for it.
 ## What to test first, not everything at once
 
 1. The calendar loads and shows "today's" events for the default city.
-2. Switching between tabs (today/week/month/year) changes what's shown.
+2. ~~Switching between tabs (today/week/month/year) changes what's shown.~~
+   Doesn't apply to what shipped — the app only ever shows "today," split
+   into two fixed sections (Inauguraciones / Exposiciones Actuales). No
+   time-filter tabs exist. Test the city picker instead (search, región
+   grouping, keyboard nav — see `apps/web/src/components/CityPickerPanel.tsx`).
 3. A city with no events shows the empty-state message + "tell us about one"
    CTA.
-4. The "family mode" toggle hides events with `sensitivity_tags`.
-5. Column count responds to the actual viewport width (1/2/3), tested across
-   different Playwright viewport sizes. The highest-value one to start with:
-   the layout uses `ResizeObserver` instead of standard Tailwind breakpoints
-   (see [ui-prototype.md](ui-prototype.md)) — easy to break unintentionally
+4. The "family mode" toggle hides events with `sensitivity_tags`; a
+   first-time visitor (no cookie) should default to it being ON.
+5. Column count responds to the actual viewport width — **1 column mobile,
+   2 desktop** (not 1/2/3 as originally planned; `CalendarView.tsx` has no
+   3-column tier), tested across different Playwright viewport sizes. The
+   highest-value one to start with: the layout uses `ResizeObserver`
+   instead of standard Tailwind breakpoints — easy to break unintentionally
    in a refactor and hard to notice just by looking.
 
 Expands in later phases — Phase 1b adds a test for the email-approval flow

@@ -3,6 +3,24 @@
 > Context document for `caldearte-mockup.jsx`, an interactive prototype
 > (React + Tailwind) explored in Cowork before real construction started.
 
+**Historical — the shipped app (`apps/web`, live at caldearte.com since
+2026-07-17/18) has diverged from several specifics described below.** Read
+this for the design-exploration history and the parts that DID ship
+(the `ResizeObserver`-based responsive approach, family-mode filtering),
+not as documentation of current behavior. Concrete divergences:
+- No today/week/month/year tabs — the shipped app only ever shows "today,"
+  split into two fixed sections (Inauguraciones / Exposiciones Actuales).
+- Column count is 1 (mobile) / 2 (desktop), not 1/2/3 — no 3-column tier
+  was built.
+- Cards show title/venue/period text under the image, not "image only" as
+  originally decided here.
+- No slide-in/side-panel detail view — cards link out externally to the
+  source URL instead.
+- The mobile menu's Curatoria entry links to `/privacidad` directly, not
+  an in-drawer curation view.
+See `apps/web/src/components/CalendarView.tsx`, `CityPickerPanel.tsx`, and
+`EventCardBase.tsx` for what actually shipped.
+
 ## What it is and isn't
 
 It's a **behavior and interaction** prototype, not the final component. It

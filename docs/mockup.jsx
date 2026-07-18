@@ -1,3 +1,9 @@
+// Historical prototype, not a live component — not imported anywhere in
+// apps/web. Kept only for provenance: apps/web/src/i18n/es-CL.ts's
+// curatoriaText is copied verbatim from this file's CURATORIA_TEXT, and
+// apps/web/src/lib/date.ts's header comment traces back to this file's
+// tab-based structure. See docs/ui-prototype.md for how the shipped app
+// diverged from what's described here.
 import { useState, useMemo, useRef, useEffect } from "react";
 import { MapPin, ChevronDown } from "lucide-react";
 

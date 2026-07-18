@@ -1,10 +1,10 @@
 # Caldearte — Roadmap
 
-## Current status: Phase 1a, in progress
+## Current status: Phase 1a substantially done — live in production
 
 Done: pnpm workspace, core schema deployed to production
 (`regions`/`events`), auto-deploy pipeline for migrations
-(`deploy-migrations.yml`), Chile's initial regions seeded, cost-governance
+(`deploy-migrations.yml`), all 346 Chilean comunas seeded, cost-governance
 system shipped (`system_config`/`api_usage_log`, budget ceiling, region cap,
 change-detection foundation).
 
@@ -16,7 +16,18 @@ venue entity. The earlier venue-based design (a separate "Event Crawler"
 that revisited known venues, plus the `venues` table itself) has been
 retired — it was left disconnected after the pivot (nothing fed it new
 venues) and has been fully removed from the code and schema, not just
-deprecated. Frontend (`apps/web`) hasn't been started.
+deprecated.
+
+**Frontend (`apps/web`) is built and live** at `caldearte.com` (Vercel
+Hobby, launched 2026-07-17/18) — the design decisions this section used to
+describe as blocking are resolved and shipped: the full calendar view,
+región-grouped city picker, family-mode content filtering (defaults ON for
+first-time visitors), a real contact form, and standard SEO/analytics
+basics. See [architecture.md](architecture.md) for the shipped city-picker
+and geo-detection design, and `apps/web/src/components/` for the actual
+component tree — `docs/ui-prototype.md`/`docs/figma-make-brief.md` describe
+an earlier design-exploration phase that has since diverged from what
+shipped and should be read as historical, not current.
 
 ## Phase 0 — Definition (complete)
 
@@ -28,9 +39,10 @@ Closed out the initial project brief, moved into a dedicated repo.
   rotating batch (`weekly_batch_size` comunas/run, oldest-`last_run_at`-
   first, cycling forever — **implemented 2026-07-17**), replacing the
   earlier "~100 hand-curated units, monthly cadence" plan before it
-  shipped. See [region-discovery.md](region-discovery.md) for the batch
-  sizing (35/week keeps Tavily usage inside its free tier indefinitely)
-  and cost breakdown.
+  shipped. Currently ramping up at 25/week, target steady-state 35/week
+  (stays inside Tavily's free tier indefinitely) — see
+  [region-discovery.md](region-discovery.md) for the batch sizing and cost
+  breakdown.
 - Search via Tavily (not Anthropic's `web_search`), curated by Claude
   Haiku 4.5 — no venue matching, every event has a freeform `location`.
   Includes a "fuentes brillantes" mechanism (known-rich sources fetched
@@ -54,20 +66,18 @@ Closed out the initial project brief, moved into a dedicated repo.
   end date (revised from an original 1-month-past-opening figure). Schema
   migration for this, and the cleanup cron itself, are **not yet built** —
   planned for when Event Discovery's new design gets wired into production.
-- **★ Everything above can be built and tested with zero product/design
-  decisions resolved** — verified by looking directly at the Supabase table
-  (Studio or a query), no interface needed to confirm the scraper, curation,
-  and cleanup work correctly. Product/interface design doesn't block any of
-  this.
-- **This part is blocking: product/interface design**, resolved before
-  `apps/web` gets written — without it, any frontend code written is
-  throwaway, not a real starting point. See
-  [architecture.md](architecture.md#figma-make-vs-the-figma-mcp--not-the-same-tool)
-  and [ui-prototype.md](ui-prototype.md) for the design workflow and the
-  interactive prototype already explored.
-- Next.js frontend showing the calendar per the resolved design, deployed on
-  Vercel (Hobby), with blur-by-default + "family mode" toggle for
-  `sensitivity_tags` content.
+- **Shipped**: Next.js frontend (`apps/web`) showing the calendar, deployed
+  on Vercel (Hobby) at `caldearte.com`, with a región-grouped city picker,
+  and family-mode content filtering (defaults ON for first-time visitors,
+  toggle to see everything) for `sensitivity_tags` content. Also shipped as
+  part of the production-launch pass: a real contact form (Resend), a
+  `/privacidad` page, RLS tightened to column-restricted views
+  (`events_public`/`regions_public`), and IP-geolocation-based default city
+  detection (own comuna → same región → Santiago if outside Chile).
+- Still open within Phase 1a: the ~1-year retention/cleanup cron (schema
+  migration + cron itself, not yet built — see below), and running a real
+  manual audit of the curation policy against the production data that's
+  now accumulated (flagged in [risks.md](risks.md)).
 
 ## Phase 1b — Inbound-mail flows
 
@@ -97,7 +107,7 @@ Closed out the initial project brief, moved into a dedicated repo.
   against, and this needs a rethink before Phase 2 starts.
 - PostGIS in Supabase to rank events by distance + days-until-event combined,
   based on the user's city.
-- User city detection: **decided** — see
+- User city detection: **implemented and live** (2026-07-17) — see
   [architecture.md](architecture.md#user-city-detection).
 
 ## Phase 3 — Image pipeline, hardening

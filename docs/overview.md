@@ -55,8 +55,13 @@ performing-arts show being staged as usual? The latter is out of scope even
 when it shares elements (body, music, dance) with what *is* accepted.
 
 Ambiguous cases (is this a genuine artistic intervention, or essentially a
-themed concert/show with visual elements?) escalate to human review — this
-isn't a distinction worth forcing automatically without clear evidence.
+themed concert/show with visual elements?) were originally designed to
+escalate to human review via an email-approval flow — **not built**:
+Event Discovery's curation call is strictly binary (`approved`/`rejected`,
+no `pending_review` output), so an ambiguous case today just gets an
+ordinary curation decision like any other, same as everything else Claude
+Haiku evaluates. See [curation-policy.md](curation-policy.md#human-escalation-not-currently-implemented)
+and [roadmap.md](roadmap.md)'s Phase 1b for the deferred email flow.
 
 ## Content sensitivity (distinct from curation)
 

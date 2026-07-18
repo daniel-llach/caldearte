@@ -208,10 +208,16 @@ touched again.
 
 **Batch size, chosen to stay inside Tavily's free tier indefinitely:**
 `weekly_batch_size × 6 Tavily credits/comuna × ~4.33 weeks/month ≤
-1,000` (the free monthly credit allotment) → max ~38/week. Running at
-**35/week** (a small safety margin) completes a full 346-comuna
-rotation in **~9.9 weeks (~2.3 months)**, entirely inside Tavily's free
-tier — no pay-as-you-go needed. A faster rotation (e.g. 80/week, ~1
+1,000` (the free monthly credit allotment) → max ~38/week. **Currently
+seeded at 25/week** (ramp-up phase, started 2026-07-17 — validate data
+quality on lower-profile comunas before scaling up; see
+`system_config`/`supabase/migrations/20260717020000_reclassify_pilot_comunas_not_started.sql`'s
+own comment). Target steady-state is **35/week** (a small safety margin
+under the ~38 ceiling) once ramp-up looks good — that size completes a
+full 346-comuna rotation in **~9.9 weeks (~2.3 months)**, entirely inside
+Tavily's free tier, no pay-as-you-go needed. At the current 25/week, a
+full rotation takes ~13.8 weeks (~3.2 months) instead — still $0 on
+Tavily, just slower. A faster rotation (e.g. 80/week, ~1
 month) is possible but requires enabling Tavily pay-as-you-go
 (≈$8.61/month overage at that size) — not the default, since bright
 sources already refresh every 2 weeks independent of the comuna
