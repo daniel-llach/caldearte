@@ -152,7 +152,7 @@ async function recordBrightSourcesFetched(urls: string[], now: Date): Promise<vo
 
 // Cross-run dedup: don't re-insert an event already in the calendar (e.g.
 // a mid-July re-run must not duplicate everything found on July 1st).
-// Two keys, either one is enough to count as a duplicate:
+// Three keys, any one is enough to count as a duplicate:
 // - Normalized title — the same event routinely surfaces with slightly
 //   different punctuation/quoting across sources and runs, which
 //   exact-match comparison misses (a real observed failure).
@@ -165,10 +165,23 @@ async function recordBrightSourcesFetched(urls: string[], now: Date): Promise<vo
 //   sourceUrl doesn't have that instability, so it catches what title
 //   dedup can't. Only applied when sourceUrl is non-null — never used to
 //   dedup two different candidates that both happen to lack one.
-async function loadExistingKeys(): Promise<{ titles: Set<string>; sourceUrls: Set<string> }> {
+// - location + date fingerprint — a real production bug (found
+//   2026-07-18): the same San Felipe exhibition, posted by 3 DIFFERENT
+//   accounts (2 Instagram, 1 Facebook), got 3 differently-punctuated
+//   titles ("SALa FEM 2026" / "SAlaFEM2026" / "SalaFEM 2026") AND 3
+//   different sourceUrls — evading both keys above — while sharing the
+//   exact same location, run dates, and opening time. That combination is
+//   an extremely unlikely coincidence for genuinely different events, so
+//   it's treated as a third dedup signal.
+function locationDateKey(location: string, c: Pick<EventCandidate, "openingDatetime" | "runStartDate" | "runEndDate">): string {
+  const dateFingerprint = c.openingDatetime ?? `${c.runStartDate ?? ""}|${c.runEndDate ?? ""}`;
+  return `${normalizeTitle(location)}|${dateFingerprint}`;
+}
+
+async function loadExistingKeys(): Promise<{ titles: Set<string>; sourceUrls: Set<string>; locationDates: Set<string> }> {
   const { data, error } = await getSupabaseClient()
     .from("events")
-    .select("title, source_url")
+    .select("title, source_url, freeform_location, opening_datetime, run_start_date, run_end_date")
     .eq("source", "discovered");
 
   if (error) {
@@ -178,13 +191,22 @@ async function loadExistingKeys(): Promise<{ titles: Set<string>; sourceUrls: Se
   return {
     titles: new Set((data ?? []).map((row) => normalizeTitle(row.title))),
     sourceUrls: new Set((data ?? []).flatMap((row) => (row.source_url ? [row.source_url] : []))),
+    locationDates: new Set(
+      (data ?? []).map((row) =>
+        locationDateKey(row.freeform_location, {
+          openingDatetime: row.opening_datetime,
+          runStartDate: row.run_start_date,
+          runEndDate: row.run_end_date,
+        }),
+      ),
+    ),
   };
 }
 
 async function insertCandidates(
   candidates: EventCandidate[],
   regions: RegionLike[],
-  seen: { titles: Set<string>; sourceUrls: Set<string> },
+  seen: { titles: Set<string>; sourceUrls: Set<string>; locationDates: Set<string> },
   now: Date,
 ): Promise<number> {
   const client = getSupabaseClient();
@@ -194,10 +216,16 @@ async function insertCandidates(
     if (!isCurrentOrUpcoming(c, now)) continue;
 
     const titleKey = normalizeTitle(c.title);
+    const locDateKey = locationDateKey(c.location, c);
     const isDuplicateTitle = seen.titles.has(titleKey);
     const isDuplicateSourceUrl = c.sourceUrl !== null && seen.sourceUrls.has(c.sourceUrl);
-    if (isDuplicateTitle || isDuplicateSourceUrl) {
-      const reason = isDuplicateSourceUrl && !isDuplicateTitle ? " (same sourceUrl, different title)" : "";
+    const isDuplicateLocationDate = seen.locationDates.has(locDateKey);
+    if (isDuplicateTitle || isDuplicateSourceUrl || isDuplicateLocationDate) {
+      const reason = isDuplicateLocationDate && !isDuplicateTitle && !isDuplicateSourceUrl
+        ? " (same location + date, different title/source)"
+        : isDuplicateSourceUrl && !isDuplicateTitle
+          ? " (same sourceUrl, different title)"
+          : "";
       console.log(`[event-discovery] skipping duplicate: "${c.title}"${reason}`);
       continue;
     }
@@ -233,6 +261,7 @@ async function insertCandidates(
 
     seen.titles.add(titleKey);
     if (c.sourceUrl) seen.sourceUrls.add(c.sourceUrl);
+    seen.locationDates.add(locDateKey);
     if (c.status === "approved") inserted += 1;
   }
 

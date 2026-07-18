@@ -67,6 +67,19 @@ the separate bright-sources pass) — real duplicate found and fixed this
 way: "Poética de las aguas" reported once via a unit's own search and once
 via a bright source, same event.
 
+**Cross-run dedup, before inserting into `events`:** three independent
+keys, any one is enough to skip a candidate as a duplicate of something
+already in the calendar — normalized title, `sourceUrl`, and (added
+2026-07-18) a location+date fingerprint (normalized `location` + either
+`openingDatetime`, or `runStartDate`+`runEndDate` when there's no opening).
+The third key exists because of a real bug: the same San Felipe exhibition,
+posted by 3 different accounts (2 Instagram, 1 Facebook), got 3
+differently-punctuated titles ("SALa FEM 2026" / "SAlaFEM2026" / "SalaFEM
+2026") and 3 different sourceUrls — evading both existing keys — while
+sharing the exact same location and opening time, which the new key
+catches instead. See `apps/curator/src/event-discovery/run.ts`'s
+`loadExistingKeys`/`insertCandidates` for the full reasoning per key.
+
 ### Curation: a single non-agentic Haiku call per unit
 
 No `tools`/`web_search` — the concatenated search-results block *is* the

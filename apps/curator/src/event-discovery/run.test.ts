@@ -357,6 +357,58 @@ test(
         },
       );
 
+      await t.test(
+        "the same event reposted with a different title AND a different sourceUrl still does not duplicate, via the location+date fingerprint (real production bug, San Felipe 'SALa FEM'/'SAlaFEM'/'SalaFEM', fixed)",
+        async () => {
+          const { count: before } = await client
+            .from("events")
+            .select("id", { count: "exact", head: true })
+            .like("title", "__test__%");
+
+          // Different title AND different sourceUrl from "__test__ Muestra
+          // vigente" (the real bug: 3 differently-punctuated titles from 3
+          // different social posts) — but the exact same location and
+          // opening_datetime, which is what should catch it.
+          const repostedCandidates = unitCandidates.map((c) =>
+            c.title === "__test__ Muestra vigente"
+              ? { ...c, title: "__test__ MuestraVigente Reposteada", sourceUrl: "https://otrafuente.cl/repost" }
+              : c,
+          );
+          const repostedMessagesClient = {
+            messages: {
+              create: async (params: Record<string, unknown>) => {
+                const userContent = (params.messages as Array<{ content: string }>)[0].content;
+                const payload = userContent.includes("Fuentes brillantes") ? brightCandidates : repostedCandidates;
+                return {
+                  content: [{ type: "text", text: fencedJson(payload) }],
+                  usage: { input_tokens: 100, output_tokens: 50 },
+                };
+              },
+            },
+          };
+
+          await run({
+            messagesClient: repostedMessagesClient,
+            searchUnitFn,
+            fetchBrightSourcesFn: async () => [],
+            now: new Date(2026, 9, 25), // Oct 25 — unit due again, safely past the 28-day cadence
+          });
+
+          const { count: after } = await client
+            .from("events")
+            .select("id", { count: "exact", head: true })
+            .like("title", "__test__%");
+
+          assert.equal(after, before, "no duplicate inserted — location+date fingerprint caught it");
+
+          const { data: reposted } = await client
+            .from("events")
+            .select("id")
+            .eq("title", "__test__ MuestraVigente Reposteada");
+          assert.equal(reposted?.length ?? 0, 0, "the reposted duplicate itself was not inserted");
+        },
+      );
+
       await t.test("bright-sources pass inserts events and auto-detects the new source domain", async () => {
         await run({
           messagesClient,
