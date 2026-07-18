@@ -179,6 +179,13 @@ test("normalizeTitle strips accents, quotes, and collapses whitespace", () => {
   assert.equal(normalizeTitle("  Poética   de las AGUAS "), "poetica de las aguas");
 });
 
+test("normalizeTitle collapses the title/subtitle separator (real bug: hyphen vs colon for the same event)", () => {
+  const withHyphen = normalizeTitle("Una metáfora verde - arte, activismo y solidaridad");
+  const withColon = normalizeTitle("Una metáfora verde: arte, activismo y solidaridad");
+  assert.equal(withHyphen, withColon);
+  assert.equal(withHyphen, "una metafora verde arte, activismo y solidaridad");
+});
+
 function stubTavilyFetch(responsesByQuery: Record<string, unknown>): FetchLike {
   return async (_url, init) => {
     const body = JSON.parse(init?.body ?? "{}") as { query: string };

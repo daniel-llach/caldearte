@@ -61,11 +61,15 @@ ignoring this content on its own. Pure token savings, no observed loss.
 
 **Within-run dedup:** by URL across a unit's 3 queries (the same result
 often surfaces under more than one query template — wasteful to send twice
-with zero new information), and by normalized title (accents/quotes
-stripped) across *all* of a run's curate() calls combined (every unit plus
-the separate bright-sources pass) — real duplicate found and fixed this
-way: "Poética de las aguas" reported once via a unit's own search and once
-via a bright source, same event.
+with zero new information), and by normalized title (accents/quotes/
+title-subtitle-separator punctuation stripped) across *all* of a run's
+curate() calls combined (every unit plus the separate bright-sources pass)
+— real duplicates found and fixed this way: "Poética de las aguas"
+reported once via a unit's own search and once via a bright source, same
+event; and (2026-07-18) "Una metáfora verde - arte, activismo y
+solidaridad" vs "Una metáfora verde: arte, activismo y solidaridad", same
+event, one source used a hyphen and the other a colon as the
+title/subtitle separator.
 
 **Cross-run dedup, before inserting into `events`:** three independent
 keys, any one is enough to skip a candidate as a duplicate of something
