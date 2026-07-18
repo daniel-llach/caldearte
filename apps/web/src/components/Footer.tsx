@@ -9,12 +9,9 @@ export default function Footer() {
         <p className="text-xs text-muted-gray mt-1">{esCL.footer.tagline}</p>
         <p className="text-xs text-muted-gray mt-1">{esCL.footer.copyright(new Date().getFullYear())}</p>
       </div>
-      {/* "Acerca de"/"Instagram" still have no real destination — out of scope here. */}
       <div className="flex gap-6 text-xs text-muted-gray">
-        <a href="#">{esCL.footer.acercaDe}</a>
         <Link href="/contacto">{esCL.footer.contacto}</Link>
         <Link href="/privacidad">{esCL.footer.privacidad}</Link>
-        <a href="#">{esCL.footer.instagram}</a>
       </div>
     </footer>
   );

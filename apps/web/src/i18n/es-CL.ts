@@ -69,10 +69,8 @@ export const esCL = {
   footer: {
     tagline: "Calendario de arte curado por inteligencia humana potenciada por IA",
     copyright: (year: number) => `© ${year} Caldearte`,
-    acercaDe: "Acerca de",
     contacto: "Contacto",
     privacidad: "Privacidad",
-    instagram: "Instagram",
   },
 
   privacidad: {
