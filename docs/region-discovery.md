@@ -135,6 +135,18 @@ sync with [curation-policy.md](curation-policy.md)), plus:
   year, require some other freshness signal in the text (an explicit year,
   "hoy", "recién inaugurada," etc.) before assuming the current year —
   reject on ambiguity instead of defaulting to "now."
+- **Explicit year overridden by the current year anyway, real bug found
+  2026-07-18:** a culturaviva.cl page for "Roberto Matta: Del Trazo al
+  Objeto" stated "13 de junio **2025**" multiple times, gave a schema.org
+  `startDate`/`endDate` of 2025-06-13, and even carried the site's own
+  "Este evento ha pasado" badge — yet Haiku still wrote `runStartDate:
+  "2026-06-13"` and a fabricated `runEndDate` 3 months out, ignoring every
+  signal that the year wasn't the current one. Worse than the year-less
+  social-media case above: here the year *was* stated explicitly and got
+  overridden anyway. Fixed with a hard rule in the prompt: an explicit year
+  in the source always wins over the searched month, and an explicit "ya
+  pasó"/"evento finalizado" style badge is a hard rejection regardless of
+  how current the day/month looks.
 
 **Output shape** (see [data-model.md](data-model.md)): `title`,
 `description`, `artist`,
