@@ -1,5 +1,16 @@
 # Figma Make Brief — Caldearte
 
+**Historical — this describes a design brief (month-arrow navigation, a
+3D-perspective day-card stack, expand-into-detail transitions) that was
+never built.** The shipped app (`apps/web`, live at caldearte.com since
+2026-07-17/18) is a flat grid of individual cards split into Inauguraciones
+/ Exposiciones Actuales sections, no month navigation, no day-stack, no
+collage cards, no expand transition — see `apps/web/src/components/` for
+what actually shipped. The Spanish curation-statement copy in the block
+below (the `CURATORIA_TEXT` content) is still accurate and live — reused
+verbatim in `apps/web/src/i18n/es-CL.ts`'s `curatoriaText` — only the
+interface-structure portion of this brief is superseded.
+
 Copy everything in the block below (from "Estoy diseñando..." to the end)
 and paste it directly into Figma Make.
 
