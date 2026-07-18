@@ -239,6 +239,23 @@ async function insertCandidates(
   return inserted;
 }
 
+const EVENT_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
+
+// overview.md's retention policy: delete events roughly a year past their
+// run's end, not their opening date. Mirrors date.ts's activeRange "end"
+// derivation (run_end_date, else run_start_date, else opening_datetime) so
+// an event with only a confirmed opening and no run dates is still retained
+// relative to that date. Piggybacked on this run's own weekly cadence
+// rather than a separate cron (same reasoning as pruneOldRawSearchResults)
+// — ancillary, a failure here must never break the actual run.
+async function pruneExpiredEvents(now: Date): Promise<void> {
+  const cutoff = new Date(now.getTime() - EVENT_RETENTION_MS).toISOString().slice(0, 10);
+  const { error } = await getSupabaseClient().rpc("prune_expired_events", { cutoff_date: cutoff });
+  if (error) {
+    console.error(`[event-discovery] failed to prune expired events: ${error.message}`);
+  }
+}
+
 const RAW_SEARCH_RESULTS_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Not a permanent archive — a short rolling window so an on-demand review
@@ -332,6 +349,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   const client = getSupabaseClient();
 
   await pruneOldRawSearchResults(now);
+  await pruneExpiredEvents(now);
 
   const systemPrompt = buildSystemPrompt(currentMonthLabel(now));
   const brightSources = mergeBrightSources(await loadDetectedSources());

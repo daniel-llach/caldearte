@@ -17,9 +17,10 @@ Claude API + Supabase).
 - **Retention: ~1 year**, Storage cost for
   this is negligible at this project's scale (a few hundred bytes of text
   per event).
-  - Architectural implication: a cleanup cron (still not built) should
-    delete `events` rows roughly a year past their run's end, not their
-    opening date.
+  - **Implemented 2026-07-18**: `events` rows are deleted roughly a year
+    past their run's end, not their opening date, via a
+    `prune_expired_events` SQL function called from Event Discovery's own
+    weekly run — see [data-model.md](data-model.md).
 - Schema implication: an event needs its run's start and end dates as two
   separate fields (`runStartDate`/`runEndDate` in the current design,
   distinct from the exhibition's overall duration), plus a separate,

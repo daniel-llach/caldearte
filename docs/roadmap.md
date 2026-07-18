@@ -66,9 +66,13 @@ Closed out the initial project brief, moved into a dedicated repo.
   highlighted moment when confirmed, but their absence is no longer a
   reason to exclude an otherwise-real, currently-running exhibition (see
   [overview.md](overview.md)). Retention: **~1 year** past an exhibition's
-  end date (revised from an original 1-month-past-opening figure). Schema
-  migration for this, and the cleanup cron itself, are **not yet built** —
-  planned for when Event Discovery's new design gets wired into production.
+  end date (revised from an original 1-month-past-opening figure).
+  **Implemented 2026-07-18**: a `prune_expired_events` SQL function
+  (`supabase/migrations/20260718050000_add_prune_expired_events.sql`)
+  deletes events where `coalesce(run_end_date, run_start_date,
+  opening_datetime::date)` is more than a year old, called from
+  `run.ts` on Event Discovery's existing weekly cadence — same posture as
+  the `raw_search_results` pruning, no separate cron needed.
 - **Shipped**: Next.js frontend (`apps/web`) showing the calendar, deployed
   on Vercel (Hobby) at `caldearte.com`, with a región-grouped city picker,
   and family-mode content filtering (defaults ON for first-time visitors,
@@ -77,10 +81,9 @@ Closed out the initial project brief, moved into a dedicated repo.
   `/privacidad` page, RLS tightened to column-restricted views
   (`events_public`/`regions_public`), and IP-geolocation-based default city
   detection (own comuna → same región → Santiago if outside Chile).
-- Still open within Phase 1a: the ~1-year retention/cleanup cron (schema
-  migration + cron itself, not yet built — see below), and running a real
-  manual audit of the curation policy against the production data that's
-  now accumulated (flagged in [risks.md](risks.md)).
+- Still open within Phase 1a: running a real manual audit of the curation
+  policy against the production data that's now accumulated (flagged in
+  [risks.md](risks.md)).
 
 ## Phase 1b — Inbound-mail flows
 

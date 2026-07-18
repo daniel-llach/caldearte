@@ -474,6 +474,44 @@ test(
         assert.equal(stillThere?.length, 0, "row older than 7 days got pruned");
       });
 
+      await t.test("prunes events more than a year past their run_end_date, keeps recent ones", async () => {
+        await client.from("events").insert([
+          {
+            title: "__test__ Evento expirado",
+            freeform_location: "GAM, Santiago",
+            opening_datetime: "2024-01-01T22:00:00+00:00",
+            run_start_date: "2024-01-01",
+            run_end_date: "2024-06-01", // well over a year before NOW (2026-07-12)
+            source: "discovered",
+            curation_status: "approved",
+          },
+          {
+            title: "__test__ Evento reciente",
+            freeform_location: "GAM, Santiago",
+            opening_datetime: "2026-06-01T22:00:00+00:00",
+            run_start_date: "2026-06-01",
+            run_end_date: "2026-06-15", // under a year before NOW
+            source: "discovered",
+            curation_status: "approved",
+          },
+        ]);
+
+        await run({
+          messagesClient,
+          searchUnitFn: async () => ({ results: [], credits: 0 }),
+          fetchBrightSourcesFn: async () => [],
+          now: NOW,
+        });
+
+        const { data: remaining } = await client
+          .from("events")
+          .select("title")
+          .like("title", "__test__ Evento%");
+        const titles = (remaining ?? []).map((e) => e.title);
+        assert.ok(!titles.includes("__test__ Evento expirado"), "event past 1-year retention got pruned");
+        assert.ok(titles.includes("__test__ Evento reciente"), "recent event was kept");
+      });
+
       await t.test("usage was recorded under the event_discovery purpose", async () => {
         // Filtered by this suite's own stub token counts — parallel test
         // files share the local DB, other suites may write their own
