@@ -51,9 +51,14 @@ Closed out the initial project brief, moved into a dedicated repo.
 - Ambiguous cases → originally designed as an email with two buttons
   (include/don't include) via a Supabase Edge Function with a one-time-use
   token, landing ambiguous events as `pending_review` in the meantime.
-  **Neither half is built**: Event Discovery's curation call is binary
-  (`approved`/`rejected` only, no `pending_review` output today) and the
-  email flow itself was deferred on cost. See
+  **Neither half is built**, and real production data (2026-07-18: 271
+  total events, 163 approved, 106 rejected, 2 `pending_review` — those 2
+  are stale rows from 2026-07-16, before the binary-only design, not live
+  escalations) shows Haiku's binary approve/reject call isn't leaving
+  anything genuinely stuck in the middle. **Likely not worth building** —
+  keep as a parked idea, not an active line item, unless real ambiguous
+  cases start showing up as the comuna rollout scales past its current
+  ramp-up. See
   [region-discovery.md](region-discovery.md#no-email-approval-flow-yet-cost-driven-not-a-design-gap).
 - Writes land in Supabase (Postgres).
 - **Decided:** the calendar shows an exhibition for its full run (start to
@@ -79,11 +84,29 @@ Closed out the initial project brief, moved into a dedicated repo.
 
 ## Phase 1b — Inbound-mail flows
 
-- Flow 1 (automatic opening-date inquiry) and Flow 2 (public mailbox for
-  submitting openings), both over Resend inbound + webhook + Edge Function.
-- Split from 1a because it adds real complexity (correlating replies by
-  token, webhook signature verification, `ngrok` tunneling to test locally)
-  that shouldn't block getting the core loop working and demonstrable first.
+Two distinct flows, both needing Resend's *inbound* email (someone emails
+*us* and our backend reacts), not just outbound sending like the
+`/contacto` form already ships:
+
+- **Flow 1 — automatic opening-date inquiry**: when Event Discovery finds
+  an event with no confirmed date/time, auto-email the source (venue,
+  gallery) asking them to confirm it, then parse their reply and update
+  the row. Needs a unique token per outbound email so an inbound reply can
+  be matched back to the right event, a webhook endpoint to receive
+  Resend's "new email arrived" callback, and signature verification on
+  that webhook (so a spoofed request can't get treated as a real reply).
+- **Flow 2 — public submission mailbox**: a dedicated email address
+  anyone can write to about an event we're missing, parsed and turned into
+  a real `pending_review`-ish row automatically. **Partly superseded
+  already**: the `/contacto` form shipped 2026-07-17/18 covers the same
+  underlying need (a visitor telling us about something) with a much
+  simpler outbound-only relay — no inbound parsing, no reply-correlation.
+  Worth deciding whether Flow 2 specifically is still needed, or whether
+  `/contacto` is "good enough" and only Flow 1 remains a real gap.
+- Both were split from 1a specifically because of that inbound-email
+  complexity (token correlation, webhook signature verification, `ngrok`
+  to receive real webhook calls during local dev) — none of that was
+  worth blocking the simpler core loop (scrape → curate → display) on.
 
 ## Phase 1c — Expanding beyond Chile (superseded design, see below)
 
@@ -97,21 +120,32 @@ Closed out the initial project brief, moved into a dedicated repo.
   not an automatic background process — no rebuilt design exists yet for
   what comes after Chile.
 
-## Phase 2 — Geo/temporal personalization
+## Phase 2 — Geo/temporal personalization (low priority, pending real signal)
 
-- Geocoding mechanism **not yet designed**: the original plan cached
+- User city detection: **implemented and live** (2026-07-17) — comuna
+  selection (manual + auto-detected) already covers most of the practical
+  need this phase was meant to solve.
+- PostGIS-based distance ranking on top of that would be a marginal
+  refinement, not a missing essential — deprioritized until there's a real
+  usage signal it's actually needed (e.g. users in a large región
+  complaining events far within their own comuna's región feel
+  undifferentiated).
+- Geocoding mechanism also **not yet designed**: the original plan cached
   lat/lng once per venue on the (now-retired) `venues` table; with location
   as freeform text per event, there's no venue entity to cache coordinates
-  against, and this needs a rethink before Phase 2 starts.
-- PostGIS in Supabase to rank events by distance + days-until-event combined,
-  based on the user's city.
-- User city detection: **implemented and live** (2026-07-17) — see
-  [architecture.md](architecture.md#user-city-detection).
+  against, and this needs a rethink if this phase is ever picked back up.
 
 ## Phase 3 — Image pipeline, hardening
 
 - Download and re-host images in Supabase Storage (don't depend on external
-  URLs that break).
+  URLs that break). **Still worth doing, lower urgency than originally
+  framed**: the ~1-year retention policy and "stop showing past-date
+  events" behavior shrink the exposure window, but don't eliminate the
+  underlying risk — a source image can still change or break while an
+  exhibition is actively showing (weeks to months, not just a single day),
+  and there's a separate reliability/security angle (hotlinking external
+  URLs with no control over what they later serve) already flagged in
+  [risks.md](risks.md), independent of how long we retain the row.
 - General vision-based quality control on the chosen image before saving —
   beyond the Axis 5 explicit-aggression check (brought forward to Phase 1),
   this adds general validation that "this is actually the artwork/flyer, not
@@ -131,7 +165,4 @@ Closed out the initial project brief, moved into a dedicated repo.
 
 ## Phase 5 — Parked / optional, doesn't block anything above
 
-- Adopting Nx as a deliberate monorepo-tooling exercise, once the core is
-  stable (retrofit with `npx nx init` over the pnpm workspace — no need to
-  decide this now).
 - Exploring monetization, only if there's organic traction.
