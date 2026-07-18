@@ -33,10 +33,9 @@ export const DEFAULT_CITY_ID = "santiago";
 
 // Fallback display names only — NOT a gate on which cities are navigable.
 // Used only when a city has no event of its own right now to derive a
-// properly-cased/accented name from (e.g. DEFAULT_CITY_ID on a fresh
-// empty DB, or IP-geolocation matching in proxy.ts, which has no access
-// to live event data at all). Real observed data (cityNamesFromEvents)
-// always takes priority over this when both are available.
+// properly-cased/accented name from (e.g. DEFAULT_CITY_ID on a fresh empty
+// DB). Real observed data (cityNamesFromEvents) always takes priority over
+// this when both are available.
 const SEED_CITY_NAMES: Record<string, string> = {
   santiago: "Santiago",
   valparaiso: "Valparaíso",
@@ -126,17 +125,43 @@ export function citiesWithEvents(
     .sort((a, b) => a.name.localeCompare(b.name, "es"));
 }
 
-// Vercel's IP geolocation returns a plain city name (casing/accents not
-// guaranteed to match exactly) — proxy.ts runs at the edge with no access
-// to live event data, so this only ever confidently lands someone on one
-// of the handful of well-established SEED_CITY_NAMES entries; anything
-// else defaults to DEFAULT_CITY_ID rather than silently landing on an
-// unrecognized/never-seen slug (Vercel's geolocation granularity for
-// Chilean comunas below city-level is unreliable anyway).
-export function matchCityByGeoName(geoCity: string | undefined): string {
+// Default-city resolution for a first-time visitor (no CITY_COOKIE yet),
+// from Vercel's IP geolocation. Runs in page.tsx (a server component that
+// already has live `regions`/`cityCounts` data), NOT the edge proxy —
+// there's no whitelist here, any of the 346 real seeded comunas is a
+// valid match, same "trust the real data" philosophy as the rest of this
+// file. Real production gap this replaces (found 2026-07-17): the
+// previous edge-only version (`matchCityByGeoName`, since removed) only
+// recognized a fixed 5-city allowlist and had no country check at all —
+// a visitor in any of the other ~341 comunas, or genuinely outside Chile,
+// both silently landed on Santiago with no distinction between the two.
+//
+// Three tiers, in order: (1) outside Chile -> Santiago immediately, no
+// point matching a city string that isn't Chilean; (2) own comuna, if
+// it's real AND has events right now; (3) any other comuna in the same
+// admin región that has events right now ("una cercana de la misma
+// región"); (4) Santiago, if nothing above matched.
+export function resolveDefaultCityId(
+  geoCity: string | undefined,
+  geoCountry: string | undefined,
+  metaByCityId: Map<string, RegionMeta>,
+  cityCounts: Record<string, CityCounts>,
+): string {
+  if (geoCountry && geoCountry !== "CL") return DEFAULT_CITY_ID;
   if (!geoCity) return DEFAULT_CITY_ID;
-  const slug = slugify(geoCity);
-  return slug in SEED_CITY_NAMES ? slug : DEFAULT_CITY_ID;
+
+  const ownId = slugify(geoCity);
+  const ownMeta = metaByCityId.get(ownId);
+  if (ownMeta && hasEvents(cityCounts[ownId])) return ownId;
+
+  if (ownMeta?.adminRegionName) {
+    const regionMate = [...metaByCityId.entries()].find(
+      ([id, meta]) => meta.adminRegionName === ownMeta.adminRegionName && hasEvents(cityCounts[id]),
+    );
+    if (regionMate) return regionMate[0];
+  }
+
+  return DEFAULT_CITY_ID;
 }
 
 // Keyed by the same slugified id every City already uses (cityIdFromRegionName),

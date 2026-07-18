@@ -82,6 +82,13 @@ export type Database = {
             referencedRelation: "regions"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "api_usage_log_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       bright_source_fetch_state: {
@@ -204,6 +211,13 @@ export type Database = {
             referencedRelation: "regions"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "events_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       raw_search_results: {
@@ -316,7 +330,105 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      events_public: {
+        Row: {
+          artist: string | null
+          description: string | null
+          freeform_location: string | null
+          id: string | null
+          image_url: string | null
+          opening_datetime: string | null
+          place_name: string | null
+          region_id: string | null
+          run_end_date: string | null
+          run_start_date: string | null
+          sensitivity_tags: string[] | null
+          source_url: string | null
+          title: string | null
+        }
+        Insert: {
+          artist?: string | null
+          description?: string | null
+          freeform_location?: string | null
+          id?: string | null
+          image_url?: string | null
+          opening_datetime?: string | null
+          place_name?: string | null
+          region_id?: string | null
+          run_end_date?: string | null
+          run_start_date?: string | null
+          sensitivity_tags?: string[] | null
+          source_url?: string | null
+          title?: string | null
+        }
+        Update: {
+          artist?: string | null
+          description?: string | null
+          freeform_location?: string | null
+          id?: string | null
+          image_url?: string | null
+          opening_datetime?: string | null
+          place_name?: string | null
+          region_id?: string | null
+          run_end_date?: string | null
+          run_start_date?: string | null
+          sensitivity_tags?: string[] | null
+          source_url?: string | null
+          title?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "events_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions_public"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      regions_public: {
+        Row: {
+          admin_region_name: string | null
+          admin_region_numeral: string | null
+          admin_region_order: number | null
+          country: string | null
+          id: string | null
+          lat: number | null
+          lng: number | null
+          name: string | null
+          population: number | null
+        }
+        Insert: {
+          admin_region_name?: string | null
+          admin_region_numeral?: string | null
+          admin_region_order?: number | null
+          country?: string | null
+          id?: string | null
+          lat?: number | null
+          lng?: number | null
+          name?: string | null
+          population?: number | null
+        }
+        Update: {
+          admin_region_name?: string | null
+          admin_region_numeral?: string | null
+          admin_region_order?: number | null
+          country?: string | null
+          id?: string | null
+          lat?: number | null
+          lng?: number | null
+          name?: string | null
+          population?: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       [_ in never]: never

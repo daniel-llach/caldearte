@@ -6,7 +6,7 @@ import {
   cityIdFromRegionName,
   citiesWithEvents,
   slugify,
-  matchCityByGeoName,
+  resolveDefaultCityId,
   matchesQuery,
   buildRegionMetaByCityId,
   groupCitiesByRegion,
@@ -105,11 +105,40 @@ test("citiesWithEvents: alwaysIncludeCityId keeps that city even at zero counts 
   assert.equal(result.length, 1); // every other zero-count city still dropped
 });
 
-test("matchCityByGeoName only confidently matches a well-established seed city — proxy.ts has no live event data to check against", () => {
-  assert.equal(matchCityByGeoName("Santiago"), "santiago");
-  assert.equal(matchCityByGeoName("VALPARAISO"), "valparaiso");
-  assert.equal(matchCityByGeoName("Las Condes"), DEFAULT_CITY_ID, "a real but non-seed comuna still defaults safely");
-  assert.equal(matchCityByGeoName(undefined), DEFAULT_CITY_ID);
+test("resolveDefaultCityId: own comuna wins when it's real and has events today", () => {
+  const metaByCityId = buildRegionMetaByCityId([regionMeta({ name: "Las Condes" })]);
+  const cityCounts: Record<string, CityCounts> = { "las-condes": { inauguraciones: 1, exposActuales: 0 } };
+  assert.equal(resolveDefaultCityId("Las Condes", "CL", metaByCityId, cityCounts), "las-condes");
+});
+
+test("resolveDefaultCityId: own comuna has no events today -> falls back to a comuna in the same región that does", () => {
+  const metaByCityId = buildRegionMetaByCityId([
+    regionMeta({ name: "Las Condes", adminRegionName: "Región Metropolitana de Santiago" }),
+    regionMeta({ name: "Santiago", adminRegionName: "Región Metropolitana de Santiago" }),
+  ]);
+  const cityCounts: Record<string, CityCounts> = { santiago: { inauguraciones: 0, exposActuales: 2 } };
+  assert.equal(resolveDefaultCityId("Las Condes", "CL", metaByCityId, cityCounts), "santiago");
+});
+
+test("resolveDefaultCityId: unrecognized geo city string falls back to Santiago", () => {
+  assert.equal(resolveDefaultCityId("Nonexistent Place", "CL", new Map(), {}), DEFAULT_CITY_ID);
+});
+
+test("resolveDefaultCityId: country outside Chile falls back to Santiago immediately, without inspecting the city at all", () => {
+  const metaByCityId = buildRegionMetaByCityId([regionMeta({ name: "Santiago" })]);
+  const cityCounts: Record<string, CityCounts> = { santiago: { inauguraciones: 1, exposActuales: 0 } };
+  // Even though "Santiago" would otherwise match with events, a non-CL
+  // country short-circuits before any city matching happens.
+  assert.equal(resolveDefaultCityId("Santiago", "AR", metaByCityId, cityCounts), DEFAULT_CITY_ID);
+});
+
+test("resolveDefaultCityId: missing geo headers (e.g. localhost) fall back to Santiago", () => {
+  assert.equal(resolveDefaultCityId(undefined, undefined, new Map(), {}), DEFAULT_CITY_ID);
+});
+
+test("resolveDefaultCityId: own comuna has no events and no región-mate has events either -> Santiago", () => {
+  const metaByCityId = buildRegionMetaByCityId([regionMeta({ name: "Las Condes", adminRegionName: "Región Metropolitana de Santiago" })]);
+  assert.equal(resolveDefaultCityId("Las Condes", "CL", metaByCityId, {}), DEFAULT_CITY_ID);
 });
 
 test("matchesQuery is accent/case-insensitive substring matching", () => {

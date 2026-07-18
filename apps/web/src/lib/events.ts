@@ -16,7 +16,26 @@ export interface EventRecord extends EventDates {
   sourceUrl: string | null;
 }
 
-type EventRow = Database["public"]["Tables"]["events"]["Row"];
+// Postgres views don't propagate the underlying table's NOT NULL
+// constraints, so the generated type marks every column nullable — these
+// are genuinely guaranteed non-null on the real `events` table (id/title
+// from their column definitions, freeform_location per
+// supabase/migrations/20260713180000_retire_venues_and_event_crawler.sql,
+// sensitivity_tags defaults to '{}' and is declared not null).
+type EventRow = Omit<Database["public"]["Views"]["events_public"]["Row"], "id" | "title" | "freeform_location" | "sensitivity_tags"> & {
+  id: string;
+  title: string;
+  freeform_location: string;
+  sensitivity_tags: string[];
+};
+
+// Same nullable-view-type caveat — id/name/country are genuinely not null
+// on the real `regions` table.
+type RegionRow = Omit<Database["public"]["Views"]["regions_public"]["Row"], "id" | "name" | "country"> & {
+  id: string;
+  name: string;
+  country: string;
+};
 
 function toEventRecord(row: EventRow, regionNameById: Map<string, string>): EventRecord {
   return {
@@ -55,21 +74,22 @@ export interface RegionMeta {
   adminRegionNumeral: string | null;
 }
 
-// RLS already restricts anon reads to curation_status='approved' — see
-// supabase/migrations/20260711171717_create_core_schema.sql. `regions` is
-// public-read (added alongside events.region_id, specifically so the
-// frontend can resolve region_id -> name) — fetched alongside events so
-// resolveCityId below can prefer the backend's exact match over the
-// freeform_location guess. `regions` is also returned in full (not just
-// the subset referenced by events) so the city picker can group EVERY
-// comuna with events by its macro-región, not only ones that happen to
-// also appear in regionNameById.
+// Reads go through events_public/regions_public, not the base tables
+// directly — see supabase/migrations/20260717050000_restrict_public_columns_via_views.sql.
+// anon has no grant at all on the base `events`/`regions` tables anymore;
+// the views bake in the curation_status='approved' filter and expose only
+// the columns the frontend actually needs, keeping internal pipeline
+// columns (curation_reasoning, regions.status/exclusion_reason/etc.) out
+// of what's queryable via the (necessarily public) anon key. `regions` is
+// fetched in full (not just the subset referenced by events) so the city
+// picker can group EVERY comuna with events by its macro-región, not only
+// ones that happen to also appear in regionNameById.
 export async function fetchApprovedEvents(
   client: SupabaseClient<Database>,
 ): Promise<{ events: EventRecord[]; regions: RegionMeta[] }> {
   const [eventsRes, regionsRes] = await Promise.all([
-    client.from("events").select("*"),
-    client.from("regions").select("id, name, country, admin_region_name, admin_region_order, admin_region_numeral"),
+    client.from("events_public").select("*"),
+    client.from("regions_public").select("*"),
   ]);
   if (eventsRes.error) {
     throw new Error(`Failed to fetch events: ${eventsRes.error.message}`);
@@ -77,7 +97,9 @@ export async function fetchApprovedEvents(
   if (regionsRes.error) {
     throw new Error(`Failed to fetch regions: ${regionsRes.error.message}`);
   }
-  const regionRows = regionsRes.data ?? [];
+  // Same nullable-view-type caveat as EventRow above — id/name/country are
+  // genuinely not null on the real `regions` table.
+  const regionRows = (regionsRes.data ?? []) as RegionRow[];
   const regionNameById = new Map(regionRows.map((r) => [r.id, r.name]));
   const regions: RegionMeta[] = regionRows.map((r) => ({
     id: r.id,
@@ -87,7 +109,8 @@ export async function fetchApprovedEvents(
     adminRegionOrder: r.admin_region_order,
     adminRegionNumeral: r.admin_region_numeral,
   }));
-  return { events: (eventsRes.data ?? []).map((row) => toEventRecord(row, regionNameById)), regions };
+  const eventRows = (eventsRes.data ?? []) as EventRow[];
+  return { events: eventRows.map((row) => toEventRecord(row, regionNameById)), regions };
 }
 
 // Prefers the curator's own region match (exact, resolved at write time)
