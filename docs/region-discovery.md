@@ -106,6 +106,18 @@ sync with [curation-policy.md](curation-policy.md)), plus:
 - **`status` is binary** (`approved`/`rejected`) — no `pending_review`
   escalation tier in this design (a simplification vs. the venue-era
   design's `ESCALATION_SIGNALS`).
+- **Year-less dates from social media, real bug found 2026-07-18:** an
+  Instagram reel with no year in its caption ("del 1 al 28 de julio") got
+  approved as a July 2026 event — the post itself was from 2025-07-26
+  (confirmed by decoding the Instagram shortcode's embedded timestamp),
+  Tavily's `start_date` filter didn't catch it (unreliable for Instagram
+  specifically, whose crawlable pages don't expose a real publish date),
+  and Haiku defaulted the year-less date to the current month/year with no
+  way to know better. Fixed with an explicit prompt instruction: for
+  social-media sources (Instagram/Facebook/TikTok) giving day/month with no
+  year, require some other freshness signal in the text (an explicit year,
+  "hoy", "recién inaugurada," etc.) before assuming the current year —
+  reject on ambiguity instead of defaulting to "now."
 
 **Output shape** (see [data-model.md](data-model.md)): `title`,
 `description`, `artist`,
