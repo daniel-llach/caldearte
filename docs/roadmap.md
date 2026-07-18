@@ -25,9 +25,7 @@ región-grouped city picker, family-mode content filtering (defaults ON for
 first-time visitors), a real contact form, and standard SEO/analytics
 basics. See [architecture.md](architecture.md) for the shipped city-picker
 and geo-detection design, and `apps/web/src/components/` for the actual
-component tree — `docs/ui-prototype.md`/`docs/figma-make-brief.md` describe
-an earlier design-exploration phase that has since diverged from what
-shipped and should be read as historical, not current.
+component tree.
 
 ## Phase 0 — Definition (complete)
 
