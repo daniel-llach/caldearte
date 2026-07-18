@@ -96,8 +96,7 @@ export const esCL = {
     error: "Algo falló al enviar tu mensaje. Probá de nuevo en un rato.",
   },
 
-  // Verbatim from docs/mockup.jsx's CURATORIA_TEXT — already-approved copy,
-  // not a placeholder.
+  // Already-approved copy, not a placeholder.
   curatoriaText:
     "Caldearte no es un agregador neutral. Elegimos con criterio qué inauguraciones mostramos, guiados por un compromiso con el arte como espacio de encuentro, reflexión y comunidad — no como vehículo de proselitismo religioso, glorificación de la violencia o plataforma de discursos de odio. Priorizamos el arte que abre preguntas: memoria histórica, crítica social, denuncia, experimentación — sea en un museo consagrado o en una intervención callejera de barrio. Usamos inteligencia artificial para ayudarnos a rastrear y evaluar inauguraciones todos los días, siempre bajo revisión humana en los casos donde el criterio no es obvio. Si creés que nos equivocamos con un evento, o querés contarnos de una inauguración que no encontramos, escribinos — leemos cada mensaje.",
 };

@@ -1,7 +1,5 @@
-// Date helpers. `fmtShort`/`parseDateOnly` etc. ported from an earlier
-// tabs-based build of docs/mockup.jsx; `activeRange`/`anchorDateOnly` exist
-// because real events have a run (run_start_date/run_end_date) instead of
-// mockup.jsx's single `date` field.
+// Date helpers. `activeRange`/`anchorDateOnly` exist because real events
+// have a run (run_start_date/run_end_date), not just a single anchor date.
 
 const MONTHS = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
