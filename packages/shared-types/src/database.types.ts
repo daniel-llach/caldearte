@@ -431,7 +431,10 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      prune_expired_events: {
+        Args: { cutoff_date: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

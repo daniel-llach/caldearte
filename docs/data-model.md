@@ -57,8 +57,10 @@ events
   public_explanation (nullable; only set on automatic rejection of a
     "submitted" event, goes in the reply email),
   created_at
-  -- PLANNED: auto-deleted ~1 year past run_end_date — see overview.md's
-  -- "full exhibition run" policy. Daily cleanup cron still not built.
+  -- Auto-deleted ~1 year past run_end_date (or run_start_date/
+  -- opening_datetime as fallbacks) — see overview.md's "full exhibition
+  -- run" policy. Implemented via the prune_expired_events SQL function,
+  -- called from Event Discovery's own weekly run, not a separate cron.
 
 system_config
   key (primary key), value, updated_at
