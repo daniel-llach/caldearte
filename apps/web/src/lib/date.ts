@@ -58,6 +58,16 @@ export function fmtPeriod(runStartDate: string | null, runEndDate: string | null
   return `${s.getDate()} de ${MONTHS[s.getMonth()]} al ${e.getDate()} de ${MONTHS[e.getMonth()]}`;
 }
 
+// Single opening date, e.g. "15 de julio" — reuses fmtPeriod's own
+// single-day collapse by passing the same date as start/end/anchor. An
+// inauguración is always exactly one day, never the exhibition's full run
+// (that's what ExpoCard shows instead) — real bug, found 2026-07-20: the
+// inauguración card used to show fmtPeriod(runStartDate, runEndDate, ...),
+// the whole run through closing day, instead of just the opening date.
+export function fmtInauguracionDate(openingDatetimeIso: string): string {
+  return fmtPeriod(null, null, dateOnlyFromIso(openingDatetimeIso));
+}
+
 // "- 19 hr" / "- 19:30 hr" suffix for an inauguración card. Chile-timezone,
 // not the browser's/server's local time.
 export function fmtOpeningHour(openingDatetimeIso: string): string {

@@ -32,6 +32,7 @@ function event(overrides: Partial<EventRecord> = {}): EventRecord {
     runEndDate: "2026-07-20",
     sensitivityTags: [],
     sourceUrl: null,
+    openingTimeConfirmed: true,
     ...overrides,
   };
 }

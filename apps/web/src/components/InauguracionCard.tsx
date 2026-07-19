@@ -5,6 +5,7 @@ export default function InauguracionCard({ event }: { event: EventRecord }) {
   return (
     <EventCardBase
       event={event}
+      variant="inauguracion"
       imageAspectClass="aspect-[520/248]"
       venueClass="text-xs"
       titleClass="text-2xl font-extrabold"

@@ -1,10 +1,18 @@
 import CardImage from "./CardImage";
-import { anchorDateOnly, fmtOpeningHour, fmtPeriod } from "@/lib/date";
+import { anchorDateOnly, fmtInauguracionDate, fmtOpeningHour, fmtPeriod } from "@/lib/date";
 import { deriveComuna } from "@/lib/comuna";
+import { esCL } from "@/i18n/es-CL";
 import type { EventRecord } from "@/lib/events";
 
 interface EventCardBaseProps {
   event: EventRecord;
+  // "inauguracion": show only the single opening date (+ hour, or a
+  // consult-the-venue suggestion when no hour is confirmed) — never the
+  // exhibition's full run. "expo": the exhibition's full run range, same
+  // as before. Real bug, found 2026-07-20: both used to render the same
+  // full-run text, so an inauguración card showed the whole run through
+  // closing day instead of just its own opening date.
+  variant: "inauguracion" | "expo";
   imageAspectClass: string; // e.g. "aspect-[520/248]"
   venueClass: string;
   titleClass: string;
@@ -14,15 +22,28 @@ interface EventCardBaseProps {
 
 export default function EventCardBase({
   event,
+  variant,
   imageAspectClass,
   venueClass,
   titleClass,
   periodClass,
   contentPaddingClass,
 }: EventCardBaseProps) {
-  const anchor = anchorDateOnly(event);
-  const period = anchor ? fmtPeriod(event.runStartDate, event.runEndDate, anchor) : null;
-  const hourSuffix = event.openingDatetime ? ` - ${fmtOpeningHour(event.openingDatetime)}` : "";
+  const dateLine =
+    variant === "inauguracion" && event.openingDatetime
+      ? `${fmtInauguracionDate(event.openingDatetime)} - ${
+          event.openingTimeConfirmed ? fmtOpeningHour(event.openingDatetime) : esCL.consultHourWithVenue
+        }`
+      : (() => {
+          const anchor = anchorDateOnly(event);
+          if (!anchor) return null;
+          const period = fmtPeriod(event.runStartDate, event.runEndDate, anchor);
+          // Only show the hour when it's real, confirmed information — a
+          // date-only inauguración (openingTimeConfirmed: false) stores a
+          // midnight placeholder internally, never displayed as a real hour.
+          const hourSuffix = event.openingDatetime && event.openingTimeConfirmed ? ` - ${fmtOpeningHour(event.openingDatetime)}` : "";
+          return period + hourSuffix;
+        })();
 
   const displayedVenue = event.placeName ?? event.freeformLocation;
   const comuna = deriveComuna(event.freeformLocation, event.placeName);
@@ -39,12 +60,7 @@ export default function EventCardBase({
       <div className={`flex flex-col gap-1.5 ${contentPaddingClass}`}>
         <p className={`${venueClass} text-venue-gray truncate`}>{venueLine}</p>
         <p className={`${titleClass} text-white`}>{event.title}</p>
-        {period && (
-          <p className={`${periodClass} text-period-gray`}>
-            {period}
-            {hourSuffix}
-          </p>
-        )}
+        {dateLine && <p className={`${periodClass} text-period-gray`}>{dateLine}</p>}
       </div>
 
       {event.sourceUrl && (

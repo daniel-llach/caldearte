@@ -20,6 +20,13 @@ export interface EventCandidate {
   runStartDate: string | null; // YYYY-MM-DD
   runEndDate: string | null; // YYYY-MM-DD
   openingDatetime: string | null; // ISO datetime, only when explicitly confirmed
+  // Always true for a Haiku-set value — its own prompt already requires an
+  // explicit hour before it ever sets openingDatetime at all (see
+  // buildSystemPrompt below). Only lib/opening-time.ts's deterministic
+  // post-curation regex enrichment can ever set this false, for a source
+  // that confirms a date but never an hour — see parseCandidates, where
+  // this field gets defaulted (Haiku's own JSON schema doesn't include it).
+  openingTimeConfirmed: boolean;
   mediumType: "tradicional" | "intervencion_no_tradicional";
   sensitivityTags: string[];
   curationReasoning: string;
@@ -264,7 +271,11 @@ function parseCandidates(text: string): EventCandidate[] {
       `event-discovery: no fenced JSON block found in Haiku's response (likely truncated; tail: ${text.slice(-200)})`,
     );
   }
-  return JSON.parse(match[1]) as EventCandidate[];
+  const parsed = JSON.parse(match[1]) as Omit<EventCandidate, "openingTimeConfirmed">[];
+  // Not part of Haiku's own JSON schema (see buildSystemPrompt) — a
+  // Haiku-set openingDatetime is always time-confirmed by construction, so
+  // this defaults true here rather than asking Haiku to report it.
+  return parsed.map((c) => ({ ...c, openingTimeConfirmed: true }));
 }
 
 // Deterministic backstop over Haiku's own decision: a sourceUrl shared by

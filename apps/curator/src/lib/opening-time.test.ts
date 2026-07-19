@@ -28,14 +28,15 @@ test("extractOpeningDatetime parses the real arteinformado.com markup (span/br b
 
   const result = extractOpeningDatetime(html, ARTEINFORMADO_CONFIG);
   assert.ok(result, "should find a match");
-  assert.equal(readBackInSantiago(result!), "19:00", "reads back as 19:00 Chile time, not a hardcoded UTC offset");
+  assert.equal(result!.timeConfirmed, true);
+  assert.equal(readBackInSantiago(result!.iso), "19:00", "reads back as 19:00 Chile time, not a hardcoded UTC offset");
 });
 
 test("extractOpeningDatetime defaults the minute to 00 when the source omits it", () => {
   const html = "Inauguración : 3 ago de 2026 / 19 a 21 h.";
   const result = extractOpeningDatetime(html, ARTEINFORMADO_CONFIG);
   assert.ok(result);
-  assert.equal(readBackInSantiago(result!), "19:00");
+  assert.equal(readBackInSantiago(result!.iso), "19:00");
 });
 
 // Real markup, confirmed 2026-07-19: the "19 a 21 h." range format on
@@ -48,7 +49,7 @@ test("extractOpeningDatetime parses the common plain HH:MM format (no range, no 
   const html = '<span class="text-uppercase">Inauguración</span>:<br/> 24 abr de 2026 / 19:00<br />';
   const result = extractOpeningDatetime(html, ARTEINFORMADO_CONFIG);
   assert.ok(result);
-  assert.equal(readBackInSantiago(result!), "19:00");
+  assert.equal(readBackInSantiago(result!.iso), "19:00");
 });
 
 // Real markup, confirmed 2026-07-19 against
@@ -58,17 +59,25 @@ test("extractOpeningDatetime parses HH:MMh with no space before the h", () => {
   const html = '<span class="text-uppercase">Inauguración</span>:<br/> 14 jul de 2026 / 19:30h<br/>';
   const result = extractOpeningDatetime(html, ARTEINFORMADO_CONFIG);
   assert.ok(result);
-  assert.equal(readBackInSantiago(result!), "19:30");
+  assert.equal(readBackInSantiago(result!.iso), "19:30");
 });
 
 // Real markup, confirmed 2026-07-19 against .../agenda/f/sin-tesis-245342
 // — a genuine editorial gap on arteinformado.com's own page (date given,
-// no time at all). Correctly yields null rather than fabricating an hour;
-// the event still counts as an "expo actual", just not as an
-// "inauguración", since we genuinely don't know when it opened.
-test("extractOpeningDatetime returns null when the source gives a date but no time at all", () => {
+// no time at all). Real bug (found 2026-07-20): this used to return null
+// outright, so the confirmed date was silently dropped and the event never
+// showed under "Inauguraciones" even though the venue explicitly confirmed
+// one. Now yields a real result with timeConfirmed: false — the date is
+// still shown under Inauguraciones, just without an hour badge on the
+// card (see apps/web's EventCardBase).
+test("extractOpeningDatetime yields a date-only result (timeConfirmed: false) when the source gives a date but no time at all", () => {
   const html = '<span class="text-uppercase">Inauguración</span>:<br/> 14 jul de 2026<br/>';
-  assert.equal(extractOpeningDatetime(html, ARTEINFORMADO_CONFIG), null);
+  const result = extractOpeningDatetime(html, ARTEINFORMADO_CONFIG);
+  assert.ok(result);
+  assert.equal(result!.timeConfirmed, false);
+  // Midnight Santiago time, deterministic — never actually displayed to a
+  // visitor (EventCardBase only reads timeConfirmed), just a valid instant.
+  assert.equal(readBackInSantiago(result!.iso), "00:00");
 });
 
 test("extractOpeningDatetime returns null when the pattern doesn't match", () => {
@@ -100,8 +109,9 @@ test("extractOpeningDatetime infers the year when the source never publishes one
   const referenceDate = new Date("2026-07-19T12:00:00Z");
   const result = extractOpeningDatetime(html, UCHILE_CONFIG, referenceDate);
   assert.ok(result);
-  assert.equal(result!.slice(0, 4), "2026", "infers the reference date's own year for a near-term date");
-  assert.equal(readBackInSantiago(result!), "18:00");
+  assert.equal(result!.timeConfirmed, true);
+  assert.equal(result!.iso.slice(0, 4), "2026", "infers the reference date's own year for a near-term date");
+  assert.equal(readBackInSantiago(result!.iso), "18:00");
 });
 
 test("extractOpeningDatetime's year inference rolls forward to next year for a date far enough in the past", () => {
@@ -112,7 +122,7 @@ test("extractOpeningDatetime's year inference rolls forward to next year for a d
   const referenceDate = new Date("2026-12-10T12:00:00Z");
   const result = extractOpeningDatetime(html, UCHILE_CONFIG, referenceDate);
   assert.ok(result);
-  assert.equal(result!.slice(0, 4), "2027");
+  assert.equal(result!.iso.slice(0, 4), "2027");
 });
 
 test("extractOpeningDatetime's year inference keeps the current year for a date within tolerance of the past", () => {
@@ -122,5 +132,5 @@ test("extractOpeningDatetime's year inference keeps the current year for a date 
   const referenceDate = new Date("2026-07-20T12:00:00Z");
   const result = extractOpeningDatetime(html, UCHILE_CONFIG, referenceDate);
   assert.ok(result);
-  assert.equal(result!.slice(0, 4), "2026");
+  assert.equal(result!.iso.slice(0, 4), "2026");
 });

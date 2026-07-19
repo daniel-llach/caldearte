@@ -5,6 +5,7 @@ export default function ExpoCard({ event }: { event: EventRecord }) {
   return (
     <EventCardBase
       event={event}
+      variant="expo"
       imageAspectClass="aspect-[347/174]"
       venueClass="text-xs"
       titleClass="text-lg font-bold"

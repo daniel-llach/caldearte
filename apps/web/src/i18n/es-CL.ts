@@ -72,6 +72,10 @@ export const esCL = {
   sectionExposActuales: "EXPOS ACTUALES",
   sectionArteEnTodasPartes: "ARTE EN TODAS PARTES",
 
+  // Appended after the opening date on an InauguracionCard when the source
+  // confirms a date but never an hour (see EventRecord.openingTimeConfirmed).
+  consultHourWithVenue: "consulta la hora con el lugar",
+
   archiveLink: "Revisa expos anteriores",
   archiveMonthTitle: (label: string) => `Expos anteriores — ${label}`,
   archiveMonthDescription: (count: number, label: string, sample: string) =>

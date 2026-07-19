@@ -102,12 +102,21 @@ test("extractOgImage is exported directly and behaves the same as through fetchO
   assert.equal(extractOgImage(`<meta property="og:image" content="/img.jpg">`), "/img.jpg");
 });
 
-function makeCandidate(overrides: Partial<{ status: "approved" | "rejected"; imageUrl: string | null; sourceUrl: string | null; openingDatetime: string | null }>) {
+function makeCandidate(
+  overrides: Partial<{
+    status: "approved" | "rejected";
+    imageUrl: string | null;
+    sourceUrl: string | null;
+    openingDatetime: string | null;
+    openingTimeConfirmed: boolean;
+  }>,
+) {
   return {
     status: "approved" as const,
     imageUrl: null as string | null,
     sourceUrl: null as string | null,
     openingDatetime: null as string | null,
+    openingTimeConfirmed: true,
     ...overrides,
   };
 }
@@ -175,6 +184,28 @@ test("enrichCandidates recovers BOTH image and opening time from a single fetch 
   assert.equal(callCount, 1, "exactly one fetch for this candidate, not one per enrichment goal");
   assert.equal(candidate.imageUrl, "https://cdn.cl/afiche.jpg");
   assert.ok(candidate.openingDatetime);
+});
+
+// Real scenario, found 2026-07-20: arteinformado.com's "Sín-tesis" confirms
+// an inauguración date but never a time. Must NOT be dropped — the date
+// still gets recorded, with openingTimeConfirmed set to false so the web
+// side knows not to display a fabricated hour.
+test("enrichCandidates records a date-only opening time (openingTimeConfirmed: false) when the source confirms a date but not an hour", async () => {
+  const candidate = makeCandidate({
+    imageUrl: "https://x.cl/ya-tiene.jpg",
+    sourceUrl: "https://www.arteinformado.com/agenda/f/sin-tesis-245342",
+  });
+
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    text: async () => '<span class="text-uppercase">Inauguración</span>:<br/> 14 jul de 2026<br/>',
+  });
+
+  await enrichCandidates([candidate], fetchImpl);
+
+  assert.ok(candidate.openingDatetime, "date recorded, not dropped");
+  assert.equal(candidate.openingTimeConfirmed, false);
 });
 
 test("enrichCandidates does not attempt opening-time recovery for a source with no openingTimeExtractor configured", async () => {

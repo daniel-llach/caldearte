@@ -14,6 +14,7 @@ import {
   fmtMonthYear,
   isArchivableMonth,
   monthBounds,
+  fmtInauguracionDate,
 } from "./date";
 
 test("fmtShort formats a short date", () => {
@@ -64,6 +65,10 @@ test("fmtPeriod: cross-month run", () => {
 
 test("fmtPeriod: single day (no run, just an anchor)", () => {
   assert.equal(fmtPeriod(null, null, "2026-07-11"), "11 de julio");
+});
+
+test("fmtInauguracionDate: always the single opening day, ignoring any run range", () => {
+  assert.equal(fmtInauguracionDate("2026-07-11T23:00:00.000Z"), "11 de julio");
 });
 
 test("fmtOpeningHour: whole hour", () => {

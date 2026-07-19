@@ -12,6 +12,7 @@ const completeCandidate: EventCandidate = {
   runStartDate: "2026-07-05",
   runEndDate: null,
   openingDatetime: null,
+  openingTimeConfirmed: true,
   mediumType: "tradicional",
   sensitivityTags: [],
   curationReasoning: "ok",
