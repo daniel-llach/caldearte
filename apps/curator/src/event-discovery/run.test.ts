@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { RunSummary } from "../lib/notify.js";
 
 // Integration test against local Supabase. Run `supabase start`, then export
 // SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY before running this suite.
-// Tavily and Anthropic are always stubbed via RunDeps — no real API calls,
-// no TAVILY_API_KEY/ANTHROPIC_API_KEY needed.
+// Tavily, Anthropic, and Resend are always stubbed via RunDeps — no real API
+// calls, no TAVILY_API_KEY/ANTHROPIC_API_KEY/RESEND_API_KEY needed.
 const hasLocalSupabase = Boolean(
   process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
@@ -576,6 +577,149 @@ test(
           .eq("output_tokens", 50);
         assert.ok((usage?.length ?? 0) > 0);
         assert.ok(usage!.every((row) => row.model === "claude-haiku-4-5"));
+      });
+
+      await t.test("sendRunSummaryEmailFn is called exactly once per run, with comunas reflecting units actually attempted", async () => {
+        let callCount = 0;
+        let capturedSummary: RunSummary | undefined;
+        const sendRunSummaryEmailFn = async (summary: RunSummary) => {
+          callCount += 1;
+          capturedSummary = summary;
+        };
+
+        await run({
+          messagesClient,
+          searchUnitFn,
+          fetchBrightSourcesFn: async () => [],
+          sendRunSummaryEmailFn,
+          now: new Date(2026, 10, 22), // Nov 22 — unit due again
+        });
+
+        assert.equal(callCount, 1, "called once, not per-unit or per-bright-source-pass");
+        assert.ok(capturedSummary);
+        assert.ok(capturedSummary!.comunas.includes(TEST_UNIT));
+        assert.ok(!capturedSummary!.comunas.includes("__test_excluded__"), "excluded units never enter the due batch");
+      });
+
+      await t.test("summary distinguishes insertedCount (actually written) from approvedByCuration (Haiku's raw call)", async () => {
+        // One current+approved (gets inserted) and one approved-but-stale
+        // (filtered by isCurrentOrUpcoming before insertCandidates ever
+        // runs) — approvedByCuration counts both, insertedCount only the first.
+        const mixedCandidates = [
+          {
+            title: "__test__ Vigente Nov",
+            description: null,
+            artist: null,
+            runStartDate: "2026-12-25", // same month as this test's "now" (Dec 20) — current
+            runEndDate: null,
+            openingDatetime: null,
+            mediumType: "tradicional",
+            sensitivityTags: [],
+            curationReasoning: "ok",
+            imageUrl: null,
+            status: "approved",
+            location: "GAM, Santiago",
+            placeName: null,
+            sourceUrl: "https://x.cl/vigente-nov",
+          },
+          {
+            title: "__test__ Vieja Nov",
+            description: null,
+            artist: null,
+            runStartDate: "2026-05-01",
+            runEndDate: "2026-05-15", // months before Nov 25 — stale
+            openingDatetime: null,
+            mediumType: "tradicional",
+            sensitivityTags: [],
+            curationReasoning: "ok",
+            imageUrl: null,
+            status: "approved",
+            location: "GAM, Santiago",
+            placeName: null,
+            sourceUrl: "https://x.cl/vieja-nov",
+          },
+        ];
+        const mixedMessagesClient = {
+          messages: {
+            create: async () => ({
+              content: [{ type: "text", text: fencedJson(mixedCandidates) }],
+              usage: { input_tokens: 100, output_tokens: 50 },
+            }),
+          },
+        };
+
+        let capturedSummary: RunSummary | undefined;
+        await run({
+          messagesClient: mixedMessagesClient,
+          searchUnitFn,
+          fetchBrightSourcesFn: async () => [],
+          sendRunSummaryEmailFn: async (summary) => {
+            capturedSummary = summary;
+          },
+          now: new Date(2026, 11, 20), // Dec 20 — unit due again
+        });
+
+        assert.ok(capturedSummary);
+        assert.equal(capturedSummary!.candidates.approvedByCuration, 2, "both candidates were approved by Haiku's call");
+        assert.equal(capturedSummary!.candidates.insertedCount, 1, "only the current one actually got written to events");
+      });
+
+      await t.test("cost figures derive from usage/credits already in scope, not a new query", async () => {
+        let capturedSummary: RunSummary | undefined;
+        await run({
+          messagesClient,
+          searchUnitFn, // stub always returns 6 Tavily credits per searched unit
+          fetchBrightSourcesFn: async () => [],
+          sendRunSummaryEmailFn: async (summary) => {
+            capturedSummary = summary;
+          },
+          now: new Date(2027, 0, 24), // Jan 24, 2027 — unit due again
+        });
+
+        assert.ok(capturedSummary);
+        const { estimateCostUsd } = await import("../lib/pricing.js");
+        const expectedAnthropicUsd = estimateCostUsd("claude-haiku-4-5", { inputTokens: 100, outputTokens: 50 });
+        assert.equal(capturedSummary!.cost.anthropicUsd, expectedAnthropicUsd, "exactly one curate() call happened (unit pass, no bright sources due)");
+        assert.equal(capturedSummary!.cost.tavilyCredits, 6, "the stub's fixed credits value for the one searched unit");
+        assert.equal(capturedSummary!.cost.tavilyUsd, 6 * 0.008);
+        assert.ok(capturedSummary!.cost.totalUsd > 0);
+      });
+
+      await t.test("a failing unit lands in units.failed, the run still completes and still sends the summary", async () => {
+        const throwingSearchUnitFn = async (_key: string, unitName: string) => {
+          if (unitName === TEST_UNIT) throw new Error("simulated Tavily failure");
+          return { results: [], credits: 0 };
+        };
+
+        let capturedSummary: RunSummary | undefined;
+        await run({
+          messagesClient,
+          searchUnitFn: throwingSearchUnitFn,
+          fetchBrightSourcesFn: async () => [],
+          sendRunSummaryEmailFn: async (summary) => {
+            capturedSummary = summary;
+          },
+          now: new Date(2027, 1, 21), // Feb 21, 2027 — unit due again
+        });
+
+        assert.ok(capturedSummary);
+        assert.ok(capturedSummary!.units.failed.includes(TEST_UNIT));
+      });
+
+      await t.test("sendRunSummaryEmailFn still fires when zero events are found", async () => {
+        let capturedSummary: RunSummary | undefined;
+        await run({
+          messagesClient,
+          searchUnitFn: async () => ({ results: [], credits: 0 }),
+          fetchBrightSourcesFn: async () => [],
+          sendRunSummaryEmailFn: async (summary) => {
+            capturedSummary = summary;
+          },
+          now: new Date(2027, 2, 21), // Mar 21, 2027 — unit due again
+        });
+
+        assert.ok(capturedSummary, "the summary email is ancillary reporting, not gated on there being something to report");
+        assert.equal(capturedSummary!.candidates.total, 0);
       });
     } finally {
       await client.from("events").delete().like("title", "__test__%");

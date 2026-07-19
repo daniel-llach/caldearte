@@ -10,6 +10,11 @@ name: Run Event Discovery
 #
 # Requires the TAVILY_API_KEY repo secret (searches run via Tavily, not
 # Anthropic's web_search tool — see docs/region-discovery.md).
+#
+# RESEND_API_KEY (2026-07-19) is optional: without it, the post-run summary
+# email just logs a warning and no-ops — the run itself still succeeds.
+# Independent from apps/web's Vercel env var of the same name (different
+# secret store) — see docs/region-discovery.md's cost-governance section.
 on:
   workflow_dispatch: {}
   schedule:
@@ -38,3 +43,4 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
