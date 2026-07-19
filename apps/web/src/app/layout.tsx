@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { esCL } from "@/i18n/es-CL";
 import "./globals.css";
 
 const inter = Inter({
@@ -11,7 +12,7 @@ const inter = Inter({
 });
 
 const title = "Caldearte";
-const description = "Calendario de inauguraciones de arte en Chile.";
+const description = esCL.appDescription;
 
 export const metadata: Metadata = {
   // www, not the apex — caldearte.com 308-redirects to www.caldearte.com at

@@ -3,6 +3,17 @@
 // alongside this one and a lookup keyed by locale if/when the project
 // expands beyond Chile — no lookup mechanism exists yet since there's only
 // ever one locale to resolve to.
+//
+// IMPORTANT for the next locale file (es-AR.ts, es-CO.ts, ...): write it in
+// that country's actual dialect and modismos — verified, not assumed by
+// copying this file's phrasing. Real bug (found 2026-07-19): several
+// strings here were written in Rioplatense voseo ("Elegí", "Buscá",
+// "Contanos", "Escribinos") instead of the neutral Chilean "tú" register
+// used everywhere else in the site — an easy mistake to make when Spanish
+// variants sound superficially similar, but "es-CL" specifically promises
+// Chilean Spanish. Don't let that happen to the next locale: get a native
+// speaker's review (or equivalent verification) of the target country's
+// real conjugation/imperative forms before shipping, not after.
 
 function pluralize(n: number, singular: string, plural: string): string {
   return n === 1 ? singular : plural;
@@ -25,10 +36,11 @@ function countsPhrase(inauguracionesCount: number, exposCount: number, joiner: s
 
 export const esCL = {
   appName: "CALDEARTE",
-  chooseCity: "Elegí tu ciudad",
+  appDescription: "Calendario de inauguraciones de arte en Chile.",
+  chooseCity: "Elige tu ciudad",
   cityPickerAriaLabel: "Selector de ciudad",
   closeCityPicker: "Cerrar selector de ciudad",
-  citySearchPlaceholder: "Buscá comuna o región...",
+  citySearchPlaceholder: "Buscar comuna o región...",
   citySearchAriaLabel: "Buscar comuna o región",
   noCityResults: "No encontramos resultados.",
   cityPickerHints: {
@@ -44,7 +56,7 @@ export const esCL = {
 
   headerSummary: (inauguracionesCount: number, exposCount: number) => {
     const phrase = countsPhrase(inauguracionesCount, exposCount, " y ");
-    return phrase ? `${phrase} que visitar en` : "Descubrí el arte que hay en";
+    return phrase ? `${phrase} que visitar en` : "Descubre el arte que hay en";
   },
   // Appended after the city-pill button in the header's summary line —
   // "hoy" for Día mode, "esta semana" for Semana mode.
@@ -60,9 +72,13 @@ export const esCL = {
   sectionExposActuales: "EXPOS ACTUALES",
   sectionArteEnTodasPartes: "ARTE EN TODAS PARTES",
 
-  archiveLink: "Revisá expos anteriores",
+  archiveLink: "Revisa expos anteriores",
   archiveMonthTitle: (label: string) => `Expos anteriores — ${label}`,
-  archiveSearchPlaceholder: "Buscá por título, artista o lugar...",
+  archiveMonthDescription: (count: number, label: string, sample: string) =>
+    count > 0
+      ? `${count} ${pluralize(count, "exposición", "exposiciones")} que abrieron en Chile en ${label}: ${sample}${count > 5 ? "…" : "."}`
+      : `Exposiciones que abrieron en Chile en ${label}.`,
+  archiveSearchPlaceholder: "Buscar por título, artista o lugar...",
   archiveFiltersAriaLabel: "Filtros",
   archiveFilters: {
     title: "Filtros",
@@ -80,8 +96,8 @@ export const esCL = {
 
   cityStats: (inauguracionesCount: number, exposCount: number) => countsPhrase(inauguracionesCount, exposCount, " · "),
 
-  tellUs: "Contanos →",
-  doYouKnowOne: "¿Conocés una que deberíamos sumar?",
+  tellUs: "Cuéntanos →",
+  doYouKnowOne: "¿Conoces una que deberíamos sumar?",
   // Shown when a section (inauguraciones or expos actuales) has nothing in
   // the current window, but there's a real upcoming event to point to
   // instead. `suffix` is todaySuffix/thisWeekSuffix, so both modes share
@@ -106,28 +122,28 @@ export const esCL = {
     title: "Privacidad y curatoría",
     dataTitle: "Qué datos guardamos",
     dataBody:
-      "Guardamos dos cookies de preferencia — la ciudad que elegiste y si tenés activado el modo familiar — por un año, solo en tu navegador. No creamos cuentas, no usamos rastreadores de terceros, y no guardamos nada de lo que escribas en el formulario de contacto: solo lo reenviamos por correo. Usamos Vercel Analytics para ver estadísticas agregadas de visitas, sin cookies ni datos que te identifiquen.",
+      "Guardamos dos cookies de preferencia — la ciudad que elegiste y si tienes activado el modo familiar — por un año, solo en tu navegador. No creamos cuentas, no usamos rastreadores de terceros, y no guardamos nada de lo que escribas en el formulario de contacto: solo lo reenviamos por correo. Usamos Vercel Analytics para ver estadísticas agregadas de visitas, sin cookies ni datos que te identifiquen.",
     curationTitle: "Cómo curamos",
     contactTitle: "¿Encontraste un error o algo que reportar?",
-    contactBody: "Escribinos desde el ",
+    contactBody: "Escríbenos desde el ",
     contactLinkLabel: "formulario de contacto",
   },
 
   contacto: {
     title: "Contacto",
-    intro: "¿Viste algo mal curado, una inauguración que nos falta, o simplemente querés escribirnos? Dejanos tu mensaje.",
+    intro: "¿Viste algo mal curado, una inauguración que nos falta, o simplemente quieres escribirnos? Déjanos tu mensaje.",
     nameLabel: "Nombre (opcional)",
     emailLabel: "Tu email",
     messageLabel: "Mensaje",
     submit: "Enviar",
     sending: "Enviando...",
     success: "¡Gracias! Recibimos tu mensaje.",
-    error: "Algo falló al enviar tu mensaje. Probá de nuevo en un rato.",
+    error: "Algo falló al enviar tu mensaje. Prueba de nuevo en un rato.",
   },
 
   // Already-approved copy, not a placeholder.
   curatoriaText:
-    "Caldearte no es un agregador neutral. Elegimos con criterio qué inauguraciones mostramos, guiados por un compromiso con el arte como espacio de encuentro, reflexión y comunidad — no como vehículo de proselitismo religioso, glorificación de la violencia o plataforma de discursos de odio. Priorizamos el arte que abre preguntas: memoria histórica, crítica social, denuncia, experimentación — sea en un museo consagrado o en una intervención callejera de barrio. Usamos inteligencia artificial para ayudarnos a rastrear y evaluar inauguraciones todos los días, siempre bajo revisión humana en los casos donde el criterio no es obvio. Si creés que nos equivocamos con un evento, o querés contarnos de una inauguración que no encontramos, escribinos — leemos cada mensaje.",
+    "Caldearte no es un agregador neutral. Elegimos con criterio qué inauguraciones mostramos, guiados por un compromiso con el arte como espacio de encuentro, reflexión y comunidad — no como vehículo de proselitismo religioso, glorificación de la violencia o plataforma de discursos de odio. Priorizamos el arte que abre preguntas: memoria histórica, crítica social, denuncia, experimentación — sea en un museo consagrado o en una intervención callejera de barrio. Usamos inteligencia artificial para ayudarnos a rastrear y evaluar inauguraciones todos los días, siempre bajo revisión humana en los casos donde el criterio no es obvio. Si crees que nos equivocamos con un evento, o quieres contarnos de una inauguración que no encontramos, escríbenos — leemos cada mensaje.",
 };
 
 export type Locale = typeof esCL;
