@@ -29,21 +29,19 @@ export default function EventCardBase({
   periodClass,
   contentPaddingClass,
 }: EventCardBaseProps) {
+  const anchor = anchorDateOnly(event);
   const dateLine =
     variant === "inauguracion" && event.openingDatetime
       ? `${fmtInauguracionDate(event.openingDatetime)} - ${
           event.openingTimeConfirmed ? fmtOpeningHour(event.openingDatetime) : esCL.consultHourWithVenue
         }`
-      : (() => {
-          const anchor = anchorDateOnly(event);
-          if (!anchor) return null;
-          const period = fmtPeriod(event.runStartDate, event.runEndDate, anchor);
-          // Only show the hour when it's real, confirmed information — a
-          // date-only inauguración (openingTimeConfirmed: false) stores a
-          // midnight placeholder internally, never displayed as a real hour.
-          const hourSuffix = event.openingDatetime && event.openingTimeConfirmed ? ` - ${fmtOpeningHour(event.openingDatetime)}` : "";
-          return period + hourSuffix;
-        })();
+      : // "expo" variant: just the exhibition's run range, never an hour —
+        // a specific time only ever means something for an inauguración (a
+        // moment to show up), not for browsing an exhibition's run. Real
+        // bug, found 2026-07-20: this used to append the same hour suffix
+        // as the inauguración variant, so "Expos Actuales" showed things
+        // like "9 al 26 de julio - 08:30 hr".
+        anchor && fmtPeriod(event.runStartDate, event.runEndDate, anchor);
 
   const displayedVenue = event.placeName ?? event.freeformLocation;
   const comuna = deriveComuna(event.freeformLocation, event.placeName);
