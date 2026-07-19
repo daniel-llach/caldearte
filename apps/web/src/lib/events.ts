@@ -20,6 +20,12 @@ export interface EventRecord extends EventDates {
   imageUrl: string | null;
   sensitivityTags: string[];
   sourceUrl: string | null;
+  // false only when openingDatetime is a real, confirmed-date-but-unknown-
+  // hour placeholder (midnight Santiago time) — see
+  // apps/curator/src/lib/opening-time.ts's OpeningTimeResult. Meaningless
+  // when openingDatetime is null. EventCardBase uses this to avoid
+  // displaying a fabricated hour.
+  openingTimeConfirmed: boolean;
 }
 
 // Postgres views don't propagate the underlying table's NOT NULL
@@ -27,12 +33,17 @@ export interface EventRecord extends EventDates {
 // are genuinely guaranteed non-null on the real `events` table (id/title
 // from their column definitions, freeform_location per
 // supabase/migrations/20260713180000_retire_venues_and_event_crawler.sql,
-// sensitivity_tags defaults to '{}' and is declared not null).
-type EventRow = Omit<Database["public"]["Views"]["events_public"]["Row"], "id" | "title" | "freeform_location" | "sensitivity_tags"> & {
+// sensitivity_tags defaults to '{}' and is declared not null,
+// opening_time_confirmed defaults to true and is declared not null).
+type EventRow = Omit<
+  Database["public"]["Views"]["events_public"]["Row"],
+  "id" | "title" | "freeform_location" | "sensitivity_tags" | "opening_time_confirmed"
+> & {
   id: string;
   title: string;
   freeform_location: string;
   sensitivity_tags: string[];
+  opening_time_confirmed: boolean;
 };
 
 // Same nullable-view-type caveat — id/name/country are genuinely not null
@@ -58,6 +69,7 @@ function toEventRecord(row: EventRow, regionNameById: Map<string, string>): Even
     runEndDate: row.run_end_date,
     sensitivityTags: row.sensitivity_tags,
     sourceUrl: row.source_url,
+    openingTimeConfirmed: row.opening_time_confirmed,
   };
 }
 

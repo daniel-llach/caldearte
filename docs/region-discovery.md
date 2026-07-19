@@ -538,6 +538,25 @@ arteinformado.com: a dedicated `articleList` extractor (identical config
 to `artes.uchile.cl`'s — confirmed the two domains share the exact same
 underlying CMS/markup) resolves each event's real per-event href.
 
+**Date-only confirmations, `opening_time_confirmed` (added 2026-07-20):**
+found via manual review — arteinformado.com's "Sín-tesis" confirms an
+inauguración date ("Inauguración: 14 jul de 2026") with no time at all, a
+genuine editorial gap on that source's own page. Before this, a missing
+hour made `extractOpeningDatetime` return `null` entirely, silently
+dropping the confirmed date — the event only ever showed as an "expo
+actual," never as an "inauguración," even though the venue explicitly
+confirmed one. Now `extractOpeningDatetime` returns `{ iso, timeConfirmed
+}`: when the regex's `hour` group is absent, `iso` holds midnight
+America/Santiago (a real instant, via the same `santiagoWallTimeToUtcIso`
+used for real hours) and `timeConfirmed` is `false`. The new
+`events.opening_time_confirmed` column (see data-model.md) persists this;
+`apps/web`'s `EventCardBase` reads it to show "consulta la hora con el
+lugar" instead of a fabricated hour. Haiku's own initial curation is
+unaffected — its prompt already requires an explicit hour before it ever
+sets `opening_datetime` at all, so every Haiku-set value defaults this
+column to `true` (see `discover.ts`'s `parseCandidates`) — only the
+deterministic post-curation regex enrichment can produce `false`.
+
 ## Ranking & expansion (superseded, kept for historical reference)
 
 The original design below — a precalculated global population/distance

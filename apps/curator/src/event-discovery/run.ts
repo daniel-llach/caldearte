@@ -246,6 +246,7 @@ async function insertCandidates(
       description: c.description,
       artist: c.artist,
       opening_datetime: c.openingDatetime,
+      opening_time_confirmed: c.openingTimeConfirmed,
       run_start_date: c.runStartDate,
       run_end_date: c.runEndDate,
       medium_type: c.mediumType,

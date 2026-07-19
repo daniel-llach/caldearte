@@ -120,6 +120,7 @@ interface EnrichCandidateLike {
   imageUrl: string | null;
   sourceUrl: string | null;
   openingDatetime: string | null;
+  openingTimeConfirmed: boolean;
 }
 
 // Deliberately conservative: unknown per-request latency to arbitrary
@@ -148,8 +149,11 @@ async function processCandidate<T extends EnrichCandidateLike>(c: T, fetchImpl: 
     if (openingConfig) {
       const opening = extractOpeningDatetime(html, openingConfig);
       if (opening) {
-        console.log(`[page-fetch] recovered opening time from ${c.sourceUrl}`);
-        c.openingDatetime = opening;
+        console.log(
+          `[page-fetch] recovered opening ${opening.timeConfirmed ? "date+time" : "date (no time confirmed)"} from ${c.sourceUrl}`,
+        );
+        c.openingDatetime = opening.iso;
+        c.openingTimeConfirmed = opening.timeConfirmed;
       }
     }
   } catch (err) {

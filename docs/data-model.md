@@ -38,8 +38,21 @@ events
   run_start_date, run_end_date (the exhibition's actual run, shown for its
     full duration — see overview.md's "full exhibition run" policy; both
     nullable),
-  opening_datetime (date AND time, only when a source explicitly confirms a
-    real opening night — null otherwise),
+  opening_datetime (date, only when a source explicitly confirms a real
+    opening night — null otherwise; hour may or may not be real, see
+    opening_time_confirmed),
+  opening_time_confirmed (boolean, default true) — added 2026-07-20. A
+    source can confirm an inauguración DATE without confirming a specific
+    HOUR (e.g. arteinformado.com's "Sín-tesis" — "Inauguración: 14 jul de
+    2026", no time at all). When false, opening_datetime still holds a
+    real instant (midnight America/Santiago, via
+    apps/curator/src/lib/opening-time.ts's santiagoWallTimeToUtcIso) but
+    it's a placeholder, never a real hour — apps/web's EventCardBase reads
+    this flag to show "consulta la hora con el lugar" instead of a
+    fabricated hour. Default true preserves the pre-existing invariant for
+    every row already in the table (Haiku's own prompt already requires an
+    explicit hour before it ever sets opening_datetime at all); only the
+    deterministic post-curation regex enrichment can ever set this false,
   opening_date_confidence (alta | baja) — legacy column from before
     run_start_date/run_end_date existed; Event Discovery doesn't set it,
   medium_type (tradicional | intervencion_no_tradicional),

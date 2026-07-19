@@ -147,6 +147,7 @@ export type Database = {
           medium_type: string | null
           opening_date_confidence: string
           opening_datetime: string | null
+          opening_time_confirmed: boolean
           place_name: string | null
           public_explanation: string | null
           region_id: string | null
@@ -170,6 +171,7 @@ export type Database = {
           medium_type?: string | null
           opening_date_confidence?: string
           opening_datetime?: string | null
+          opening_time_confirmed?: boolean
           place_name?: string | null
           public_explanation?: string | null
           region_id?: string | null
@@ -193,6 +195,7 @@ export type Database = {
           medium_type?: string | null
           opening_date_confidence?: string
           opening_datetime?: string | null
+          opening_time_confirmed?: boolean
           place_name?: string | null
           public_explanation?: string | null
           region_id?: string | null
@@ -338,6 +341,7 @@ export type Database = {
           id: string | null
           image_url: string | null
           opening_datetime: string | null
+          opening_time_confirmed: boolean | null
           place_name: string | null
           region_id: string | null
           run_end_date: string | null
@@ -353,6 +357,7 @@ export type Database = {
           id?: string | null
           image_url?: string | null
           opening_datetime?: string | null
+          opening_time_confirmed?: boolean | null
           place_name?: string | null
           region_id?: string | null
           run_end_date?: string | null
@@ -368,6 +373,7 @@ export type Database = {
           id?: string | null
           image_url?: string | null
           opening_datetime?: string | null
+          opening_time_confirmed?: boolean | null
           place_name?: string | null
           region_id?: string | null
           run_end_date?: string | null

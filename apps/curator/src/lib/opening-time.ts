@@ -16,11 +16,27 @@ function collapseWhitespace(text: string): string {
 export interface OpeningTimeConfig {
   // Matched against the detail page's collapsed-whitespace text (tags
   // stripped first, same as extractors.ts's own regexes) — named capture
-  // groups: day, month (Spanish 3-letter lowercase abbreviation), hour,
-  // minute (optional, defaults to "00" when absent), year (optional — see
-  // extractOpeningDatetime's referenceDate param for sources, like
-  // uchile.cl, that never publish one at all).
+  // groups: day, month (Spanish 3-letter lowercase abbreviation), year
+  // (optional — see extractOpeningDatetime's referenceDate param for
+  // sources, like uchile.cl, that never publish one at all), hour
+  // (optional — see OpeningTimeResult.timeConfirmed for sources, like
+  // arteinformado.com's "Sín-tesis", that confirm a date but not a time),
+  // minute (optional, defaults to "00" when hour is present but minute
+  // isn't).
   pattern: RegExp;
+}
+
+export interface OpeningTimeResult {
+  iso: string;
+  // false when the source confirms an inauguración DATE but never states
+  // an hour — the date is still real, confirmed information (worth
+  // showing under "Inauguraciones", not just "Expos Actuales"), it's only
+  // the hour that's unknown. `iso` is still a full instant in this case
+  // (midnight Santiago time, via the same santiagoWallTimeToUtcIso this
+  // module already uses for real hours) — never displayed to a visitor
+  // when timeConfirmed is false (see apps/web's EventCardBase), just a
+  // deterministic placeholder so `iso` always parses as a valid instant.
+  timeConfirmed: boolean;
 }
 
 const ES_MONTH_ABBR: Record<string, number> = {
@@ -76,7 +92,7 @@ function inferYear(month0: number, day: number, referenceDate: Date): number {
 // Pure (referenceDate defaults to the real clock only at the call site, not
 // hidden inside), never throws — null on no match or an unrecognized month
 // abbreviation, same defensive posture as extractors.ts's parsers.
-export function extractOpeningDatetime(html: string, config: OpeningTimeConfig, referenceDate: Date = new Date()): string | null {
+export function extractOpeningDatetime(html: string, config: OpeningTimeConfig, referenceDate: Date = new Date()): OpeningTimeResult | null {
   const text = collapseWhitespace(html);
   const match = text.match(config.pattern);
   if (!match?.groups) return null;
@@ -86,12 +102,18 @@ export function extractOpeningDatetime(html: string, config: OpeningTimeConfig, 
   if (month0 === undefined) return null;
 
   const dayNum = Number(day);
-  const hourNum = Number(hour);
-  const minuteNum = minute ? Number(minute) : 0;
-  if ([dayNum, hourNum, minuteNum].some((n) => Number.isNaN(n))) return null;
+  if (Number.isNaN(dayNum)) return null;
 
   const yearNum = year ? Number(year) : inferYear(month0, dayNum, referenceDate);
   if (Number.isNaN(yearNum)) return null;
 
-  return santiagoWallTimeToUtcIso(yearNum, month0, dayNum, hourNum, minuteNum);
+  // A malformed hour (matched but not a real number) is bad data, same as
+  // a malformed day — genuinely absent (no hour group in the pattern at
+  // all) is different: that's a real "date confirmed, time unknown" case.
+  const timeConfirmed = hour !== undefined;
+  const hourNum = timeConfirmed ? Number(hour) : 0;
+  const minuteNum = timeConfirmed && minute ? Number(minute) : 0;
+  if ([hourNum, minuteNum].some((n) => Number.isNaN(n))) return null;
+
+  return { iso: santiagoWallTimeToUtcIso(yearNum, month0, dayNum, hourNum, minuteNum), timeConfirmed };
 }
