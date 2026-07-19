@@ -144,6 +144,22 @@ test("filterKnownExclusions drops a raw search result whose own title matches a 
   assert.equal(filtered[0].url, "https://x.cl/2");
 });
 
+test("filterKnownExclusions also drops results from known low-quality-extraction domains, regardless of title", () => {
+  const results: RawResult[] = [
+    {
+      title: "Guía de arte y cultura: semana del 17 al 24 de julio de 2026",
+      url: "https://www.infobae.com/cultura/agenda-cultura/2026/07/17/guia-de-arte-y-cultura-semana-del-17-al-24-de-julio-de-2026",
+      content: "c",
+      score: 0.9,
+      images: [],
+    },
+    { title: "Exposición Colectiva Sala FEM 2026", url: "https://x.cl/2", content: "c", score: 0.9, images: [] },
+  ];
+  const filtered = filterKnownExclusions(results);
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].url, "https://x.cl/2");
+});
+
 test("applyKnownExclusionsFilter forces a matching approved candidate to rejected with a reasoning note, but leaves rejected/unrelated candidates untouched", () => {
   const candidates = [
     { ...baseCandidate, title: "Festival Santiago a Mil - XXXIII edición", status: "approved" as const },
