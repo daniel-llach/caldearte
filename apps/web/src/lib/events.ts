@@ -3,6 +3,11 @@ import type { Database } from "@caldearte/shared-types";
 import { cityIdFromRegionName, deriveCityId, OTHER_CITY } from "./cities";
 import { activeRange, anchorDateOnly, dateOnlyFromIso, isCurrentOrUpcoming, rangesOverlap, type EventDates } from "./date";
 
+// Which time window the visitor is viewing (Header's Día/Semana toggle) —
+// a single day, or the current Monday-Sunday week. Shared type so
+// page.tsx/CalendarView.tsx/Header.tsx all agree on the same two values.
+export type WindowMode = "day" | "week";
+
 export interface EventRecord extends EventDates {
   id: string;
   title: string;
@@ -161,12 +166,16 @@ export function eventsActiveInRange(events: EventRecord[], start: string, end: s
   });
 }
 
-// The home page shows only what's visitable *today* — nothing not yet
-// started, nothing already ended (stricter than isCurrentOrUpcoming's
-// month-level retention check, which is still used by findNextEvent's
-// lookahead below).
-export function filterActiveToday(events: EventRecord[], todayStr: string): EventRecord[] {
-  return eventsActiveInRange(events, todayStr, todayStr);
+// The home page shows only what's visitable within the current window —
+// nothing not yet started, nothing already ended (stricter than
+// isCurrentOrUpcoming's month-level retention check, which is still used
+// by findNextEvent's lookahead below). The window itself is either a
+// single day (Día mode: start === end === today) or a Monday-Sunday week
+// (Semana mode) — chosen by the Header's toggle, computed once in
+// page.tsx. This is a thin wrapper because eventsActiveInRange is already
+// generic over arbitrary ranges.
+export function filterActiveInRange(events: EventRecord[], start: string, end: string): EventRecord[] {
+  return eventsActiveInRange(events, start, end);
 }
 
 // Newest opening/start first — an exhibition that just opened outranks one
@@ -185,21 +194,23 @@ export interface InauguracionesYExpos {
   exposActuales: EventRecord[];
 }
 
-// Mutually exclusive by construction: an event with a confirmed opening
-// night happening today is the priority "inauguración" tier; everything
-// else active today (ongoing runs, or events with no confirmed opening at
-// all) is an "expo actual". Caller must already have narrowed `events` to
-// active-today (filterActiveToday) — this only splits, doesn't filter.
-export function splitInauguracionesYExpos(events: EventRecord[], todayStr: string): InauguracionesYExpos {
-  const inauguraciones: EventRecord[] = [];
-  const exposActuales: EventRecord[] = [];
-  for (const e of events) {
-    const isInauguracion = e.openingDatetime !== null && dateOnlyFromIso(e.openingDatetime) === todayStr;
-    (isInauguracion ? inauguraciones : exposActuales).push(e);
-  }
+// Intentionally OVERLAPPING, not mutually exclusive: an event with a
+// confirmed opening within [start, end] is highlighted in "Inauguraciones"
+// AND still shown in "Expos Actuales" — a visitor shouldn't have to guess
+// which section a today-opening exhibition landed in. `exposActuales` is
+// simply every event in the (already range-filtered) input; `inauguraciones`
+// is the subset whose opening falls in the window. Caller must already
+// have narrowed `events` to the active window (filterActiveInRange) — this
+// only splits/highlights, doesn't filter.
+export function splitInauguracionesYExpos(events: EventRecord[], start: string, end: string): InauguracionesYExpos {
+  const inauguraciones = events.filter((e) => {
+    if (e.openingDatetime === null) return false;
+    const openingDate = dateOnlyFromIso(e.openingDatetime);
+    return openingDate >= start && openingDate <= end;
+  });
   return {
     inauguraciones: sortByAnchorDesc(inauguraciones),
-    exposActuales: sortByAnchorDesc(exposActuales),
+    exposActuales: sortByAnchorDesc(events),
   };
 }
 
@@ -209,19 +220,24 @@ export interface CityCounts {
 }
 
 // Per-city counts for the "Arte en todas partes" carousel — run over the
-// full (not city-filtered) active-today + family-mode-filtered set. Only
-// ever creates an entry for a city with at least one real event right
-// now — not seeded from any fixed list — so citiesWithEvents (cities.ts)
-// naturally offers exactly "the cities with something to show today",
-// whichever real comunas those turn out to be.
-export function countByCity(events: EventRecord[], todayStr: string): Record<string, CityCounts> {
+// full (not city-filtered) active-in-range + family-mode-filtered set. Only
+// ever creates an entry for a city with at least one real event in the
+// current window — not seeded from any fixed list — so citiesWithEvents
+// (cities.ts) naturally offers exactly "the cities with something to show",
+// whichever real comunas those turn out to be. Overlap-counted, matching
+// splitInauguracionesYExpos: an opening-in-range event increments BOTH
+// tallies, since it's rendered in both sections.
+export function countByCity(events: EventRecord[], start: string, end: string): Record<string, CityCounts> {
   const counts: Record<string, CityCounts> = {};
   for (const e of events) {
     const cityId = resolveCityId(e);
     if (cityId === OTHER_CITY.id) continue; // "otro" isn't shown in the carousel
     if (!(cityId in counts)) counts[cityId] = { inauguraciones: 0, exposActuales: 0 };
-    const isInauguracion = e.openingDatetime !== null && dateOnlyFromIso(e.openingDatetime) === todayStr;
-    counts[cityId][isInauguracion ? "inauguraciones" : "exposActuales"] += 1;
+    counts[cityId].exposActuales += 1;
+    const openingDate = e.openingDatetime !== null ? dateOnlyFromIso(e.openingDatetime) : null;
+    if (openingDate !== null && openingDate >= start && openingDate <= end) {
+      counts[cityId].inauguraciones += 1;
+    }
   }
   return counts;
 }
@@ -238,13 +254,17 @@ export function sumCounts(counts: CityCounts[]): CityCounts {
 }
 
 // Cascading empty-state support: the earliest current-or-upcoming event
-// (month-level, not "active today"), so an empty section/page can say "the
-// next one is on X" instead of just "nothing."
-export function findNextEvent(events: EventRecord[], todayStr: string): EventRecord | null {
+// (month-level, not window-exact) that falls AFTER the current window ends
+// — so an empty section/page can say "the next one is on X" instead of
+// just "nothing." Threshold is `> windowEnd` (today in Día mode, the
+// week's Sunday in Semana mode), not `>= todayStr` — this is the
+// empty-window fallback, so "next" must mean "after what we already tried
+// to show," whichever window that was.
+export function findNextEvent(events: EventRecord[], todayStr: string, windowEnd: string): EventRecord | null {
   const upcoming = events
     .filter((e) => isCurrentOrUpcoming(e, todayStr))
     .map((e) => ({ e, anchor: anchorDateOnly(e) }))
-    .filter((x): x is { e: EventRecord; anchor: string } => x.anchor !== null && x.anchor >= todayStr)
+    .filter((x): x is { e: EventRecord; anchor: string } => x.anchor !== null && x.anchor > windowEnd)
     .sort((a, b) => (a.anchor > b.anchor ? 1 : a.anchor < b.anchor ? -1 : 0));
   return upcoming[0]?.e ?? null;
 }

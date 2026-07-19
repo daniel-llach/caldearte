@@ -23,6 +23,7 @@
 // this file points "up" instead of down — extractor shapes are inherently
 // owned by the extraction registry, not worth duplicating here.
 import type { ExtractorConfig } from "../event-discovery/extractors.js";
+import type { OpeningTimeConfig } from "./opening-time.js";
 
 export interface KnownSource {
   url: string;
@@ -30,6 +31,13 @@ export interface KnownSource {
   lastReviewedAt: string;
   extractor?: ExtractorConfig;
   additionalPages?: string[];
+  // Sibling to `extractor`, not nested inside it: the opening date+time
+  // lives on a DIFFERENT page than the listing markup `extractor`
+  // describes (each event's own detail page, reachable only via the
+  // candidate's post-curation sourceUrl) — see lib/page-fetch.ts's
+  // enrichCandidates and docs/region-discovery.md. Opt-in per source since
+  // the phrasing varies too much across sites for one universal regex.
+  openingTimeExtractor?: OpeningTimeConfig;
 }
 
 export const KNOWN_SOURCES: KnownSource[] = [
@@ -102,9 +110,34 @@ export const KNOWN_SOURCES: KnownSource[] = [
     // "..._1/N" (a trailing /N, NOT "_N"), confirmed against the page's own
     // pagination links, not guessed.
     additionalPages: ["https://www.arteinformado.com/agenda/exposiciones/exposiciones-de-arte-en-chile-cl_1/2"],
+    // Real bug (found 2026-07-19): the listing page's daysRegex above only
+    // gives a date RANGE ("15 jul de 2026 - 22 ago de 2026") — every one of
+    // the 10 approved arteinformado.com events in production had
+    // opening_datetime = null as a result. The specific opening date+time
+    // only exists on each event's own detail page, in a structured
+    // "Inauguración : 15 jul de 2026 / 19 a 21 h." line — confirmed against
+    // real markup (.../agenda/f/dejar-atras-245428): the raw HTML has a
+    // </span> and <br/> between "Inauguración" and the date, which is why
+    // this pattern is matched against collapsed-whitespace text (see
+    // extractOpeningDatetime), not the raw HTML directly.
+    openingTimeExtractor: {
+      pattern: /Inauguraci[oó]n\s*:?\s*(?<day>\d{1,2})\s+(?<month>[a-zé]{3})\.?\s+de\s+(?<year>\d{4})\s*\/\s*(?<hour>\d{1,2})(?::(?<minute>\d{2}))?\s*a\s*\d{1,2}\s*h/i,
+    },
   },
 ];
 
 export function knownSourceDomain(url: string): string {
   return new URL(url).hostname;
+}
+
+// Used by lib/page-fetch.ts's enrichCandidates to decide, per candidate,
+// whether its sourceUrl's domain is opted in to opening-time enrichment.
+export function findOpeningTimeConfig(sourceUrl: string): OpeningTimeConfig | null {
+  let domain: string;
+  try {
+    domain = knownSourceDomain(sourceUrl);
+  } catch {
+    return null; // unparseable URL — not our problem here
+  }
+  return KNOWN_SOURCES.find((s) => s.openingTimeExtractor && knownSourceDomain(s.url) === domain)?.openingTimeExtractor ?? null;
 }

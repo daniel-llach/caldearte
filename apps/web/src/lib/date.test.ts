@@ -9,6 +9,8 @@ import {
   rangesOverlap,
   isCurrentOrUpcoming,
   dateOnlyFromIso,
+  weekBoundsInSantiago,
+  fmtWeekHeader,
 } from "./date";
 
 test("fmtShort formats a short date", () => {
@@ -86,4 +88,24 @@ test("isCurrentOrUpcoming: a run still ending this month or later is current", (
     isCurrentOrUpcoming({ openingDatetime: "2026-08-01T22:00:00+00:00", runStartDate: null, runEndDate: null }, "2026-07-11"),
     true,
   );
+});
+
+test("weekBoundsInSantiago: a mid-week date (Saturday) resolves to that week's Monday-Sunday", () => {
+  assert.deepEqual(weekBoundsInSantiago("2026-07-11"), { start: "2026-07-06", end: "2026-07-12" });
+});
+
+test("weekBoundsInSantiago: the Monday itself is already the start of its own window", () => {
+  assert.deepEqual(weekBoundsInSantiago("2026-07-06"), { start: "2026-07-06", end: "2026-07-12" });
+});
+
+test("weekBoundsInSantiago: the Sunday itself is the END of its own window, not the start of the next", () => {
+  assert.deepEqual(weekBoundsInSantiago("2026-07-12"), { start: "2026-07-06", end: "2026-07-12" });
+});
+
+test("fmtWeekHeader: same-month week", () => {
+  assert.equal(fmtWeekHeader("2026-07-13", "2026-07-19"), "13 al 19 de JULIO");
+});
+
+test("fmtWeekHeader: week spanning a month boundary", () => {
+  assert.equal(fmtWeekHeader("2026-07-27", "2026-08-02"), "27 de JULIO al 2 de AGOSTO");
 });

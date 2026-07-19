@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { esCL } from "@/i18n/es-CL";
-import { cityById, type City } from "@/lib/cities";
-import { CITY_COOKIE, FAMILY_MODE_COOKIE } from "@/lib/cookies";
+import { cityById } from "@/lib/cities";
+import { CITY_COOKIE, FAMILY_MODE_COOKIE, WINDOW_MODE_COOKIE } from "@/lib/cookies";
 import { fmtShort } from "@/lib/date";
-import type { CityCounts, EventRecord, RegionMeta } from "@/lib/events";
+import type { CityCounts, EventRecord, RegionMeta, WindowMode } from "@/lib/events";
 import Header from "./Header";
 import InauguracionCard from "./InauguracionCard";
 import ExpoCard from "./ExpoCard";
@@ -22,7 +22,12 @@ interface CalendarViewProps {
   cityNames: Record<string, string>; // real observed comuna names, id -> name — see cities.ts
   familyMode: boolean;
   today: string; // YYYY-MM-DD, computed server-side for SSR/CSR consistency
-  cityCounts: Record<string, CityCounts>;
+  windowMode: WindowMode;
+  rangeStart: string; // YYYY-MM-DD — today in Día mode, the week's Monday in Semana mode
+  rangeEnd: string; // YYYY-MM-DD — today in Día mode, the week's Sunday in Semana mode
+  cityCounts: Record<string, CityCounts>; // the CONFIRMED window's counts — CityCarousel/Header
+  cityCountsDay: Record<string, CityCounts>; // both variants, for the picker's live Hoy/Semanal preview
+  cityCountsWeek: Record<string, CityCounts>;
   nextEvent: EventRecord | null; // empty-state fallback, beyond "today"
   regions: RegionMeta[]; // for the city picker's región grouping
 }
@@ -40,7 +45,12 @@ export default function CalendarView({
   cityNames,
   familyMode,
   today,
+  windowMode,
+  rangeStart,
+  rangeEnd,
   cityCounts,
+  cityCountsDay,
+  cityCountsWeek,
   nextEvent,
   regions,
 }: CalendarViewProps) {
@@ -69,12 +79,19 @@ export default function CalendarView({
     router.refresh();
   }
 
-  function selectCity(next: City) {
-    goToCity(next.id);
-  }
-
   function toggleFamilyMode() {
     setCookie(FAMILY_MODE_COOKIE, familyMode ? "" : "1");
+    router.refresh();
+  }
+
+  // Only the picker's "Explorar" button reaches this — picking a city or
+  // toggling Hoy/Semanal inside the panel is purely local/pending state
+  // until then (see CityPickerPanel). Closing via the X or Escape calls
+  // onClose only, never this — so unconfirmed picks are simply discarded.
+  function explore(nextCityId: string, nextWindowMode: WindowMode) {
+    setCookie(CITY_COOKIE, nextCityId);
+    setCookie(WINDOW_MODE_COOKIE, nextWindowMode);
+    setLocationOpen(false);
     router.refresh();
   }
 
@@ -86,6 +103,9 @@ export default function CalendarView({
         city={city}
         familyMode={familyMode}
         today={today}
+        windowMode={windowMode}
+        rangeStart={rangeStart}
+        rangeEnd={rangeEnd}
         inauguracionesCount={inauguraciones.length}
         exposCount={exposActuales.length}
         onOpenCityPicker={() => setLocationOpen(true)}
@@ -100,6 +120,7 @@ export default function CalendarView({
             <p className="text-sm text-heading-gray">
               {esCL.emptyWithNextEvent(
                 city.name,
+                windowMode === "day" ? esCL.todaySuffix : esCL.thisWeekSuffix,
                 nextEvent.openingDatetime ? fmtShort(nextEvent.openingDatetime.slice(0, 10)) : fmtShort(nextEvent.runStartDate ?? today),
                 nextEvent.title,
               )}
@@ -145,14 +166,16 @@ export default function CalendarView({
       <CityPickerPanel
         open={locationOpen}
         cityId={cityId}
-        cityCounts={cityCounts}
+        cityCountsDay={cityCountsDay}
+        cityCountsWeek={cityCountsWeek}
         cityNames={cityNames}
         regions={regions}
+        windowMode={windowMode}
         onClose={() => {
           setLocationOpen(false);
           cityPickerTriggerRef.current?.focus();
         }}
-        onSelect={selectCity}
+        onExplore={explore}
       />
 
       <MenuDrawer

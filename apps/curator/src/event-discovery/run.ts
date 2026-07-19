@@ -25,7 +25,7 @@ import { estimateCostUsd } from "../lib/pricing.js";
 import { knownSourceDomain } from "../lib/known-sources.js";
 import { KNOWN_LOW_QUALITY_SOURCE_DOMAINS } from "../lib/known-exclusions.js";
 import { matchRegionId, type RegionLike } from "../lib/locations.js";
-import { enrichMissingImages, type FetchLike as PageFetchLike } from "../lib/page-fetch.js";
+import { enrichCandidates, type FetchLike as PageFetchLike } from "../lib/page-fetch.js";
 import { sendRunSummaryEmail, type RunSummary } from "../lib/notify.js";
 import {
   buildBlock,
@@ -474,7 +474,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
           usage,
         });
         summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
-        await enrichMissingImages(candidates, pageFetchFn);
+        await enrichCandidates(candidates, pageFetchFn);
         allCandidates.push(...candidates);
         inserted = await insertCandidates(candidates, regions, seenKeys, now);
         summary.candidates.insertedCount += inserted;
@@ -511,7 +511,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
       const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
       await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
       summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
-      await enrichMissingImages(candidates, pageFetchFn);
+      await enrichCandidates(candidates, pageFetchFn);
       allCandidates.push(...candidates);
       const inserted = await insertCandidates(candidates, regions, seenKeys, now);
       summary.candidates.insertedCount += inserted;

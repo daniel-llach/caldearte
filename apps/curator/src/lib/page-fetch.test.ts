@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  enrichMissingImages,
+  enrichCandidates,
   extractJsonLdImage,
   extractOgImage,
   extractTwitterImage,
@@ -102,26 +102,110 @@ test("extractOgImage is exported directly and behaves the same as through fetchO
   assert.equal(extractOgImage(`<meta property="og:image" content="/img.jpg">`), "/img.jpg");
 });
 
-test("enrichMissingImages fills imageUrl only for approved candidates with no image and a fetchable sourceUrl", async () => {
+function makeCandidate(overrides: Partial<{ status: "approved" | "rejected"; imageUrl: string | null; sourceUrl: string | null; openingDatetime: string | null }>) {
+  return {
+    status: "approved" as const,
+    imageUrl: null as string | null,
+    sourceUrl: null as string | null,
+    openingDatetime: null as string | null,
+    ...overrides,
+  };
+}
+
+test("enrichCandidates fills imageUrl only for approved candidates with no image and a fetchable sourceUrl", async () => {
   const candidates = [
-    { status: "approved" as const, imageUrl: null, sourceUrl: "https://portaldisc.com/expo-1" },
-    { status: "approved" as const, imageUrl: "https://x.cl/ya-tiene.jpg", sourceUrl: "https://portaldisc.com/expo-2" },
-    { status: "rejected" as const, imageUrl: null, sourceUrl: "https://portaldisc.com/expo-3" },
-    { status: "approved" as const, imageUrl: null, sourceUrl: "https://instagram.com/p/expo-4" },
-    { status: "approved" as const, imageUrl: null, sourceUrl: null },
+    makeCandidate({ sourceUrl: "https://portaldisc.com/expo-1" }),
+    makeCandidate({ imageUrl: "https://x.cl/ya-tiene.jpg", sourceUrl: "https://portaldisc.com/expo-2" }),
+    makeCandidate({ status: "rejected", sourceUrl: "https://portaldisc.com/expo-3" }),
+    makeCandidate({ sourceUrl: "https://instagram.com/p/expo-4" }),
+    makeCandidate({ sourceUrl: null }),
   ];
 
-  const fetchImpl: FetchLike = async (url) => ({
+  const fetchImpl: FetchLike = async () => ({
     ok: true,
     status: 200,
     text: async () => `<meta property="og:image" content="https://cdn.cl/recovered.jpg">`,
   });
 
-  await enrichMissingImages(candidates, fetchImpl);
+  await enrichCandidates(candidates, fetchImpl);
 
   assert.equal(candidates[0].imageUrl, "https://cdn.cl/recovered.jpg", "recovered for the eligible candidate");
   assert.equal(candidates[1].imageUrl, "https://x.cl/ya-tiene.jpg", "untouched — already had an image");
   assert.equal(candidates[2].imageUrl, null, "untouched — rejected");
   assert.equal(candidates[3].imageUrl, null, "untouched — social media sourceUrl");
   assert.equal(candidates[4].imageUrl, null, "untouched — no sourceUrl to fetch");
+});
+
+test("enrichCandidates recovers opening time for a candidate whose source is configured, already has an image", async () => {
+  const candidate = makeCandidate({
+    imageUrl: "https://x.cl/ya-tiene.jpg",
+    sourceUrl: "https://www.arteinformado.com/agenda/f/dejar-atras-245428",
+  });
+
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    text: async () =>
+      '<span class="text-uppercase">Inauguración</span>:<br/> 15 jul de 2026 / 19 a 21 h.',
+  });
+
+  await enrichCandidates([candidate], fetchImpl);
+
+  assert.equal(candidate.imageUrl, "https://x.cl/ya-tiene.jpg", "image untouched, it already had one");
+  assert.ok(candidate.openingDatetime, "opening time recovered");
+});
+
+test("enrichCandidates recovers BOTH image and opening time from a single fetch — never fetches the same sourceUrl twice", async () => {
+  const candidate = makeCandidate({ sourceUrl: "https://www.arteinformado.com/agenda/f/dejar-atras-245428" });
+
+  let callCount = 0;
+  const fetchImpl: FetchLike = async () => {
+    callCount += 1;
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        '<meta property="og:image" content="https://cdn.cl/afiche.jpg">' +
+        '<span class="text-uppercase">Inauguración</span>:<br/> 15 jul de 2026 / 19 a 21 h.',
+    };
+  };
+
+  await enrichCandidates([candidate], fetchImpl);
+
+  assert.equal(callCount, 1, "exactly one fetch for this candidate, not one per enrichment goal");
+  assert.equal(candidate.imageUrl, "https://cdn.cl/afiche.jpg");
+  assert.ok(candidate.openingDatetime);
+});
+
+test("enrichCandidates does not attempt opening-time recovery for a source with no openingTimeExtractor configured", async () => {
+  const candidate = makeCandidate({
+    imageUrl: "https://x.cl/ya-tiene.jpg",
+    sourceUrl: "https://portaldisc.com/expo-1",
+  });
+
+  const fetchImpl: FetchLike = async () => {
+    throw new Error("should never be called — no image and no opening-time goal for this candidate");
+  };
+
+  await enrichCandidates([candidate], fetchImpl);
+  assert.equal(candidate.openingDatetime, null);
+});
+
+test("enrichCandidates fetches in bounded-concurrency batches, never more than 4 in flight at once", async () => {
+  let inFlight = 0;
+  let peak = 0;
+
+  const fetchImpl: FetchLike = async () => {
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    await new Promise((r) => setTimeout(r, 20));
+    inFlight -= 1;
+    return { ok: true, status: 200, text: async () => "<html></html>" };
+  };
+
+  const candidates = Array.from({ length: 10 }, (_, i) => makeCandidate({ sourceUrl: `https://portaldisc.com/expo-${i}` }));
+  await enrichCandidates(candidates, fetchImpl);
+
+  assert.ok(peak <= 4, `peak concurrent fetches was ${peak}, expected <= 4`);
+  assert.ok(peak > 1, "sanity check: batching did allow more than one in flight at a time");
 });

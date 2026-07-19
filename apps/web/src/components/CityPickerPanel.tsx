@@ -11,16 +11,44 @@ import {
   type City,
   type CountryGroup,
 } from "@/lib/cities";
-import { sumCounts, type CityCounts, type RegionMeta } from "@/lib/events";
+import { sumCounts, type CityCounts, type RegionMeta, type WindowMode } from "@/lib/events";
 
 interface CityPickerPanelProps {
   open: boolean;
-  cityId: string;
-  cityCounts: Record<string, CityCounts>;
+  cityId: string; // the CONFIRMED city — seeds pendingCityId whenever the panel opens
+  cityCountsDay: Record<string, CityCounts>;
+  cityCountsWeek: Record<string, CityCounts>;
   cityNames: Record<string, string>;
   regions: RegionMeta[];
+  windowMode: WindowMode; // the CONFIRMED mode — seeds pendingWindowMode whenever the panel opens
   onClose: () => void;
-  onSelect: (city: City) => void;
+  onExplore: (cityId: string, windowMode: WindowMode) => void;
+}
+
+// Purely local selection — does NOT close the panel or touch cookies.
+// Both this and picking a city are "pending" until Explorar commits them
+// together; closing via the X/Escape discards whatever was picked here.
+function WindowModeToggle({ mode, onSelect }: { mode: WindowMode; onSelect: (mode: WindowMode) => void }) {
+  return (
+    <div className="flex items-center gap-2 shrink-0">
+      <button
+        onClick={() => onSelect("day")}
+        className={`text-sm rounded-full px-4 py-1.5 transition-colors ${
+          mode === "day" ? "bg-heading-gray text-white" : "bg-picker-subtle text-muted-gray"
+        }`}
+      >
+        {esCL.windowModeDay}
+      </button>
+      <button
+        onClick={() => onSelect("week")}
+        className={`text-sm rounded-full px-4 py-1.5 transition-colors ${
+          mode === "week" ? "bg-heading-gray text-white" : "bg-picker-subtle text-muted-gray"
+        }`}
+      >
+        {esCL.windowModeWeek}
+      </button>
+    </div>
+  );
 }
 
 const ZERO_COUNTS: CityCounts = { inauguraciones: 0, exposActuales: 0 };
@@ -126,21 +154,38 @@ function RegionRow({ region, navKey, expanded, active, totalCount, onToggle, onH
   );
 }
 
-export default function CityPickerPanel({ open, cityId, cityCounts, cityNames, regions, onClose, onSelect }: CityPickerPanelProps) {
+export default function CityPickerPanel({
+  open,
+  cityId,
+  cityCountsDay,
+  cityCountsWeek,
+  cityNames,
+  regions,
+  windowMode,
+  onClose,
+  onExplore,
+}: CityPickerPanelProps) {
   const [query, setQuery] = useState("");
   const [filterQuery, setFilterQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [expandedRegions, setExpandedRegions] = useState<Set<string>>(new Set());
+  const [pendingCityId, setPendingCityId] = useState(cityId);
+  const [pendingWindowMode, setPendingWindowMode] = useState(windowMode);
   const inputRef = useRef<HTMLInputElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const exploreButtonRef = useRef<HTMLButtonElement>(null);
 
   const metaByCityId = useMemo(() => buildRegionMetaByCityId(regions), [regions]);
+  const cityCounts = pendingWindowMode === "day" ? cityCountsDay : cityCountsWeek;
 
-  // Reset search + expand state whenever the modal transitions to open —
-  // computed during render (React's documented pattern for resetting
-  // state in response to a prop change), not inside an effect, which
-  // would cause an extra cascading render. The currently-selected
-  // comuna's región starts expanded, everything else starts collapsed.
+  // Reset search + expand state + pending picks whenever the modal
+  // transitions to open — computed during render (React's documented
+  // pattern for resetting state in response to a prop change), not inside
+  // an effect, which would cause an extra cascading render. The
+  // currently-CONFIRMED comuna's región starts expanded, everything else
+  // starts collapsed; pendingCityId/pendingWindowMode reset to whatever is
+  // currently confirmed, discarding any unconfirmed pick from a prior
+  // open-then-closed-via-X session.
   const [prevOpen, setPrevOpen] = useState(open);
   if (open !== prevOpen) {
     setPrevOpen(open);
@@ -148,6 +193,8 @@ export default function CityPickerPanel({ open, cityId, cityCounts, cityNames, r
       setQuery("");
       setFilterQuery("");
       setActiveIndex(0);
+      setPendingCityId(cityId);
+      setPendingWindowMode(windowMode);
       const selectedMeta = metaByCityId.get(cityId);
       setExpandedRegions(
         selectedMeta?.adminRegionName ? new Set([regionKey(selectedMeta.country, selectedMeta.adminRegionName)]) : new Set(),
@@ -180,9 +227,12 @@ export default function CityPickerPanel({ open, cityId, cityCounts, cityNames, r
   }, [query]);
 
   // "Muestra lo que hay", same as before — only comunas with events, plus
-  // the currently-selected one so opening the picker never makes your own
-  // (possibly zero-count) city vanish.
-  const allCities = useMemo(() => citiesWithEvents(cityCounts, cityNames, { alwaysIncludeCityId: cityId }), [cityCounts, cityNames, cityId]);
+  // the pending pick so it never vanishes mid-selection (e.g. it has
+  // events in Semanal but not Día, and the user is still toggling around).
+  const allCities = useMemo(
+    () => citiesWithEvents(cityCounts, cityNames, { alwaysIncludeCityId: pendingCityId }),
+    [cityCounts, cityNames, pendingCityId],
+  );
 
   const trimmedQuery = filterQuery.trim();
   const isSearching = trimmedQuery !== "";
@@ -263,25 +313,38 @@ export default function CityPickerPanel({ open, cityId, cityCounts, cityNames, r
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (!activeEntry) return;
+      // Marks the pick as pending only — never closes the panel. Only
+      // Explorar (button, or Enter while it's focused) commits.
       if (activeEntry.type === "region") toggleRegion(activeEntry.key);
-      else onSelect(activeEntry.city);
+      else setPendingCityId(activeEntry.city.id);
     } else if (e.key === "Escape") {
       e.preventDefault();
       onClose();
     } else if (e.key === "Tab") {
-      // Lightweight focus trap: only two real DOM tab stops (input, close
-      // button) — every región/comuna row is virtually highlighted via
-      // aria-activedescendant, never actually DOM-focused, same combobox
-      // pattern as the arrow-key navigation above.
+      // Lightweight focus trap: three real DOM tab stops (input, Explorar,
+      // close button) — every región/comuna row is virtually highlighted
+      // via aria-activedescendant, never actually DOM-focused, same
+      // combobox pattern as the arrow-key navigation above.
       e.preventDefault();
-      closeButtonRef.current?.focus();
+      exploreButtonRef.current?.focus();
+    }
+  }
+
+  function handleExploreKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      if (e.shiftKey) inputRef.current?.focus();
+      else closeButtonRef.current?.focus();
+    } else if (e.key === "Escape") {
+      onClose();
     }
   }
 
   function handleCloseKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
     if (e.key === "Tab") {
       e.preventDefault();
-      inputRef.current?.focus();
+      if (e.shiftKey) exploreButtonRef.current?.focus();
+      else inputRef.current?.focus();
     } else if (e.key === "Escape") {
       onClose();
     }
@@ -319,7 +382,10 @@ export default function CityPickerPanel({ open, cityId, cityCounts, cityNames, r
         >
           ✕
         </button>
-        <h2 className="text-[24px] md:text-[32px] font-bold text-heading-gray text-center mb-6">{esCL.chooseCity}</h2>
+        <div className="max-w-[680px] mx-auto flex items-center justify-between gap-4 mb-6">
+          <h2 className="text-[24px] md:text-[32px] font-bold text-heading-gray">{esCL.chooseCity}</h2>
+          <WindowModeToggle mode={pendingWindowMode} onSelect={setPendingWindowMode} />
+        </div>
         <div className="max-w-[680px] mx-auto">
           <input
             ref={inputRef}
@@ -374,9 +440,9 @@ export default function CityPickerPanel({ open, cityId, cityCounts, cityNames, r
                                 key={city.id}
                                 city={city}
                                 counts={cityCounts[city.id] ?? ZERO_COUNTS}
-                                selected={city.id === cityId}
+                                selected={city.id === pendingCityId}
                                 active={activeEntry?.type === "city" && activeEntry.city.id === city.id}
-                                onSelect={onSelect}
+                                onSelect={(c) => setPendingCityId(c.id)}
                                 onHover={() => setActiveIndex(navIndexByKey.get(`city:${city.id}`) ?? 0)}
                               />
                             ))}
@@ -392,9 +458,9 @@ export default function CityPickerPanel({ open, cityId, cityCounts, cityNames, r
                           key={city.id}
                           city={city}
                           counts={cityCounts[city.id] ?? ZERO_COUNTS}
-                          selected={city.id === cityId}
+                          selected={city.id === pendingCityId}
                           active={activeEntry?.type === "city" && activeEntry.city.id === city.id}
-                          onSelect={onSelect}
+                          onSelect={(c) => setPendingCityId(c.id)}
                           onHover={() => setActiveIndex(navIndexByKey.get(`city:${city.id}`) ?? 0)}
                         />
                       ))}
@@ -407,12 +473,20 @@ export default function CityPickerPanel({ open, cityId, cityCounts, cityNames, r
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-picker-border px-6 pt-3.5 pb-4">
-        <div className="hidden md:flex items-center justify-center gap-6 text-[11px] text-picker-placeholder">
+      <div className="shrink-0 border-t border-picker-border px-6 pt-3.5 pb-4 flex items-center justify-between gap-4">
+        <div className="hidden md:flex items-center gap-6 text-[11px] text-picker-placeholder">
           <span>{esCL.cityPickerHints.navigate}</span>
           <span>{esCL.cityPickerHints.select}</span>
           <span>{esCL.cityPickerHints.close}</span>
         </div>
+        <button
+          ref={exploreButtonRef}
+          onClick={() => onExplore(pendingCityId, pendingWindowMode)}
+          onKeyDown={handleExploreKeyDown}
+          className="ml-auto inline-flex items-center gap-2 bg-heading-gray text-white rounded-lg px-5 py-2.5 text-sm font-semibold"
+        >
+          {esCL.explorar} →
+        </button>
       </div>
     </div>
   );

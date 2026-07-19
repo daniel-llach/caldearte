@@ -46,6 +46,15 @@ export const esCL = {
     const phrase = countsPhrase(inauguracionesCount, exposCount, " y ");
     return phrase ? `${phrase} que visitar en` : "Descubrí el arte que hay en";
   },
+  // Appended after the city-pill button in the header's summary line —
+  // "hoy" for Día mode, "esta semana" for Semana mode.
+  todaySuffix: "hoy",
+  thisWeekSuffix: "esta semana",
+  // The Hoy/Semanal toggle INSIDE the city picker panel — capitalized,
+  // distinct from the lowercase inline suffixes above (which read as part
+  // of a sentence: "...en Santiago hoy").
+  windowModeDay: "Hoy",
+  windowModeWeek: "Semanal",
 
   sectionInauguraciones: "INAUGURACIONES",
   sectionExposActuales: "EXPOS ACTUALES",
@@ -55,10 +64,12 @@ export const esCL = {
 
   tellUs: "Contanos →",
   doYouKnowOne: "¿Conocés una que deberíamos sumar?",
-  // Shown when a section (inauguraciones or expos actuales) has nothing
-  // for today, but there's a real upcoming event to point to instead.
-  emptyWithNextEvent: (cityName: string, nextDateShort: string, nextTitle: string) =>
-    `No hay nada que mostrar hoy en ${cityName}. La próxima es el ${nextDateShort} — ${nextTitle}.`,
+  // Shown when a section (inauguraciones or expos actuales) has nothing in
+  // the current window, but there's a real upcoming event to point to
+  // instead. `suffix` is todaySuffix/thisWeekSuffix, so both modes share
+  // one function instead of forking the copy.
+  emptyWithNextEvent: (cityName: string, suffix: string, nextDateShort: string, nextTitle: string) =>
+    `No hay nada que mostrar ${suffix} en ${cityName}. La próxima es el ${nextDateShort} — ${nextTitle}.`,
   emptyNoEventsYet: (cityName: string) => `Todavía no tenemos inauguraciones ni exposiciones para ${cityName}.`,
 
   sensitiveOverlay: {
