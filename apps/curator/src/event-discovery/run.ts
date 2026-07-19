@@ -20,10 +20,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Tables } from "@caldearte/shared-types";
 import { getSupabaseClient } from "../lib/supabase-client.js";
-import { recordUsage, getConfigNumber } from "../lib/usage-tracking.js";
+import { recordUsage, getConfigNumber, getCurrentMonthSpend } from "../lib/usage-tracking.js";
+import { estimateCostUsd } from "../lib/pricing.js";
 import { knownSourceDomain } from "../lib/known-sources.js";
 import { matchRegionId, type RegionLike } from "../lib/locations.js";
 import { enrichMissingImages, type FetchLike as PageFetchLike } from "../lib/page-fetch.js";
+import { sendRunSummaryEmail, type RunSummary } from "../lib/notify.js";
 import {
   buildBlock,
   buildSystemPrompt,
@@ -50,6 +52,11 @@ type Region = Tables<"regions">;
 // ~monthly with tolerance for scheduling jitter (a cron that fires a day
 // early shouldn't silently skip the whole month).
 const RUN_INTERVAL_MS = 28 * 24 * 60 * 60 * 1000;
+
+// Tavily's pay-as-you-go overage rate, confirmed against tavily.com/pricing
+// (see docs/region-discovery.md's cost-governance section) — used only for
+// the run-summary email's cost estimate, not for any real billing decision.
+const TAVILY_COST_PER_CREDIT = 0.008;
 
 function isDueForRun(region: Region, now: Date): boolean {
   if (!region.last_run_at) return true;
@@ -361,6 +368,7 @@ export interface RunDeps {
   searchUnitFn?: typeof searchUnit;
   fetchBrightSourcesFn?: typeof fetchBrightSources;
   pageFetchFn?: PageFetchLike;
+  sendRunSummaryEmailFn?: typeof sendRunSummaryEmail;
   now?: Date;
 }
 
@@ -398,7 +406,29 @@ export async function run(deps: RunDeps = {}): Promise<void> {
     `[event-discovery] ${units.length} unit(s) due, ${dueBrightSources.length}/${brightSources.length} bright source(s) due`,
   );
 
+  // Accumulated purely from data the run already computes (usage/credits
+  // already returned by curate()/searchUnitFn) — no new API calls, see
+  // sendRunSummaryEmail's own doc comment.
+  const summary: RunSummary = {
+    startedAt: now,
+    units: { total: 0, failed: [] },
+    comunas: [],
+    brightSources: { due: dueBrightSources.length, total: brightSources.length },
+    candidates: {
+      total: 0,
+      approvedByCuration: 0,
+      rejectedByCuration: 0,
+      insertedCount: 0,
+      byMediumType: {},
+      sensitivityTagged: 0,
+    },
+    cost: { anthropicUsd: 0, tavilyCredits: 0, tavilyUsd: 0, totalUsd: 0, monthToDateUsd: 0, monthlyBudgetUsd: 0 },
+  };
+
   for (const unit of units) {
+    summary.units.total += 1;
+    summary.comunas.push(unit.name);
+
     // Real production bug (2026-07-17, weekly-batch rollout's first live
     // run): an uncaught exception processing ONE unit (Haiku returned
     // status:"approved" with location:null, crashing isChileanLocation)
@@ -415,6 +445,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
     try {
       const { results: rawResults, credits } = await searchUnitFn(tavilyApiKey ?? "", unit.name, now, excludeDomains);
       console.log(`[event-discovery] ${unit.name}: ${rawResults.length} results, ${credits} Tavily credits`);
+      summary.cost.tavilyCredits += credits;
       await logRawSearchResults(unit.name, rawResults);
 
       // Drop known-out-of-scope results before they ever reach Haiku — saves
@@ -435,9 +466,11 @@ export async function run(deps: RunDeps = {}): Promise<void> {
           regionId: unit.id,
           usage,
         });
+        summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
         await enrichMissingImages(candidates, pageFetchFn);
         allCandidates.push(...candidates);
         inserted = await insertCandidates(candidates, regions, seenKeys, now);
+        summary.candidates.insertedCount += inserted;
       }
 
       // A comuna's first real run graduates it out of 'not_started' — restores
@@ -455,6 +488,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
 
       console.log(`[event-discovery] ${unit.name}: ${inserted} new approved event(s)`);
     } catch (err) {
+      summary.units.failed.push(unit.name);
       console.error(`[event-discovery] ${unit.name}: unit failed, skipping (stays due for next run): ${(err as Error).message}`);
     }
   }
@@ -469,9 +503,11 @@ export async function run(deps: RunDeps = {}): Promise<void> {
       const block = buildBlock("Fuentes brillantes (no específicas a ninguna comuna)", brightResults);
       const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
       await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
+      summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
       await enrichMissingImages(candidates, pageFetchFn);
       allCandidates.push(...candidates);
       const inserted = await insertCandidates(candidates, regions, seenKeys, now);
+      summary.candidates.insertedCount += inserted;
       console.log(`[event-discovery] bright sources: ${inserted} new approved event(s)`);
     }
     await recordBrightSourcesFetched(
@@ -481,4 +517,27 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   }
 
   await persistNewBrightSources(allCandidates, now, excludeDomains);
+
+  // Ancillary reporting only — by this point every unit/bright-source has
+  // already been fully processed and saved, so a failure computing or
+  // sending the summary must never surface as a failed run (this file has
+  // no top-level error handling; an uncaught rejection here would mark an
+  // otherwise fully-successful GitHub Action run as failed).
+  try {
+    summary.candidates.total = allCandidates.length;
+    for (const c of allCandidates) {
+      if (c.status === "approved") summary.candidates.approvedByCuration += 1;
+      if (c.status === "rejected") summary.candidates.rejectedByCuration += 1;
+      summary.candidates.byMediumType[c.mediumType] = (summary.candidates.byMediumType[c.mediumType] ?? 0) + 1;
+      if (c.sensitivityTags.length > 0) summary.candidates.sensitivityTagged += 1;
+    }
+    summary.cost.tavilyUsd = summary.cost.tavilyCredits * TAVILY_COST_PER_CREDIT;
+    summary.cost.totalUsd = summary.cost.anthropicUsd + summary.cost.tavilyUsd;
+    summary.cost.monthToDateUsd = await getCurrentMonthSpend();
+    summary.cost.monthlyBudgetUsd = await getConfigNumber("monthly_budget_usd");
+
+    await (deps.sendRunSummaryEmailFn ?? sendRunSummaryEmail)(summary);
+  } catch (err) {
+    console.error(`[event-discovery] failed to build/send run-summary email: ${(err as Error).message}`);
+  }
 }

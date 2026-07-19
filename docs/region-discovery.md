@@ -501,6 +501,31 @@ production sets `pending_review` today, and real data (271 events as of
 anything genuinely ambiguous. Parked, not an active line item — see
 [roadmap.md](roadmap.md)'s Phase 1a.
 
+### Run-summary email (built, 2026-07-19 — separate from the parked flow above)
+
+Not to be confused with the still-parked approve/reject flow above: after
+every run, `apps/curator/src/lib/notify.ts`'s `sendRunSummaryEmail` sends a
+plain-text report to the project owner — comunas consultadas (including any
+that failed and stay due for retry), fuentes brillantes fetched, candidate
+counts (approved/rejected by Haiku's curation call, vs. actually inserted —
+kept as separate numbers since a candidate can be approved by curation but
+still filtered out as stale or a cross-run duplicate before insert), a
+`mediumType` breakdown, and an estimated cost for the run. Reuses the
+`caldearte.com` domain already verified for `/contacto`, and a separate
+`RESEND_API_KEY` GitHub Actions secret (not the same store as `apps/web`'s
+Vercel env var of the same name).
+
+**Adds no measurable cost:** every figure comes from data the run already
+computes — the `usage` object each `curate()` call already returns (cost,
+via `estimateCostUsd`, re-run locally with no new API call) and the
+`credits` each `searchUnitFn` call already returns (Tavily spend estimate,
+at the pay-as-you-go rate of $0.008/credit). The only new cost is one
+Resend send per weekly run — negligible against its 100/day free tier.
+Ancillary by design (wrapped so a failure building or sending it can never
+fail an otherwise-successful run, same posture as `pruneOldRawSearchResults`/
+`persistNewBrightSources`) — and it no-ops with a warning, not an error, if
+`RESEND_API_KEY` isn't set.
+
 ---
 
 ## Cost governance
