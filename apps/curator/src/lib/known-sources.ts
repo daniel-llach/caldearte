@@ -56,6 +56,33 @@ export const KNOWN_SOURCES: KnownSource[] = [
     },
   },
   {
+    url: "https://uchile.cl/agenda/30dias/6",
+    note: 'Rolling 30-day agenda, Universidad de Chile\'s ROOT domain (not artes.uchile.cl — same underlying CMS/template, confirmed identical markup, but this feed aggregates exhibitions across faculties, e.g. Arquitectura y Urbanismo\'s Galería Micromedios, which artes.uchile.cl (Facultad de Artes only) never surfaces). Real production bug (found 2026-07-20): "Exhibición \'Alzar curva la mirada\'..." (Galería Micromedios, FAU) had sourceUrl=https://uchile.cl/agenda/exposiciones/10 — a listing page, not its own detail page — because this root domain had no dedicated entry yet, so it came in via regular per-comuna Tavily search instead of a direct fetch, and Tavily\'s plain-text extraction of a listing page drops per-event hrefs (same root cause as the arteinformado.com bug above). A dedicated extractor here fixes it the same way: each block\'s own <h4 class="mod__item-title"><a href="..."> is the correct per-event detail page, resolved against this page\'s own URL since the hrefs are relative (e.g. "/agenda/241838/exhibicion-alzar-curva-la-mirada-del-artista-francisco-belarmino").',
+    lastReviewedAt: "2026-07-20",
+    extractor: {
+      kind: "articleList",
+      blockRegex: /<article class="mod-cal-result__item">([\s\S]*?)<\/article>/g,
+      titleLinkRegex: /<h4 class="mod__item-title"><a href="([^"]+)">([^<]*)<\/a><\/h4>/,
+      daysRegex: /class="mod-cal-result__item-days"[^>]*>([\s\S]*?)<\/p>/,
+      placeRegex: /class="mod-cal-result__item-place[a-z]*"[^>]*>([\s\S]*?)<\/p>/,
+    },
+    // Real markup, confirmed 2026-07-20 against
+    // .../agenda/241838/exhibicion-alzar-curva-la-mirada-del-artista-francisco-belarmino:
+    // the opening time is NOT in an "Inauguración:" line (there isn't one)
+    // — it's phrased as an invitation, "Los esperamos este miércoles 01 de
+    // julio a las 18.00h. en Galería Micromedios...". The month is spelled
+    // out in full ("julio", not "jul"), so the month group only captures
+    // its first 3 letters (matching extractOpeningDatetime's existing
+    // 3-letter lookup) while `[a-zé]*` consumes the rest. Only hand-verified
+    // against this single real page — the phrasing may vary across other
+    // uchile.cl event pages, unlike arteinformado.com's 20-page sample;
+    // revisit if a future enrichment run turns up a non-matching format.
+    openingTimeExtractor: {
+      pattern:
+        /esperamos\s+este\s+\S+\s+(?<day>\d{1,2})\s+de\s+(?<month>[a-zé]{3})[a-zé]*\s+a\s+las\s+(?<hour>\d{1,2})[.:](?<minute>\d{2})\s*h?/i,
+    },
+  },
+  {
     url: "https://parquecultural.cl/wp-json/wp/v2/events_list?_fields=title,meta&per_page=20",
     note: 'WordPress REST API behind Parque Cultural Valparaíso\'s events widget (the widget itself is JS-rendered, invisible to a plain fetch — found via the browser\'s Network tab). Structured fields: title.rendered, meta.imagen_evento (image), meta.extracto_corto (free-text description, often states the real "Inauguración" date/time — meta.hora_de_inicio/hora_de_termino are just the venue\'s daily opening hours, NOT the inauguración time), meta.fecha_de_inicio/fecha_de_termino (YYYYMMDD).',
     lastReviewedAt: "2026-07-12",

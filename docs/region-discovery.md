@@ -513,6 +513,31 @@ arteinformado.com markup has a `</span>` and `<br/>` sitting between the
 "Inauguración" label and the date, invisible in a plain-text mockup of the
 phrase, only caught by fetching the real page and checking.
 
+**Year inference (added 2026-07-20, for uchile.cl):** not every source
+publishes a year at all — uchile.cl's root domain phrases the opening as
+an invitation, "Los esperamos este miércoles 01 de julio a las 18.00h.",
+with no year anywhere on the page (checked meta tags too), since it's a
+rolling near-term agenda where the year is implicit. `extractOpeningDatetime`
+now accepts an optional `referenceDate` (defaults to the real clock at the
+call site) and only infers a year when the regex's `year` capture group is
+absent: current year, unless that would place the date more than 60 days
+in the past relative to `referenceDate`, in which case next year (handles
+a December-published page meaning next January). Sources that do publish
+a year (arteinformado.com) are unaffected — this only activates when the
+regex config genuinely has no `(?<year>...)` group.
+
+**Same root-cause bug as arteinformado.com, different domain
+(found 2026-07-20):** `uchile.cl`'s ROOT domain (not `artes.uchile.cl`,
+which already had a dedicated entry) had no known-source config, so an
+event from Facultad de Arquitectura y Urbanismo's Galería Micromedios
+(never surfaced by the Artes-only `artes.uchile.cl` feed) came in via
+regular per-comuna Tavily search, which drops per-event links from a
+listing page — Haiku fell back to citing the listing page itself as
+`sourceUrl` instead of the event's own detail page. Same fix as
+arteinformado.com: a dedicated `articleList` extractor (identical config
+to `artes.uchile.cl`'s — confirmed the two domains share the exact same
+underlying CMS/markup) resolves each event's real per-event href.
+
 ## Ranking & expansion (superseded, kept for historical reference)
 
 The original design below — a precalculated global population/distance
