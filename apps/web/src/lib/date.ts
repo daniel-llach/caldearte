@@ -79,6 +79,41 @@ export function todayInSantiago(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago" }).format(new Date());
 }
 
+// Monday..Sunday bounds for the week containing dateStr — pure, so it's
+// directly testable without mocking the clock (see currentWeekInSantiago
+// for the real-clock wrapper). Standard Chilean convention (lunes first),
+// and a FIXED week rather than a rolling 7-day window, so "esta semana"
+// means the same thing to a visitor all week long, not a different set of
+// days depending on which day they happen to check.
+export function weekBoundsInSantiago(dateStr: string): { start: string; end: string } {
+  const d = parseDateOnly(dateStr);
+  const dow = d.getDay(); // 0=Sun..6=Sat
+  const mondayOffset = dow === 0 ? -6 : 1 - dow;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + mondayOffset);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { start: toDateOnlyString(monday), end: toDateOnlyString(sunday) };
+}
+
+export function currentWeekInSantiago(): { start: string; end: string } {
+  return weekBoundsInSantiago(todayInSantiago());
+}
+
+// Header title for "semana" mode, e.g. "13 al 19 de JULIO" or, spanning a
+// month boundary, "27 de JULIO al 2 de AGOSTO" — day + uppercase month, no
+// year. Sibling to fmtPeriod, not a reuse of it: fmtPeriod's month is
+// lowercase and it collapses a single-day range to just one date, neither
+// of which applies to a week header (a week never collapses to one day).
+export function fmtWeekHeader(weekStart: string, weekEnd: string): string {
+  const s = parseDateOnly(weekStart);
+  const e = parseDateOnly(weekEnd);
+  if (s.getMonth() === e.getMonth()) {
+    return `${s.getDate()} al ${e.getDate()} de ${MONTHS[s.getMonth()].toUpperCase()}`;
+  }
+  return `${s.getDate()} de ${MONTHS[s.getMonth()].toUpperCase()} al ${e.getDate()} de ${MONTHS[e.getMonth()].toUpperCase()}`;
+}
+
 export interface EventDates {
   openingDatetime: string | null;
   runStartDate: string | null;
@@ -116,8 +151,10 @@ export function rangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd
 // Mirrors apps/curator/src/event-discovery/discover.ts's isCurrentOrUpcoming:
 // month-level, not day-level — an event is stale only once its run (or
 // anchor) ended in a month before the current one. Used only by
-// findNextEvent's empty-state lookahead; the home page's own "active
-// today" filter is day-exact (see events.ts's filterActiveToday).
+// findNextEvent's empty-state lookahead; the home page's own "active"
+// filter is exact to the current window (see events.ts's
+// filterActiveInRange — a single day or a Mon-Sun week, depending on the
+// Día/Semana toggle).
 export function isCurrentOrUpcoming(e: EventDates, todayStr: string): boolean {
   const range = activeRange(e);
   if (!range) return false;

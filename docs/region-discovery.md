@@ -466,6 +466,53 @@ worse, would ship unvetted — every extractor config in `known-sources.ts`
 so far was hand-tested against real data before being trusted with no
 human in the loop after that.
 
+### Post-curation enrichment: image and opening time (`lib/page-fetch.ts`)
+
+Real bug (found 2026-07-19, manual review): arteinformado.com's listing
+page (`daysRegex` above) only ever gives a date **range** per event ("15
+jul de 2026 - 22 ago de 2026"), never the specific opening date+time — that
+only exists on each event's own detail page, in a structured "Inauguración
+: 15 jul de 2026 / 19 a 21 h." line. The pipeline never fetched that page,
+so all 10 approved arteinformado.com events in production had
+`opening_datetime = null` — confirmed systemic across every event from
+that source, not a one-off Haiku miss.
+
+**Fix, deterministic, zero extra Anthropic/Tavily cost:** `enrichCandidates`
+(`lib/page-fetch.ts`) runs once per run, on every *approved* `EventCandidate`
+regardless of source (bright source or regular per-unit search) whose
+`sourceUrl` is still missing an image, or whose `openingDatetime` is still
+null AND whose source domain has an opt-in `openingTimeExtractor` regex
+configured (`KnownSource.openingTimeExtractor`, `lib/known-sources.ts` —
+sibling to `extractor`, not nested inside it, since the opening time lives
+on a *different* page than the listing markup `extractor` describes).
+Regex-only against the fetched page's collapsed-whitespace text (`lib/
+opening-time.ts`'s `extractOpeningDatetime`) — never sent to Haiku, so this
+adds no Anthropic tokens; the only new cost is the HTTP fetch itself.
+
+**One fetch per candidate, not two:** a candidate needing both an image and
+an opening time gets exactly one `fetchDetailHtml` call, with both
+extraction goals run against the same already-fetched HTML — confirmed via
+a test asserting the stub fetch is called exactly once for such a
+candidate. Fetched in chunks of `ENRICHMENT_CONCURRENCY = 4` (chunked
+`Promise.all` batching, no new dependency) rather than fully sequential or
+fully unbounded — a deliberately conservative constant given unknown
+per-request latency to arbitrary third-party sites, politeness toward
+those sites, and headroom under the 346-comuna weekly batch's 6-hour
+GitHub Actions ceiling; revisit once real timing data exists.
+
+**Chile-timezone correctness:** the extracted wall-clock time (e.g. "19:00"
+in "Inauguración... / 19 a 21 h.") is converted to an absolute UTC instant
+via a two-pass `Intl.DateTimeFormat` offset-correction (`lib/
+opening-time.ts`'s `santiagoWallTimeToUtcIso`) — no hardcoded UTC offset,
+since Chile's DST rule has changed more than once in recent years.
+
+**Caveat, don't skip when adding a new source's `openingTimeExtractor`:**
+the regex must be hand-verified against that source's real detail-page
+HTML, not just a plain-text example of the expected phrasing — the real
+arteinformado.com markup has a `</span>` and `<br/>` sitting between the
+"Inauguración" label and the date, invisible in a plain-text mockup of the
+phrase, only caught by fetching the real page and checking.
+
 ## Ranking & expansion (superseded, kept for historical reference)
 
 The original design below — a precalculated global population/distance

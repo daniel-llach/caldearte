@@ -4,12 +4,16 @@ import type { RefObject } from "react";
 import Link from "next/link";
 import { esCL } from "@/i18n/es-CL";
 import type { City } from "@/lib/cities";
-import { fmtHeaderDate } from "@/lib/date";
+import type { WindowMode } from "@/lib/events";
+import { fmtHeaderDate, fmtWeekHeader } from "@/lib/date";
 
 interface HeaderProps {
   city: City;
   familyMode: boolean;
-  today: string; // YYYY-MM-DD
+  today: string; // YYYY-MM-DD — Día mode's header date, and the empty-state fallback in CalendarView
+  windowMode: WindowMode;
+  rangeStart: string; // YYYY-MM-DD
+  rangeEnd: string; // YYYY-MM-DD
   inauguracionesCount: number;
   exposCount: number;
   onOpenCityPicker: () => void;
@@ -54,6 +58,9 @@ export default function Header({
   city,
   familyMode,
   today,
+  windowMode,
+  rangeStart,
+  rangeEnd,
   inauguracionesCount,
   exposCount,
   onOpenCityPicker,
@@ -61,8 +68,11 @@ export default function Header({
   onOpenMobileMenu,
   onToggleFamilyMode,
 }: HeaderProps) {
-  const dateLabel = fmtHeaderDate(today);
-  const time = loadTime();
+  const dateLabel = windowMode === "day" ? fmtHeaderDate(today) : fmtWeekHeader(rangeStart, rangeEnd);
+  // A "current time of day" readout doesn't pair coherently with a 7-day
+  // range — only shown in Día mode.
+  const time = windowMode === "day" ? loadTime() : null;
+  const windowSuffix = windowMode === "day" ? esCL.todaySuffix : esCL.thisWeekSuffix;
 
   return (
     <header>
@@ -71,9 +81,11 @@ export default function Header({
           <span className="text-2xl md:text-5xl font-normal text-heading-gray">{esCL.appName}</span>
           <span className="hidden md:inline text-5xl font-extrabold text-heading-gray">
             {dateLabel}
-            <span className="text-lg text-muted-gray ml-2 font-normal" suppressHydrationWarning>
-              {time}
-            </span>
+            {time && (
+              <span className="text-lg text-muted-gray ml-2 font-normal" suppressHydrationWarning>
+                {time}
+              </span>
+            )}
           </span>
         </div>
 
@@ -91,9 +103,11 @@ export default function Header({
 
       <div className="md:hidden mt-1 flex items-baseline gap-2">
         <span className="text-2xl font-bold text-heading-gray">{dateLabel}</span>
-        <span className="text-sm text-muted-gray" suppressHydrationWarning>
-          {time}
-        </span>
+        {time && (
+          <span className="text-sm text-muted-gray" suppressHydrationWarning>
+            {time}
+          </span>
+        )}
       </div>
 
       <div className="mt-3 md:mt-4 flex items-center gap-2 flex-wrap text-[15px] md:text-xl text-heading-gray">
@@ -103,7 +117,7 @@ export default function Header({
           onClick={onOpenCityPicker}
           className="inline-flex items-center gap-1.5 bg-city-pill-bg text-city-pill-fg rounded-lg px-3 py-1.5 text-sm"
         >
-          {city.name}
+          {city.name} {windowSuffix}
           {/* eslint-disable-next-line @next/next/no-img-element -- provided icon asset, verbatim per design decision */}
           <img src="/icons/chevron-down.svg" alt="" width={16} height={16} />
         </button>

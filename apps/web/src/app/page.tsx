@@ -4,15 +4,16 @@ import {
   fetchApprovedEvents,
   filterFamilyMode,
   filterByCity,
-  filterActiveToday,
+  filterActiveInRange,
   splitInauguracionesYExpos,
   countByCity,
   cityNamesFromEvents,
   findNextEvent,
+  type WindowMode,
 } from "@/lib/events";
 import { DEFAULT_CITY_ID, buildRegionMetaByCityId, resolveDefaultCityId } from "@/lib/cities";
-import { todayInSantiago } from "@/lib/date";
-import { CITY_COOKIE, FAMILY_MODE_COOKIE } from "@/lib/cookies";
+import { todayInSantiago, currentWeekInSantiago } from "@/lib/date";
+import { CITY_COOKIE, FAMILY_MODE_COOKIE, WINDOW_MODE_COOKIE } from "@/lib/cookies";
 import CalendarView from "@/components/CalendarView";
 
 export default async function HomePage() {
@@ -25,6 +26,13 @@ export default async function HomePage() {
   const familyModeCookie = cookieStore.get(FAMILY_MODE_COOKIE)?.value;
   const familyMode = familyModeCookie === undefined ? true : Boolean(familyModeCookie);
   const today = todayInSantiago();
+  const { start: weekStart, end: weekEnd } = currentWeekInSantiago();
+  // Absent cookie -> "week": the whole point of the Semana mode is
+  // planning ahead, so it's the default; Día is one click away via the
+  // city picker's Hoy/Semanal toggle.
+  const windowModeCookie = cookieStore.get(WINDOW_MODE_COOKIE)?.value;
+  const windowMode: WindowMode = windowModeCookie === "day" ? "day" : "week";
+  const { start: rangeStart, end: rangeEnd } = windowMode === "day" ? { start: today, end: today } : { start: weekStart, end: weekEnd };
 
   const { events: allEvents, regions } = await fetchApprovedEvents(getSupabaseClient());
   // Family-mode filtering happens here, server-side, before anything is
@@ -34,14 +42,22 @@ export default async function HomePage() {
 
   // Real observed city names, not a fixed list — any comuna a real event
   // resolves to (see cities.ts) is a legitimate, navigable destination.
-  // Built from ALL events (not just active-today), so a directly-navigated
-  // city still shows its proper name even with zero active events right now.
+  // Built from ALL events (not just active-in-range), so a
+  // directly-navigated city still shows its proper name even with zero
+  // active events right now.
   const cityNames = cityNamesFromEvents(allEvents);
 
-  // Home shows only what's visitable *today* — nothing not yet started,
-  // nothing already ended.
-  const activeToday = filterActiveToday(visible, today);
-  const cityCounts = countByCity(activeToday, today);
+  // Home shows only what's visitable within the current window (a single
+  // day or the current Mon-Sun week, per windowMode) — nothing not yet
+  // started, nothing already ended.
+  const activeInRange = filterActiveInRange(visible, rangeStart, rangeEnd);
+  // Computed for BOTH windows (not just the confirmed one) so the city
+  // picker can preview Hoy/Semanal counts live while its own toggle is
+  // still pending/unconfirmed — see CityPickerPanel's "Explorar" flow,
+  // which only commits a mode change (cookie + refresh) once clicked.
+  const cityCountsDay = countByCity(filterActiveInRange(visible, today, today), today, today);
+  const cityCountsWeek = countByCity(filterActiveInRange(visible, weekStart, weekEnd), weekStart, weekEnd);
+  const cityCounts = windowMode === "day" ? cityCountsDay : cityCountsWeek;
 
   // A manual pick (CITY_COOKIE) always wins and is never re-resolved. With
   // no cookie yet, resolve fresh from Vercel's IP-geolocation headers every
@@ -62,12 +78,13 @@ export default async function HomePage() {
           cityCounts,
         );
 
-  const cityEventsToday = filterByCity(activeToday, cityId);
-  const { inauguraciones, exposActuales } = splitInauguracionesYExpos(cityEventsToday, today);
+  const cityEventsInRange = filterByCity(activeInRange, cityId);
+  const { inauguraciones, exposActuales } = splitInauguracionesYExpos(cityEventsInRange, rangeStart, rangeEnd);
 
-  // Empty-state fallback looks beyond "today" within the selected city, so
-  // it can say "the next one is on X" instead of just "nothing."
-  const nextEvent = findNextEvent(filterByCity(visible, cityId), today);
+  // Empty-state fallback looks beyond the current window within the
+  // selected city, so it can say "the next one is on X" instead of just
+  // "nothing."
+  const nextEvent = findNextEvent(filterByCity(visible, cityId), today, rangeEnd);
 
   return (
     <main className="min-h-screen w-full bg-white px-4 py-8 md:px-[61px] max-w-[1280px] mx-auto">
@@ -78,7 +95,12 @@ export default async function HomePage() {
         cityNames={cityNames}
         familyMode={familyMode}
         today={today}
+        windowMode={windowMode}
+        rangeStart={rangeStart}
+        rangeEnd={rangeEnd}
         cityCounts={cityCounts}
+        cityCountsDay={cityCountsDay}
+        cityCountsWeek={cityCountsWeek}
         nextEvent={nextEvent}
         regions={regions}
       />

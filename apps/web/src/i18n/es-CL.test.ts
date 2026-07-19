@@ -15,3 +15,19 @@ test("headerSummary shows only the nonzero part, falls back to a countless phras
   assert.equal(esCL.headerSummary(2, 5), "2 inauguraciones y 5 exposiciones que visitar en");
   assert.equal(esCL.headerSummary(0, 0), "Descubrí el arte que hay en");
 });
+
+test("todaySuffix/thisWeekSuffix — Header's Día/Semana dropdown copy", () => {
+  assert.equal(esCL.todaySuffix, "hoy");
+  assert.equal(esCL.thisWeekSuffix, "esta semana");
+});
+
+test("emptyWithNextEvent takes the mode's suffix as a parameter, so one function serves both Día and Semana", () => {
+  assert.equal(
+    esCL.emptyWithNextEvent("Santiago", esCL.todaySuffix, "14 jul", "Muestra X"),
+    "No hay nada que mostrar hoy en Santiago. La próxima es el 14 jul — Muestra X.",
+  );
+  assert.equal(
+    esCL.emptyWithNextEvent("Santiago", esCL.thisWeekSuffix, "14 jul", "Muestra X"),
+    "No hay nada que mostrar esta semana en Santiago. La próxima es el 14 jul — Muestra X.",
+  );
+});
