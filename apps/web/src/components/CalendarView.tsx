@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { esCL } from "@/i18n/es-CL";
 import { cityById } from "@/lib/cities";
 import { CITY_COOKIE, FAMILY_MODE_COOKIE, WINDOW_MODE_COOKIE } from "@/lib/cookies";
@@ -30,6 +31,7 @@ interface CalendarViewProps {
   cityCountsWeek: Record<string, CityCounts>;
   nextEvent: EventRecord | null; // empty-state fallback, beyond "today"
   regions: RegionMeta[]; // for the city picker's región grouping
+  archiveHref: string | null; // "Revisá expos anteriores" link target — null when no month is archived yet
 }
 
 function setCookie(name: string, value: string): void {
@@ -53,6 +55,7 @@ export default function CalendarView({
   cityCountsWeek,
   nextEvent,
   regions,
+  archiveHref,
 }: CalendarViewProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -148,7 +151,14 @@ export default function CalendarView({
 
           {exposActuales.length > 0 && (
             <section className="mt-16">
-              <h2 className="text-3xl md:text-[41px] font-semibold tracking-wide text-heading-gray mb-6">{esCL.sectionExposActuales}</h2>
+              <div className="flex items-baseline justify-between mb-6">
+                <h2 className="text-3xl md:text-[41px] font-semibold tracking-wide text-heading-gray">{esCL.sectionExposActuales}</h2>
+                {archiveHref && (
+                  <Link href={archiveHref} className="text-sm text-muted-gray underline shrink-0">
+                    {esCL.archiveLink}
+                  </Link>
+                )}
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: `repeat(${isDesktop ? 3 : 1}, minmax(0,1fr))`, gap: "24px" }}>
                 {exposActuales.map((e) => (
                   <ExpoCard key={e.id} event={e} />

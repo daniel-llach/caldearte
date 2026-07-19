@@ -100,6 +100,42 @@ export function currentWeekInSantiago(): { start: string; end: string } {
   return weekBoundsInSantiago(todayInSantiago());
 }
 
+// "Julio 2026" — capitalized month, for the archive's page title/heading.
+export function fmtMonthYear(year: number, month: number): string {
+  const name = MONTHS[month - 1];
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)} ${year}`;
+}
+
+export function currentYearMonthInSantiago(): { year: number; month: number } {
+  const [year, month] = todayInSantiago().split("-").map(Number);
+  return { year, month };
+}
+
+// A month is archivable once it's strictly before the current Santiago
+// calendar month — this is what keeps "Expos Actuales" (home, current/
+// upcoming only) and the archive (past months only) mutually exclusive by
+// construction, with no event ever eligible for both at once.
+export function isArchivableMonth(year: number, month: number, todayStr: string): boolean {
+  const today = currentYearMonthFromDateStr(todayStr);
+  return year * 12 + month < today.year * 12 + today.month;
+}
+
+function currentYearMonthFromDateStr(dateStr: string): { year: number; month: number } {
+  const [year, month] = dateStr.split("-").map(Number);
+  return { year, month };
+}
+
+// First/last calendar day of a month as "YYYY-MM-DD" — feeds the archive's
+// desde/hasta filter clamping (via eventsActiveInRange) and month-page
+// data scoping.
+export function monthBounds(year: number, month: number): { start: string; end: string } {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const start = `${year}-${pad(month)}-01`;
+  const lastDay = new Date(year, month, 0).getDate(); // day 0 of next month = last day of this one
+  const end = `${year}-${pad(month)}-${pad(lastDay)}`;
+  return { start, end };
+}
+
 // Header title for "semana" mode, e.g. "13 al 19 de JULIO" or, spanning a
 // month boundary, "27 de JULIO al 2 de AGOSTO" — day + uppercase month, no
 // year. Sibling to fmtPeriod, not a reuse of it: fmtPeriod's month is

@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@caldearte/shared-types";
 import { cityIdFromRegionName, deriveCityId, OTHER_CITY } from "./cities";
-import { activeRange, anchorDateOnly, dateOnlyFromIso, isCurrentOrUpcoming, rangesOverlap, type EventDates } from "./date";
+import { activeRange, anchorDateOnly, dateOnlyFromIso, isArchivableMonth, isCurrentOrUpcoming, rangesOverlap, type EventDates } from "./date";
+import { matchesQuery } from "./cities";
 
 // Which time window the visitor is viewing (Header's Día/Semana toggle) —
 // a single day, or the current Monday-Sunday week. Shared type so
@@ -267,4 +268,76 @@ export function findNextEvent(events: EventRecord[], todayStr: string, windowEnd
     .filter((x): x is { e: EventRecord; anchor: string } => x.anchor !== null && x.anchor > windowEnd)
     .sort((a, b) => (a.anchor > b.anchor ? 1 : a.anchor < b.anchor ? -1 : 0));
   return upcoming[0]?.e ?? null;
+}
+
+// --- "Expos anteriores" archive ---------------------------------------
+
+export interface MonthKey {
+  year: number;
+  month: number; // 1-12
+}
+
+function monthKeyOf(dateStr: string): string {
+  return dateStr.slice(0, 7); // "YYYY-MM"
+}
+
+// Every approved event with a resolvable anchor date, keyed to exactly one
+// month — its own anchor's month — never repeated across the months a
+// multi-month run happens to span. This is what keeps each archive page's
+// content unique (no duplicate cards across pages, which would dilute
+// SEO), per the confirmed "opening month is canonical" rule.
+export function groupEventsByAnchorMonth(events: EventRecord[]): Map<string, EventRecord[]> {
+  const groups = new Map<string, EventRecord[]>();
+  for (const e of events) {
+    const anchor = anchorDateOnly(e);
+    if (!anchor) continue;
+    const key = monthKeyOf(anchor);
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(e);
+    else groups.set(key, [e]);
+  }
+  return groups;
+}
+
+// Distinct past months (strictly before todayStr's Santiago month) that
+// have at least one event, most-recent-first — the source list for both
+// generateStaticParams and the sitemap.
+export function listArchiveMonths(events: EventRecord[], todayStr: string): MonthKey[] {
+  const groups = groupEventsByAnchorMonth(events);
+  const months: MonthKey[] = [];
+  for (const key of groups.keys()) {
+    const [year, month] = key.split("-").map(Number);
+    if (isArchivableMonth(year, month, todayStr)) months.push({ year, month });
+  }
+  return months.sort((a, b) => b.year * 12 + b.month - (a.year * 12 + a.month));
+}
+
+// Events anchored to exactly this year/month, earliest opening first — an
+// archive page reads as a timeline of the month, unlike the home page's
+// "newest first" ordering (sortByAnchorDesc).
+export function eventsForMonth(events: EventRecord[], year: number, month: number): EventRecord[] {
+  const key = `${year}-${String(month).padStart(2, "0")}`;
+  const bucket = groupEventsByAnchorMonth(events).get(key) ?? [];
+  return [...bucket].sort((a, b) => {
+    const aAnchor = anchorDateOnly(a) ?? "";
+    const bAnchor = anchorDateOnly(b) ?? "";
+    return aAnchor < bAnchor ? -1 : aAnchor > bAnchor ? 1 : 0;
+  });
+}
+
+// Free-text search over title/artist/placeName — accent-insensitive via
+// cities.ts's matchesQuery, same normalization the city picker's search
+// box already relies on.
+export function searchEvents(events: EventRecord[], query: string): EventRecord[] {
+  const trimmed = query.trim();
+  if (!trimmed) return events;
+  return events.filter(
+    (e) => matchesQuery(e.title, trimmed) || (e.artist !== null && matchesQuery(e.artist, trimmed)) || (e.placeName !== null && matchesQuery(e.placeName, trimmed)),
+  );
+}
+
+export function filterByPlaceName(events: EventRecord[], query: string): EventRecord[] {
+  const trimmed = query.trim();
+  if (!trimmed) return events;
+  return events.filter((e) => e.placeName !== null && matchesQuery(e.placeName, trimmed));
 }

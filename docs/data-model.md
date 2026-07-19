@@ -61,6 +61,12 @@ events
   -- opening_datetime as fallbacks) — see overview.md's "full exhibition
   -- run" policy. Implemented via the prune_expired_events SQL function,
   -- called from Event Discovery's own weekly run, not a separate cron.
+  -- Revised 2026-07-19 (supabase/migrations/20260719060000_prune_expired_events_excludes_approved.sql):
+  -- only applies to rejected/pending_review rows now — approved events
+  -- are never pruned, since every approved event eventually lands on a
+  -- statically generated "Expos anteriores" archive page
+  -- (apps/web/src/app/expos-anteriores/[year]/[month]) that must stay
+  -- accurate indefinitely for SEO.
 
 system_config
   key (primary key), value, updated_at

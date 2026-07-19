@@ -72,7 +72,20 @@ Closed out the initial project brief, moved into a dedicated repo.
   deletes events where `coalesce(run_end_date, run_start_date,
   opening_datetime::date)` is more than a year old, called from
   `run.ts` on Event Discovery's existing weekly cadence — same posture as
-  the `raw_search_results` pruning, no separate cron needed.
+  the `raw_search_results` pruning, no separate cron needed. **Revised
+  2026-07-19**: approved events are now excluded from this pruning
+  entirely (`supabase/migrations/20260719060000_prune_expired_events_excludes_approved.sql`)
+  — the new "Expos anteriores" archive (below) needs every approved
+  event's data to stay available indefinitely.
+- **Shipped 2026-07-19**: "Expos anteriores" — a statically generated
+  archive at `/expos-anteriores/[year]/[month]`, one page per past
+  calendar month, grouping every approved event under its opening month
+  (never repeated across months for multi-month runs). Built for SEO: the
+  homepage is fully dynamic and the sitemap previously had only 3 URLs, so
+  this is the site's first source of unique, indexable, growing content.
+  Linked from the homepage next to "EXPOS ACTUALES". Includes a search box
+  and a filter drawer (date range, lugar, comuna) scoped to the viewed
+  month only.
 - **Shipped**: Next.js frontend (`apps/web`) showing the calendar, deployed
   on Vercel (Hobby) at `caldearte.com`, with a región-grouped city picker,
   and family-mode content filtering (defaults ON for first-time visitors,
