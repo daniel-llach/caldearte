@@ -8,7 +8,9 @@ export const revalidate = 3600; // matches the archive pages' own revalidate win
 // Data-dependent since the "Expos anteriores" archive shipped — enumerates
 // one URL per archived month, on top of the app's static routes.
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = "https://caldearte.com";
+  // www, not the apex — see robots.ts's comment. Every <loc> here must be
+  // the final URL Google actually lands on, not one that 308-redirects.
+  const base = "https://www.caldearte.com";
   const { events } = await fetchApprovedEvents(getSupabaseClient());
   const archiveUrls: MetadataRoute.Sitemap = listArchiveMonths(events, todayInSantiago()).map(({ year, month }) => ({
     url: `${base}/expos-anteriores/${year}/${String(month).padStart(2, "0")}`,

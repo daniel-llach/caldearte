@@ -14,7 +14,13 @@ const title = "Caldearte";
 const description = "Calendario de inauguraciones de arte en Chile.";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://caldearte.com"),
+  // www, not the apex — caldearte.com 308-redirects to www.caldearte.com at
+  // the Vercel domain level (project settings, not in this repo), so the
+  // apex is never the actual final URL for anything. Using it here would
+  // make every relative-URL-derived OG/canonical tag resolve to a URL that
+  // immediately redirects, which is exactly what broke Google Search
+  // Console's sitemap fetch (see robots.ts/sitemap.ts).
+  metadataBase: new URL("https://www.caldearte.com"),
   title,
   description,
   openGraph: {
