@@ -316,6 +316,22 @@ regardless of due-state — a domain shouldn't resurface via Tavily search
 just because we happen to not be re-fetching it directly this particular
 run.
 
+**Two different exclusion lists feed `excludeDomains`, for two different
+reasons** — bright-source domains (above), and, as of 2026-07-19,
+`KNOWN_LOW_QUALITY_SOURCE_DOMAINS` (`apps/curator/src/lib/
+known-exclusions.ts`): domains we never want content from at all, because
+their per-event extraction is unreliable (real case: infobae.com's weekly
+agenda-cultura roundup bundles many events from multiple countries into
+one tangled page — see the "Location" bullet above for the analogous
+Recoleta/Buenos Aires bug this same domain also produced). Both lists get
+merged into the one `excludeDomains` array passed to Tavily, so it ideally
+never returns either kind of domain in the first place (saves the
+credits/tokens of a result we'd discard anyway). But Tavily's own
+`exclude_domains` isn't perfectly reliable, so `filterKnownExclusions`
+still filters the same low-quality domains from whatever Tavily actually
+returns — belt and suspenders, same reasoning already applied to the
+Recoleta/Argentina location filter.
+
 **Pagination via `additionalPages`** — some listing pages are big enough
 that page 1 alone misses real, current events. Real find (2026-07-17):
 arteinformado.com's Chile listing isn't sorted chronologically or by

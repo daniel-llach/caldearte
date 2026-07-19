@@ -23,6 +23,7 @@ import { getSupabaseClient } from "../lib/supabase-client.js";
 import { recordUsage, getConfigNumber, getCurrentMonthSpend } from "../lib/usage-tracking.js";
 import { estimateCostUsd } from "../lib/pricing.js";
 import { knownSourceDomain } from "../lib/known-sources.js";
+import { KNOWN_LOW_QUALITY_SOURCE_DOMAINS } from "../lib/known-exclusions.js";
 import { matchRegionId, type RegionLike } from "../lib/locations.js";
 import { enrichMissingImages, type FetchLike as PageFetchLike } from "../lib/page-fetch.js";
 import { sendRunSummaryEmail, type RunSummary } from "../lib/notify.js";
@@ -393,8 +394,14 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   // excludeDomains stays based on EVERY known bright source, not just the
   // due ones — a domain we've decided to treat as a bright source should
   // never resurface via regular Tavily search, independent of whether
-  // we're actually re-fetching it this particular run.
-  const excludeDomains = brightSources.map((s) => knownSourceDomain(s.url));
+  // we're actually re-fetching it this particular run. Also includes the
+  // known low-quality-extraction domains (KNOWN_LOW_QUALITY_SOURCE_DOMAINS,
+  // e.g. infobae.com's multi-country agenda-cultura pages) — passed to
+  // Tavily so it ideally never returns them at all (saves the credits/
+  // tokens of a result we'd discard anyway); filterKnownExclusions still
+  // filters the same domains from whatever Tavily actually returns, since
+  // exclude_domains isn't perfectly reliable on Tavily's side.
+  const excludeDomains = [...brightSources.map((s) => knownSourceDomain(s.url)), ...KNOWN_LOW_QUALITY_SOURCE_DOMAINS];
   const fetchState = await loadBrightSourceFetchState();
   const dueBrightSources = brightSources.filter((s) => isSourceDue(fetchState.get(s.url), now));
   const seenKeys = await loadExistingKeys();
