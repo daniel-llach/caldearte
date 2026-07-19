@@ -135,6 +135,13 @@ Two distinct flows, both needing Resend's *inbound* email (someone emails
   manual, deliberate step once that rollout is validated at full scale,
   not an automatic background process — no rebuilt design exists yet for
   what comes after Chile.
+- **Copy convention for the next country's locale**: real bug (found
+  2026-07-19) — `es-CL.ts` had several strings written in Rioplatense
+  voseo instead of Chilean Spanish, an easy mistake since Spanish variants
+  read as superficially similar. When a second country ships (es-AR,
+  es-CO, ...), that locale file needs its own verified dialect/modismos,
+  not a copy of `es-CL.ts`'s phrasing — see the header comment in
+  [es-CL.ts](../apps/web/src/i18n/es-CL.ts) for the full note.
 
 ## Phase 2 — Geo/temporal personalization (low priority, pending real signal)
 

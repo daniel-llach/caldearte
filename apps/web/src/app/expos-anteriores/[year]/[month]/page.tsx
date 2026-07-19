@@ -38,9 +38,7 @@ export async function generateMetadata({ params }: { params: Promise<PageParams>
   const sample = monthEvents.slice(0, 5).map((e) => e.title).join(", ");
   return {
     title: `${esCL.archiveMonthTitle(label)} | ${esCL.appName}`,
-    description: monthEvents.length > 0
-      ? `${monthEvents.length} exposiciones que abrieron en Chile en ${label}: ${sample}${monthEvents.length > 5 ? "…" : "."}`
-      : `Exposiciones que abrieron en Chile en ${label}.`,
+    description: esCL.archiveMonthDescription(monthEvents.length, label, sample),
   };
 }
 
