@@ -60,6 +60,24 @@ export const esCL = {
   sectionExposActuales: "EXPOS ACTUALES",
   sectionArteEnTodasPartes: "ARTE EN TODAS PARTES",
 
+  archiveLink: "Revisá expos anteriores",
+  archiveMonthTitle: (label: string) => `Expos anteriores — ${label}`,
+  archiveSearchPlaceholder: "Buscá por título, artista o lugar...",
+  archiveFiltersAriaLabel: "Filtros",
+  archiveFilters: {
+    title: "Filtros",
+    desde: "Desde",
+    hasta: "Hasta",
+    lugar: "Lugar",
+    comuna: "Comuna",
+    comunaAll: "Todas",
+    clear: "Limpiar filtros",
+  },
+  archiveNoResults: "No encontramos expos con esos filtros este mes.",
+  archiveResultsCount: (n: number) => `${n} ${pluralize(n, "resultado", "resultados")}`,
+  archivePrevMonth: "← Mes anterior",
+  archiveNextMonth: "Mes siguiente →",
+
   cityStats: (inauguracionesCount: number, exposCount: number) => countsPhrase(inauguracionesCount, exposCount, " · "),
 
   tellUs: "Contanos →",

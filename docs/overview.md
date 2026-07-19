@@ -20,7 +20,11 @@ Claude API + Supabase).
   - **Implemented 2026-07-18**: `events` rows are deleted roughly a year
     past their run's end, not their opening date, via a
     `prune_expired_events` SQL function called from Event Discovery's own
-    weekly run — see [data-model.md](data-model.md).
+    weekly run — see [data-model.md](data-model.md). **Revised
+    2026-07-19**: approved events are no longer pruned at all — the
+    "Expos anteriores" archive (see [roadmap.md](roadmap.md)) needs them
+    to stay available indefinitely. Only rejected/pending_review rows
+    still follow the ~1-year cadence.
 - Schema implication: an event needs its run's start and end dates as two
   separate fields (`runStartDate`/`runEndDate` in the current design,
   distinct from the exhibition's overall duration), plus a separate,

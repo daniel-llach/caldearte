@@ -9,6 +9,11 @@ import {
   cityNamesFromEvents,
   findNextEvent,
   sumCounts,
+  groupEventsByAnchorMonth,
+  listArchiveMonths,
+  eventsForMonth,
+  searchEvents,
+  filterByPlaceName,
   type EventRecord,
 } from "./events";
 
@@ -166,4 +171,51 @@ test("sumCounts adds up inauguraciones/exposActuales across multiple CityCounts 
 
 test("sumCounts of an empty array is all zeros", () => {
   assert.deepEqual(sumCounts([]), { inauguraciones: 0, exposActuales: 0 });
+});
+
+test("groupEventsByAnchorMonth: a multi-month run appears only under its opening month", () => {
+  const springApril = event({ id: "a", openingDatetime: "2026-04-24T22:00:00+00:00", runStartDate: "2026-04-25", runEndDate: "2026-08-23" });
+  const julyOnly = event({ id: "b", openingDatetime: "2026-07-10T22:00:00+00:00", runStartDate: "2026-07-11", runEndDate: "2026-07-11" });
+  const groups = groupEventsByAnchorMonth([springApril, julyOnly]);
+  assert.deepEqual(groups.get("2026-04")?.map((e) => e.id), ["a"]);
+  assert.deepEqual(groups.get("2026-07")?.map((e) => e.id), ["b"]);
+  assert.equal(groups.get("2026-05"), undefined, "not repeated into a month it merely ran through");
+  assert.equal(groups.get("2026-08"), undefined);
+});
+
+test("listArchiveMonths: excludes the current and future months, sorts most-recent-first, only months with data", () => {
+  const june = event({ id: "a", openingDatetime: "2026-06-10T22:00:00+00:00", runStartDate: "2026-06-10", runEndDate: "2026-06-10" });
+  const april = event({ id: "b", openingDatetime: "2026-04-10T22:00:00+00:00", runStartDate: "2026-04-10", runEndDate: "2026-04-10" });
+  const currentMonth = event({ id: "c", openingDatetime: "2026-07-05T22:00:00+00:00", runStartDate: "2026-07-05", runEndDate: "2026-07-05" });
+  const futureMonth = event({ id: "d", openingDatetime: "2026-09-01T22:00:00+00:00", runStartDate: "2026-09-01", runEndDate: "2026-09-01" });
+  const months = listArchiveMonths([june, april, currentMonth, futureMonth], TODAY);
+  assert.deepEqual(months, [
+    { year: 2026, month: 6 },
+    { year: 2026, month: 4 },
+  ]);
+});
+
+test("eventsForMonth: scopes to exactly that year/month, chronologically ascending", () => {
+  const late = event({ id: "late", openingDatetime: "2026-06-25T22:00:00+00:00", runStartDate: "2026-06-25", runEndDate: "2026-06-25" });
+  const early = event({ id: "early", openingDatetime: "2026-06-02T22:00:00+00:00", runStartDate: "2026-06-02", runEndDate: "2026-06-02" });
+  const otherMonth = event({ id: "other", openingDatetime: "2026-07-02T22:00:00+00:00", runStartDate: "2026-07-02", runEndDate: "2026-07-02" });
+  assert.deepEqual(eventsForMonth([late, early, otherMonth], 2026, 6).map((e) => e.id), ["early", "late"]);
+});
+
+test("searchEvents matches title, artist, or placeName, accent-insensitive", () => {
+  const byTitle = event({ id: "a", title: "Exhibición Alicia" });
+  const byArtist = event({ id: "b", artist: "María José" });
+  const byPlace = event({ id: "c", placeName: "Galería Croxatto" });
+  const noMatch = event({ id: "d", title: "Otra cosa", artist: "Nadie", placeName: "Sala Z" });
+  assert.deepEqual(searchEvents([byTitle, byArtist, byPlace, noMatch], "alicia").map((e) => e.id), ["a"]);
+  assert.deepEqual(searchEvents([byTitle, byArtist, byPlace, noMatch], "maria").map((e) => e.id), ["b"]);
+  assert.deepEqual(searchEvents([byTitle, byArtist, byPlace, noMatch], "croxatto").map((e) => e.id), ["c"]);
+  assert.deepEqual(searchEvents([byTitle, byArtist, byPlace, noMatch], "").map((e) => e.id), ["a", "b", "c", "d"]);
+});
+
+test("filterByPlaceName matches placeName, accent-insensitive", () => {
+  const match = event({ id: "a", placeName: "Isabel Croxatto Galería" });
+  const noMatch = event({ id: "b", placeName: "Otra Sala" });
+  const nullPlace = event({ id: "c", placeName: null });
+  assert.deepEqual(filterByPlaceName([match, noMatch, nullPlace], "croxatto").map((e) => e.id), ["a"]);
 });
