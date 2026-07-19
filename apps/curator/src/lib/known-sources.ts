@@ -115,13 +115,29 @@ export const KNOWN_SOURCES: KnownSource[] = [
     // the 10 approved arteinformado.com events in production had
     // opening_datetime = null as a result. The specific opening date+time
     // only exists on each event's own detail page, in a structured
-    // "Inauguración : 15 jul de 2026 / 19 a 21 h." line — confirmed against
-    // real markup (.../agenda/f/dejar-atras-245428): the raw HTML has a
-    // </span> and <br/> between "Inauguración" and the date, which is why
-    // this pattern is matched against collapsed-whitespace text (see
-    // extractOpeningDatetime), not the raw HTML directly.
+    // "Inauguración : ..." line — confirmed against real markup, which is
+    // why this pattern is matched against collapsed-whitespace text (see
+    // extractOpeningDatetime), not the raw HTML directly (there's a </span>
+    // and <br/> between "Inauguración" and the date).
+    //
+    // Real bug #2 (found 2026-07-19, hours after shipping the fix above):
+    // the FIRST version of this regex only matched the "19 a 21 h." range
+    // format seen on .../agenda/f/dejar-atras-245428 — but a sample of 20
+    // real detail pages (both listing pages' events) showed that format is
+    // the outlier (1/20). The overwhelming majority (17/20) use a plain
+    // "HH:MM" time ("24 abr de 2026 / 19:00"), one uses "HH:MMh" with no
+    // space before the "h" (.../agenda/f/cuerpos-velados-santiago-figueroa-245451),
+    // and one has no time at all, just a date (.../agenda/f/sin-tesis-245342)
+    // — that last case is a real editorial gap on arteinformado.com's own
+    // page, not something to fabricate an hour for; it correctly yields
+    // null (event still counts as an "expo actual", just not as an
+    // "inauguración", since we genuinely don't know when it opened). The
+    // time portion of this regex is one optional group so any of these
+    // (range / HH:MM / HH:MMh / absent) matches without needing a separate
+    // config entry.
     openingTimeExtractor: {
-      pattern: /Inauguraci[oó]n\s*:?\s*(?<day>\d{1,2})\s+(?<month>[a-zé]{3})\.?\s+de\s+(?<year>\d{4})\s*\/\s*(?<hour>\d{1,2})(?::(?<minute>\d{2}))?\s*a\s*\d{1,2}\s*h/i,
+      pattern:
+        /Inauguraci[oó]n\s*:?\s*(?<day>\d{1,2})\s+(?<month>[a-zé]{3})\.?\s+de\s+(?<year>\d{4})(?:\s*\/\s*(?<hour>\d{1,2})(?::(?<minute>\d{2}))?(?:\s*h(?:rs?)?\.?)?(?:\s*a\s*\d{1,2}\s*h(?:rs?)?\.?)?)?/i,
     },
   },
 ];
