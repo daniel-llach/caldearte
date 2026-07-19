@@ -82,3 +82,45 @@ test("extractOpeningDatetime returns null for an unrecognized month abbreviation
   };
   assert.equal(extractOpeningDatetime("Inauguración: 15 xyz de 2026 / 19 h", config), null);
 });
+
+const UCHILE_CONFIG: OpeningTimeConfig = {
+  pattern:
+    /esperamos\s+este\s+\S+\s+(?<day>\d{1,2})\s+de\s+(?<month>[a-zé]{3})[a-zé]*\s+a\s+las\s+(?<hour>\d{1,2})[.:](?<minute>\d{2})\s*h?/i,
+};
+
+// Real markup, confirmed 2026-07-20 against
+// .../agenda/241838/exhibicion-alzar-curva-la-mirada-del-artista-francisco-belarmino
+// — no "Inauguración:" line at all, phrased as an invitation, full month
+// name (not the 3-letter abbreviation), and — the reason this needed a new
+// OpeningTimeConfig capability, not just a new regex — NO YEAR anywhere on
+// the page (checked meta tags too). Verified against a fixed referenceDate
+// so the inferred year is deterministic in the test.
+test("extractOpeningDatetime infers the year when the source never publishes one (uchile.cl)", () => {
+  const html = "Los esperamos este miercoles 01 de julio a las 18.00h. en Galería Micromedios, Bloque B, Segundo Piso";
+  const referenceDate = new Date("2026-07-19T12:00:00Z");
+  const result = extractOpeningDatetime(html, UCHILE_CONFIG, referenceDate);
+  assert.ok(result);
+  assert.equal(result!.slice(0, 4), "2026", "infers the reference date's own year for a near-term date");
+  assert.equal(readBackInSantiago(result!), "18:00");
+});
+
+test("extractOpeningDatetime's year inference rolls forward to next year for a date far enough in the past", () => {
+  const html = "Los esperamos este jueves 15 de enero a las 19:00h en el hall central";
+  // Referenced from December — mid-January is ~90 days in the past relative
+  // to this reference date, past the 60-day tolerance, so it must mean next
+  // January, not the one that already happened.
+  const referenceDate = new Date("2026-12-10T12:00:00Z");
+  const result = extractOpeningDatetime(html, UCHILE_CONFIG, referenceDate);
+  assert.ok(result);
+  assert.equal(result!.slice(0, 4), "2027");
+});
+
+test("extractOpeningDatetime's year inference keeps the current year for a date within tolerance of the past", () => {
+  const html = "Los esperamos este jueves 1 de julio a las 19:00h en el hall central";
+  // Only ~19 days in the past relative to referenceDate — well within the
+  // 60-day tolerance, so it's still "this year," not next year.
+  const referenceDate = new Date("2026-07-20T12:00:00Z");
+  const result = extractOpeningDatetime(html, UCHILE_CONFIG, referenceDate);
+  assert.ok(result);
+  assert.equal(result!.slice(0, 4), "2026");
+});

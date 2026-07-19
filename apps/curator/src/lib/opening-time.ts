@@ -16,8 +16,10 @@ function collapseWhitespace(text: string): string {
 export interface OpeningTimeConfig {
   // Matched against the detail page's collapsed-whitespace text (tags
   // stripped first, same as extractors.ts's own regexes) — named capture
-  // groups: day, month (Spanish 3-letter lowercase abbreviation), year,
-  // hour, minute (optional, defaults to "00" when absent).
+  // groups: day, month (Spanish 3-letter lowercase abbreviation), hour,
+  // minute (optional, defaults to "00" when absent), year (optional — see
+  // extractOpeningDatetime's referenceDate param for sources, like
+  // uchile.cl, that never publish one at all).
   pattern: RegExp;
 }
 
@@ -55,9 +57,26 @@ function santiagoWallTimeToUtcIso(year: number, month0: number, day: number, hou
   return new Date(guess.getTime() + correctionMs).toISOString();
 }
 
-// Pure, never throws — null on no match or an unrecognized month
+// When a source never publishes the year at all (real example: uchile.cl's
+// "Los esperamos este miércoles 01 de julio a las 18.00h" — implicitly
+// "this year," since it's a rolling near-term agenda, not an archive),
+// infer it from referenceDate's year, rolling forward to next year only if
+// that would place the date more than PAST_TOLERANCE_DAYS in the past —
+// handles a December-published page actually meaning next January without
+// second-guessing the overwhelmingly common case (a recent/upcoming date
+// in the current year).
+const PAST_TOLERANCE_DAYS = 60;
+function inferYear(month0: number, day: number, referenceDate: Date): number {
+  const year = referenceDate.getUTCFullYear();
+  const candidateMs = Date.UTC(year, month0, day);
+  const toleranceMs = PAST_TOLERANCE_DAYS * 24 * 60 * 60 * 1000;
+  return candidateMs < referenceDate.getTime() - toleranceMs ? year + 1 : year;
+}
+
+// Pure (referenceDate defaults to the real clock only at the call site, not
+// hidden inside), never throws — null on no match or an unrecognized month
 // abbreviation, same defensive posture as extractors.ts's parsers.
-export function extractOpeningDatetime(html: string, config: OpeningTimeConfig): string | null {
+export function extractOpeningDatetime(html: string, config: OpeningTimeConfig, referenceDate: Date = new Date()): string | null {
   const text = collapseWhitespace(html);
   const match = text.match(config.pattern);
   if (!match?.groups) return null;
@@ -67,10 +86,12 @@ export function extractOpeningDatetime(html: string, config: OpeningTimeConfig):
   if (month0 === undefined) return null;
 
   const dayNum = Number(day);
-  const yearNum = Number(year);
   const hourNum = Number(hour);
   const minuteNum = minute ? Number(minute) : 0;
-  if ([dayNum, yearNum, hourNum, minuteNum].some((n) => Number.isNaN(n))) return null;
+  if ([dayNum, hourNum, minuteNum].some((n) => Number.isNaN(n))) return null;
+
+  const yearNum = year ? Number(year) : inferYear(month0, dayNum, referenceDate);
+  if (Number.isNaN(yearNum)) return null;
 
   return santiagoWallTimeToUtcIso(yearNum, month0, dayNum, hourNum, minuteNum);
 }

@@ -195,6 +195,27 @@ test("fetchBrightSources against the real KNOWN_SOURCES config for uchile.cl par
   assert.equal(results[0].images[0]?.url, "https://artes.uchile.cl/dam/uno.jpg");
 });
 
+test("fetchBrightSources against the real KNOWN_SOURCES config for uchile.cl (root domain, cross-faculty) resolves relative hrefs against its own domain, not artes.uchile.cl (regression check against production config, real bug found 2026-07-20)", async () => {
+  const uchile = KNOWN_SOURCES.find((s) => s.url === "https://uchile.cl/agenda/30dias/6");
+  assert.ok(uchile?.extractor?.kind === "articleList");
+  const config = uchile.extractor as ArticleListConfig;
+
+  const html = `
+    <article class="mod-cal-result__item">
+      <figure><img src="/dam/foto.jpg" alt="Imagen"></figure>
+      <h4 class="mod__item-title"><a href="/agenda/241838/exhibicion-alzar-curva-la-mirada-del-artista-francisco-belarmino">Exhibición Alzar curva la mirada</a></h4>
+      <p class="mod-cal-result__item-days">Del 1 de julio al 28 de agosto</p>
+      <p class="mod-cal-result__item-placer">Galería Micromedios</p>
+    </article>
+  `;
+
+  const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([{ url: uchile.url, note: uchile.note, extractor: config }]));
+
+  assert.equal(results.length, 1);
+  assert.match(results[0].content, /Alzar curva la mirada.*Galería Micromedios.*Más info: https:\/\/uchile\.cl\/agenda\/241838\/exhibicion-alzar-curva-la-mirada-del-artista-francisco-belarmino/s);
+  assert.equal(results[0].images[0]?.url, "https://uchile.cl/dam/foto.jpg");
+});
+
 test("fetchBrightSources against the real KNOWN_SOURCES config for molinomachmar.cl extracts an exhibition even when it sits past the whole-page-flatten's char cutoff (regression check against production config, real bug found 2026-07-16)", async () => {
   const camm = KNOWN_SOURCES.find((s) => s.url.includes("molinomachmar.cl"));
   assert.ok(camm?.extractor?.kind === "articleList");
