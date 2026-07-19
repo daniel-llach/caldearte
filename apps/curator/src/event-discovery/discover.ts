@@ -8,7 +8,7 @@
 import { ART_SCOPE_POLICY, TEXT_CURATION_POLICY, INSTITUTIONAL_EXCLUSION_POLICY } from "../lib/curation-policy.js";
 import { tavilySearch, type FetchLike, type TavilyImage } from "../lib/tavily.js";
 import { isChileanLocation } from "../lib/locations.js";
-import { matchesKnownExclusion } from "../lib/known-exclusions.js";
+import { matchesKnownExclusion, matchesKnownLowQualityDomain } from "../lib/known-exclusions.js";
 import { normalizeTitle } from "../lib/event-filters.js";
 
 export { normalizeTitle };
@@ -188,8 +188,15 @@ export async function searchUnit(
 // content bundles many events into one page; those rely on
 // applyKnownExclusionsFilter below instead, after Haiku has already
 // separated them into individual candidates.
+//
+// Also drops results from known low-quality-extraction domains
+// (matchesKnownLowQualityDomain) — pages that themselves bundle many
+// events/countries into one tangled page despite showing up as a REGULAR
+// per-unit search result, not a bright source, so the "one page = one
+// event" assumption above doesn't hold for them either. See
+// known-exclusions.ts for the real case (infobae.com's agenda-cultura).
 export function filterKnownExclusions(results: RawResult[]): RawResult[] {
-  return results.filter((r) => !matchesKnownExclusion(r.title));
+  return results.filter((r) => !matchesKnownExclusion(r.title) && !matchesKnownLowQualityDomain(r.url));
 }
 
 export function formatImages(images: ImageCandidate[]): string {

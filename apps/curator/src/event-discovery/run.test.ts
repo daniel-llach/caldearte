@@ -721,6 +721,26 @@ test(
         assert.ok(capturedSummary, "the summary email is ancillary reporting, not gated on there being something to report");
         assert.equal(capturedSummary!.candidates.total, 0);
       });
+
+      await t.test("excludeDomains passed to Tavily merges bright-source domains with known low-quality-extraction domains", async () => {
+        let capturedExcludeDomains: string[] = [];
+        const capturingSearchUnitFn = async (_key: string, _unitName: string, _now: Date, excludeDomains: string[]) => {
+          capturedExcludeDomains = excludeDomains;
+          return { results: [], credits: 0 };
+        };
+
+        await run({
+          messagesClient,
+          searchUnitFn: capturingSearchUnitFn,
+          fetchBrightSourcesFn: async () => [],
+          now: new Date(2027, 3, 18), // Apr 18, 2027 — unit due again
+        });
+
+        assert.ok(
+          capturedExcludeDomains.includes("infobae.com"),
+          "the known-low-quality domain is passed to Tavily's exclude_domains, not just filtered post-hoc",
+        );
+      });
     } finally {
       await client.from("events").delete().like("title", "__test__%");
       await client.from("detected_sources").delete().like("url", "%nuevositio.cl%");
