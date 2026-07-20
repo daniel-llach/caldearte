@@ -101,17 +101,9 @@ export default function Header({
         </button>
       </div>
 
-      <div className="md:hidden mt-1 flex items-baseline gap-2">
-        <span className="text-2xl font-bold text-heading-gray">{dateLabel}</span>
-        {time && (
-          <span className="text-sm text-muted-gray" suppressHydrationWarning>
-            {time}
-          </span>
-        )}
-      </div>
-
       <div className="mt-3 md:mt-4 flex items-center gap-2 flex-wrap text-[15px] md:text-xl text-heading-gray">
-        <span>{esCL.headerSummary(inauguracionesCount, exposCount)}</span>
+        <span className="md:hidden">{esCL.headerSummary(inauguracionesCount, exposCount, true)}</span>
+        <span className="hidden md:inline">{esCL.headerSummary(inauguracionesCount, exposCount)}</span>
         <button
           ref={cityPickerTriggerRef}
           onClick={onOpenCityPicker}

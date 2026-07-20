@@ -16,6 +16,12 @@ test("headerSummary shows only the nonzero part, falls back to a countless phras
   assert.equal(esCL.headerSummary(0, 0), "Descubre el arte que hay en");
 });
 
+test("headerSummary abbreviates to inau(s)/expo(s) when abbreviate is true — mobile header, less horizontal room", () => {
+  assert.equal(esCL.headerSummary(1, 2, true), "1 inau y 2 expos que visitar en");
+  assert.equal(esCL.headerSummary(3, 0, true), "3 inaus que visitar en");
+  assert.equal(esCL.headerSummary(0, 1, true), "1 expo que visitar en");
+});
+
 test("todaySuffix/thisWeekSuffix — Header's Día/Semana dropdown copy", () => {
   assert.equal(esCL.todaySuffix, "hoy");
   assert.equal(esCL.thisWeekSuffix, "esta semana");
