@@ -175,3 +175,75 @@ export async function sendRunSummaryEmail(summary: RunSummary): Promise<void> {
     console.error("[notify] run-summary email send failed", error);
   }
 }
+
+// Sibling to RunSummary, not a reuse of it — this run has no comunas and no
+// per-unit failures in the same sense (see
+// headless-discovery/run.ts), so forcing those fields onto RunSummary
+// would mean either fake zero values or an awkward optional. `candidates`/
+// `cost` share RunSummary's exact shape since those figures mean the same
+// thing regardless of which run produced them.
+export interface HeadlessRunSummary {
+  startedAt: Date;
+  sourcesFetched: string[]; // URLs of the headless sources due this run
+  candidates: RunSummary["candidates"];
+  cost: RunSummary["cost"];
+}
+
+export function buildHeadlessSubject(summary: HeadlessRunSummary): string {
+  const dateStr = summary.startedAt.toISOString().slice(0, 10).split("-").reverse().join("/");
+  return `Caldearte — resumen de fuentes brillantes (headless) (${dateStr}, ${summary.sourcesFetched.length} fuente(s))`;
+}
+
+export function buildHeadlessBody(summary: HeadlessRunSummary): string {
+  const { sourcesFetched, candidates, cost } = summary;
+
+  const lines = [
+    `Resumen de la corrida de fuentes brillantes (navegador headless) — ${summary.startedAt.toISOString()}`,
+    "",
+    `FUENTES CONSULTADAS (${sourcesFetched.length})`,
+    sourcesFetched.length > 0 ? sourcesFetched.join(", ") : "(ninguna debida esta corrida)",
+    "",
+    "EVENTOS",
+    `Total candidatos: ${candidates.total}`,
+    `Aprobados por curatoría: ${candidates.approvedByCuration}`,
+    `Rechazados por curatoría: ${candidates.rejectedByCuration}`,
+    `Insertados en el calendario: ${candidates.insertedCount}`,
+    `Con tag de sensibilidad: ${candidates.sensitivityTagged}`,
+    "",
+    "Por tipo de medio:",
+    ...Object.entries(candidates.byMediumType).map(([type, count]) => `  ${type}: ${count}`),
+    "",
+    "COSTO ESTIMADO DE ESTA CORRIDA",
+    `Anthropic (Haiku): ${fmtUsd(cost.anthropicUsd)}`,
+    `Total: ${fmtUsd(cost.totalUsd)}`,
+    "",
+    "GASTO DEL MES A LA FECHA",
+    `$${cost.monthToDateUsd.toFixed(2)} de $${cost.monthlyBudgetUsd.toFixed(2)} (techo mensual, system_config.monthly_budget_usd)`,
+  ];
+
+  return lines.join("\n");
+}
+
+// Same defensive posture as sendRunSummaryEmail: ancillary, last step,
+// must never throw.
+export async function sendHeadlessRunSummaryEmail(summary: HeadlessRunSummary): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn(
+      "sendHeadlessRunSummaryEmail: RESEND_API_KEY not set — skipping run-summary email (expected outside CI or before the secret is configured).",
+    );
+    return;
+  }
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from: "Caldearte <contacto@caldearte.com>",
+    to: RUN_SUMMARY_RECIPIENT,
+    subject: buildHeadlessSubject(summary),
+    text: buildHeadlessBody(summary),
+  });
+
+  if (error) {
+    console.error("[notify] headless run-summary email send failed", error);
+  }
+}
