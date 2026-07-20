@@ -93,7 +93,7 @@ export async function getUnitsDueForRun(now: Date = new Date()): Promise<Region[
 // All regions, regardless of status — region_id is a location tag, not a
 // "should we search here" flag, so an event can still match an excluded
 // or not-yet-due region by name.
-async function loadAllRegions(): Promise<RegionLike[]> {
+export async function loadAllRegions(): Promise<RegionLike[]> {
   const { data, error } = await getSupabaseClient().from("regions").select("id, name");
 
   if (error) {
@@ -127,12 +127,16 @@ async function loadDetectedSources(): Promise<BrightSource[]> {
 // identity both hand-curated and auto-detected sources share).
 const BRIGHT_SOURCE_INTERVAL_MS = 14 * 24 * 60 * 60 * 1000;
 
-function isSourceDue(lastFetchedAt: string | undefined, now: Date): boolean {
+export function isSourceDue(lastFetchedAt: string | undefined, now: Date): boolean {
   if (!lastFetchedAt) return true;
   return now.getTime() - new Date(lastFetchedAt).getTime() >= BRIGHT_SOURCE_INTERVAL_MS;
 }
 
-async function loadBrightSourceFetchState(): Promise<Map<string, string>> {
+// Exported for headless-discovery/run.ts, which shares the exact same
+// bright_source_fetch_state table/cadence — MAVI is just another bright
+// source whose fetch mechanism happens to need a real browser instead of a
+// plain fetch(), not a fundamentally different concept.
+export async function loadBrightSourceFetchState(): Promise<Map<string, string>> {
   const { data, error } = await getSupabaseClient().from("bright_source_fetch_state").select("url, last_fetched_at");
 
   if (error) {
@@ -149,7 +153,7 @@ async function loadBrightSourceFetchState(): Promise<Map<string, string>> {
 // single run wastes just as much time as retrying a working one; the
 // 2-week backoff applies equally, same posture as regions' own due-check
 // (which doesn't distinguish a zero-yield run from a failed one either).
-async function recordBrightSourcesFetched(urls: string[], now: Date): Promise<void> {
+export async function recordBrightSourcesFetched(urls: string[], now: Date): Promise<void> {
   const client = getSupabaseClient();
   for (const url of urls) {
     const { error } = await client.from("bright_source_fetch_state").upsert({ url, last_fetched_at: now.toISOString() });
@@ -197,7 +201,7 @@ function locationDateOnlyKey(location: string, c: Pick<EventCandidate, "openingD
   return `${normalizeLocation(location)}|${dateOnly}`;
 }
 
-interface SeenKeys {
+export interface SeenKeys {
   titles: Set<string>;
   sourceUrls: Set<string>;
   locationDates: Set<string>;
@@ -215,7 +219,7 @@ interface SeenKeys {
   titlesByLocationDateOnly: Map<string, string[]>;
 }
 
-async function loadExistingKeys(): Promise<SeenKeys> {
+export async function loadExistingKeys(): Promise<SeenKeys> {
   const { data, error } = await getSupabaseClient()
     .from("events")
     .select("title, source_url, freeform_location, opening_datetime, run_start_date, run_end_date")
@@ -253,7 +257,7 @@ async function loadExistingKeys(): Promise<SeenKeys> {
   };
 }
 
-async function insertCandidates(
+export async function insertCandidates(
   candidates: EventCandidate[],
   regions: RegionLike[],
   seen: SeenKeys,

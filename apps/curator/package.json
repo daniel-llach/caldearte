@@ -6,6 +6,7 @@
   "scripts": {
     "test": "node --import tsx --test src/**/*.test.ts",
     "discover-events": "node --import tsx src/index.ts",
+    "discover-headless-sources": "node --import tsx src/headless-index.ts",
     "poc-tavily": "node --env-file=../../.env --import tsx scripts/poc-tavily-discover.ts",
     "query-variant-test": "node --env-file=../../.env --import tsx scripts/query-variant-test.ts"
   },
@@ -13,6 +14,7 @@
     "@anthropic-ai/sdk": "^0.111.0",
     "@caldearte/shared-types": "workspace:*",
     "@supabase/supabase-js": "^2.110.2",
+    "playwright": "^1.61.1",
     "resend": "^6.17.2"
   },
   "devDependencies": {

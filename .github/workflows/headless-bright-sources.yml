@@ -1,0 +1,44 @@
+name: Run Headless Bright Sources
+
+# Separate, deferred workflow for bright sources that need a real browser to
+# read at all (MAVI UC today — see apps/curator/src/lib/mavi-headless.ts).
+# Deliberately its OWN workflow, not a job inside event-discovery.yml: the
+# main weekly run already sits close to GitHub Actions' 6-hour job ceiling
+# across 346 comunas (docs/region-discovery.md), and a headless browser
+# launch + page render is several seconds versus sub-second for a plain
+# fetch() — isolating this here means a Playwright failure (a new, more
+# fragile dependency than anything else in this pipeline) can never fail
+# the main run, and this job's own time cost never eats into that budget.
+#
+# No TAVILY_API_KEY: this flow never searches, only fetches + curates
+# already-known sources (same "fuentes brillantes" concept the main run
+# already has, just fetched a different way).
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 7 * * 1" # Every Monday, 07:00 UTC — 1h after the main run
+
+jobs:
+  discover-headless:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @caldearte/curator exec playwright install chromium --with-deps
+
+      - name: Run headless bright sources
+        run: pnpm --filter @caldearte/curator run discover-headless-sources
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}

@@ -726,37 +726,74 @@ for any candidate whose `sourceUrl` is `mavi.uc.cl` or `uc.cl`/`www.uc.cl`
 under `/agenda` — confirmed via manual site investigation (below) that
 these domains never publish a real inauguración date.
 
-**Investigated, NOT built — MAVI as a bright source:** `mavi.uc.cl`'s own
-exhibition listing (`/exposiciones-actuales/`) is a client-rendered
-Next.js app whose data comes from `api.agenda.uc.cl` (a Strapi API) —
-that API returns `403 Forbidden` to a plain `fetch()` (confirmed via
-curl, with and without browser-like headers), so the listing can't be
-scraped with the curator's current fetch-only architecture. The
-**individual** detail pages it links to
-(`uc.cl/agenda/actividad/<slug>`) ARE plain-fetchable and contain real
-run dates, a real title, and confirmed no mention of an inauguración —
-but there's no way to discover their URLs without the blocked listing.
-These events keep getting found incidentally via regular per-comuna
-Tavily search (as they already were), just with the fabricated/
-misattributed opening time stripped.
+**Built (2026-07-20, follow-up) — MAVI as a real bright source, via a
+separate headless-browser job.** `mavi.uc.cl`'s own exhibition listing
+(`/exposiciones-actuales/`) is a client-rendered Next.js app whose data
+comes from `api.agenda.uc.cl` (a Strapi API) that returns `403 Forbidden`
+to a plain `fetch()` — confirmed unfixable with the curator's normal
+fetch-only architecture. Rather than scraping the rendered DOM, a real
+Chromium session (Playwright) intercepts the actual JSON response the
+page itself receives from that API — richer and far more robust than
+regex over rendered HTML, and it already includes everything needed:
+title, a full prose description with the real exhibition dates, a direct
+S3 image URL, and a slug to build the real per-event
+`uc.cl/agenda/actividad/<slug>` URL. The API's own `dates`/`datesBuilder`/
+`nextDate` fields are the museum's regular visiting hours (open
+Tue-Sun, same shape every week) — confirmed via a real probe against the
+live API — and are deliberately never surfaced as a candidate field at
+all; real exhibition dates come from the prose description, curated by
+Haiku exactly like any other source.
 
-A real fix (MAVI as a proper bright source, with correct `sourceUrl` and
-`imageUrl` every time, not just when Tavily happens to surface the
-specific page) would need a headless browser (Puppeteer/Playwright) to
-render the listing — explicitly **not built now**, discussed and deferred
-by the user pending a proper plan: cost isn't in dollars (public repo,
-free Actions minutes; no Anthropic/Tavily calls involved) but in job
-duration (each JS-rendered fetch takes seconds vs. sub-second for a plain
-one, eating into the weekly batch's existing ~6h ceiling if not
-isolated) and a new dependency's fragility. The user's own proposed
-mitigation — run headless fetches as a **separate, deferred job** scoped
-only to the small number of bright sources that actually need it,
-decoupled from the main per-comuna batch — resolves the timing concern
-specifically; `run.ts` already excludes registered bright-source domains
-from regular Tavily search (`excludeDomains`), so the
-cross-contamination concern the user raised is already handled by
-existing code, not something the new job would need to add. Worth a
-proper implementation plan before building, not an ad-hoc addition here.
+Deliberately scoped to MAVI specifically, not a generic "headless bright
+source" framework — only one real case exists today (see
+`measure_before_building_infra` in the user's own project conventions);
+a second real case would justify generalizing `KnownSource`/`BrightSource`
+with a `requiresHeadless` flag, not before.
+
+**Architecture, per the user's own proposed mitigation** (isolates the
+timing/fragility cost from the main run entirely):
+- `apps/curator/src/lib/mavi-headless.ts` — `fetchMaviActivities()`
+  launches headless Chromium, navigates to the listing, intercepts the
+  `api.agenda.uc.cl/api/activities` response, and returns clean
+  `MaviActivity[]` (title/content/detailUrl/imageUrl/placeName). Never
+  throws — a broken API shape or a Playwright launch failure degrades to
+  an empty list, same defensive posture as `sources.ts`'s
+  `fetchBrightSources`.
+- `apps/curator/src/headless-discovery/run.ts` — its own orchestrator,
+  **reusing** `event-discovery/discover.ts`'s `curate()` (same hardened
+  anti-fabrication prompt, same `nullifyOpeningDatetimeForKnownSources`
+  safety net — MAVI's `uc.cl/agenda` sourceUrl triggers it automatically
+  even though this path shouldn't need it) and `event-discovery/run.ts`'s
+  `insertCandidates`/`loadExistingKeys`/`loadAllRegions` (now exported)
+  for dedup/insertion — no curation logic is duplicated, only the fetch
+  step differs from the main run.
+- `apps/curator/src/headless-index.ts` + the `discover-headless-sources`
+  npm script — separate entrypoint.
+- `.github/workflows/headless-bright-sources.yml` — separate workflow,
+  Monday 07:00 UTC (1h after the main run), no `TAVILY_API_KEY` (this
+  flow never searches). Installs Chromium only in this job, never the
+  main one.
+- `lib/notify.ts`'s `HeadlessRunSummary`/`buildHeadlessSubject`/
+  `buildHeadlessBody`/`sendHeadlessRunSummaryEmail` — a sibling to
+  `RunSummary`'s own functions (same format/recipient/never-throws
+  posture), not a forced reuse: this run has no comunas or per-unit
+  failures in the same sense, so `RunSummary`'s shape doesn't fit
+  cleanly.
+- Reuses `bright_source_fetch_state` and its existing 14-day
+  `isSourceDue`/`recordBrightSourcesFetched` cadence mechanism — MAVI's
+  listing URL is just another row, no new table/migration needed.
+
+Why Haiku is still necessary despite the API already giving clean,
+complete data (a real question raised while building this): the API
+solves fetching, not curation. Two things still genuinely need it: (1)
+content-sensitivity curation — MAVI can, in principle, host an exhibition
+that needs one of the four axes' tags or exclusion, and skipping Haiku
+would mean MAVI-sourced events bypass that check entirely, a real
+editorial gap, not a formality; (2) the real exhibition dates live in
+free-form Spanish prose (the `content` field), not a clean structured
+start/end field — the same kind of parsing Haiku already does reliably
+for every other source. Dedup does NOT need Haiku at all — that's
+`insertCandidates`'s deterministic dedup, unchanged and reused as-is.
 
 ## Ranking & expansion (superseded, kept for historical reference)
 
