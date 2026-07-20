@@ -85,6 +85,8 @@ export const esCL = {
   cardMoreOptionsAriaLabel: "Más opciones",
   cardMenuDirections: "Cómo llegar",
   cardMenuSource: "Ver fuente original",
+  // Inauguraciones only — see EventCardBase's gating on variant + openingDatetime.
+  cardMenuAddToCalendar: "Agregar a mi calendario",
 
   archiveLink: "Revisa expos anteriores",
   archiveMonthTitle: (label: string) => `Expos anteriores — ${label}`,

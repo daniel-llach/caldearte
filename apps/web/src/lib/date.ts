@@ -160,6 +160,48 @@ export function fmtWeekHeader(weekStart: string, weekEnd: string): string {
   return `${s.getDate()} de ${MONTHS[s.getMonth()].toUpperCase()} al ${e.getDate()} de ${MONTHS[e.getMonth()].toUpperCase()}`;
 }
 
+// Google Calendar's compact UTC format for its event-creation link:
+// YYYYMMDDTHHMMSSZ — used only for that URL, never for display.
+function toGoogleCalendarUtc(iso: string): string {
+  return iso.replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+
+// "Agregar a mi calendario" link for an inauguración. All-day
+// (dates=YYYYMMDD/YYYYMMDD, end exclusive per Google's format) when the
+// hour isn't confirmed — never fabricate the midnight-Santiago placeholder
+// hour into the calendar event, same principle EventCardBase already
+// applies to the card's own date line. Otherwise a timed event with a 2h
+// default duration (inauguraciones don't have a real end time).
+export function buildGoogleCalendarUrl(event: {
+  title: string;
+  openingDatetime: string;
+  openingTimeConfirmed: boolean;
+  description: string | null;
+  sourceUrl: string | null;
+  venueLine: string;
+}): string {
+  const details = [event.description, event.sourceUrl].filter(Boolean).join("\n\n");
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: event.title,
+    details,
+    location: event.venueLine,
+  });
+
+  if (event.openingTimeConfirmed) {
+    const start = new Date(event.openingDatetime);
+    const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+    params.set("dates", `${toGoogleCalendarUtc(start.toISOString())}/${toGoogleCalendarUtc(end.toISOString())}`);
+  } else {
+    const day = parseDateOnly(dateOnlyFromIso(event.openingDatetime));
+    const nextDay = new Date(day);
+    nextDay.setDate(day.getDate() + 1);
+    params.set("dates", `${toDateOnlyString(day).replace(/-/g, "")}/${toDateOnlyString(nextDay).replace(/-/g, "")}`);
+  }
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
 export interface EventDates {
   openingDatetime: string | null;
   runStartDate: string | null;
