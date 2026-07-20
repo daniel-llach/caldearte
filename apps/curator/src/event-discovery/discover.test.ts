@@ -257,6 +257,39 @@ test("curate parses the fenced JSON block and applies the location backstop", as
   assert.equal(usage.outputTokens, 50);
 });
 
+test("curate converts Haiku's plain Chile-local openingDatetime to a real UTC instant (real bug, found 2026-07-20: was written through unconverted)", async () => {
+  const candidates = [{ ...baseCandidate, openingDatetime: "2026-07-26T12:30" }];
+  const client: MessagesClient = {
+    messages: {
+      create: async () => ({
+        content: [{ type: "text", text: "```json\n" + JSON.stringify(candidates) + "\n```" }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+    },
+  };
+
+  const { candidates: parsed } = await curate(client, "system", "block");
+
+  // 12:30 Chile (winter, UTC-4) = 16:30 UTC.
+  assert.equal(parsed[0].openingDatetime, "2026-07-26T16:30:00.000Z");
+});
+
+test("curate nulls out a malformed openingDatetime rather than storing a wrong instant", async () => {
+  const candidates = [{ ...baseCandidate, openingDatetime: "26 de julio, 12:30" }];
+  const client: MessagesClient = {
+    messages: {
+      create: async () => ({
+        content: [{ type: "text", text: "```json\n" + JSON.stringify(candidates) + "\n```" }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+    },
+  };
+
+  const { candidates: parsed } = await curate(client, "system", "block");
+
+  assert.equal(parsed[0].openingDatetime, null);
+});
+
 test("curate throws a descriptive error when no JSON block is present", async () => {
   const client: MessagesClient = {
     messages: {

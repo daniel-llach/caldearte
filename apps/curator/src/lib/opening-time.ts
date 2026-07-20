@@ -51,7 +51,7 @@ const ES_MONTH_ABBR: Record<string, number> = {
 // see what Santiago's clock actually reads for that guess, then correct by
 // the difference. One pass is enough since America/Santiago's offset is
 // constant across the few minutes this correction spans.
-function santiagoWallTimeToUtcIso(year: number, month0: number, day: number, hour: number, minute: number): string {
+export function santiagoWallTimeToUtcIso(year: number, month0: number, day: number, hour: number, minute: number): string {
   const guess = new Date(Date.UTC(year, month0, day, hour, minute));
 
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -71,6 +71,32 @@ function santiagoWallTimeToUtcIso(year: number, month0: number, day: number, hou
 
   const correctionMs = guess.getTime() - santiagoAsUtc;
   return new Date(guess.getTime() + correctionMs).toISOString();
+}
+
+// Converts a plain "YYYY-MM-DDTHH:mm" (Chile wall-clock, no offset/"Z" —
+// see event-discovery/discover.ts's buildSystemPrompt, which instructs
+// Haiku to report exactly this format) into a real UTC ISO instant, via the
+// same DST-safe conversion this module already uses for the deterministic
+// regex path. Real bug, found 2026-07-20: Haiku's raw openingDatetime
+// string used to be written straight to the DB with zero conversion — an
+// event confirmed at "12:30" (Chile local) rendered as "08:30" on the
+// card, since the frontend always reads opening_datetime as a UTC instant
+// and converts back to America/Santiago for display. Returns null (never
+// throws) for anything that doesn't match, so a malformed Haiku output
+// degrades to "no confirmed opening time" rather than a wrong one.
+const LOCAL_DATETIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
+export function parseLocalDatetimeToUtcIso(localDatetime: string): string | null {
+  const match = localDatetime.match(LOCAL_DATETIME_PATTERN);
+  if (!match) return null;
+  const [, year, month, day, hour, minute] = match;
+  const y = Number(year);
+  const mo = Number(month);
+  const d = Number(day);
+  const h = Number(hour);
+  const mi = Number(minute);
+  if ([y, mo, d, h, mi].some((n) => Number.isNaN(n))) return null;
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return null;
+  return santiagoWallTimeToUtcIso(y, mo - 1, d, h, mi);
 }
 
 // When a source never publishes the year at all (real example: uchile.cl's

@@ -10,6 +10,7 @@ import { tavilySearch, type FetchLike, type TavilyImage } from "../lib/tavily.js
 import { isChileanLocation } from "../lib/locations.js";
 import { matchesKnownExclusion, matchesKnownLowQualityDomain } from "../lib/known-exclusions.js";
 import { normalizeTitle } from "../lib/event-filters.js";
+import { parseLocalDatetimeToUtcIso } from "../lib/opening-time.js";
 
 export { normalizeTitle };
 
@@ -228,7 +229,7 @@ Para cada evento real que encuentres, extrae:
 - título, descripción, artista (si se nombra)
 - \`runStartDate\`: día en que comienza la exhibición/muestra (solo fecha, sin hora), si se menciona
 - \`runEndDate\`: día en que termina, si se menciona (null si no se sabe)
-- \`openingDatetime\`: fecha Y hora exacta de la inauguración, SOLO si la fuente menciona una apertura/inauguración específica con hora — null si no hay una inauguración confirmada (una muestra puede no tener inauguración pública)
+- \`openingDatetime\`: fecha Y hora exacta de la inauguración, SOLO si la fuente menciona una apertura/inauguración específica con hora — null si no hay una inauguración confirmada (una muestra puede no tener inauguración pública). **Formato obligatorio: "YYYY-MM-DDTHH:mm", SIEMPRE en hora LOCAL de Chile tal como la reporta la fuente — nunca agregues "Z" ni un offset de zona horaria, ni conviertas tú mismo a UTC** (ej. una fuente que dice "19:00 hrs" se reporta como "2026-07-15T19:00", nunca "2026-07-15T19:00:00Z" ni "...-04:00" ni "...-03:00" — el código se encarga de esa conversión).
 - \`imageUrl\`: elige, de las "imágenes candidatas" listadas bajo cada fuente, la que realmente muestre una obra, flyer o foto del evento — NO un logo, ícono, foto de perfil, o imagen decorativa del sitio. Usa la descripción de cada imagen (cuando exista) para decidir: una descripción como "profile picture" NUNCA es correcta; una descripción que menciona un cartel, afiche, o texto del evento SÍ suele serlo. Si ninguna imagen candidata parece ser realmente del evento, usa null — no inventes ni elijas al azar.
 - \`sourceUrl\`: la URL de la fuente donde se puede ver más información del evento. Cada bloque de resultados trae su propia URL justo después del título, al inicio del bloque — si no encuentras una URL más específica para el evento individual, usa esa URL del bloque en vez de responder null. **INVARIANTE: si status es "approved", sourceUrl NUNCA puede ser null.** Si un bloque no tiene URL disponible, entonces el evento debe ser "rejected", no "approved".
 - \`location\`: la comuna/ciudad donde ocurre el evento, tal como aparece en la fuente (ej. "Las Condes, Santiago")
@@ -272,10 +273,21 @@ function parseCandidates(text: string): EventCandidate[] {
     );
   }
   const parsed = JSON.parse(match[1]) as Omit<EventCandidate, "openingTimeConfirmed">[];
-  // Not part of Haiku's own JSON schema (see buildSystemPrompt) — a
-  // Haiku-set openingDatetime is always time-confirmed by construction, so
-  // this defaults true here rather than asking Haiku to report it.
-  return parsed.map((c) => ({ ...c, openingTimeConfirmed: true }));
+  return parsed.map((c) => ({
+    ...c,
+    // Haiku reports openingDatetime as a plain Chile-local "YYYY-MM-DDTHH:mm"
+    // (see buildSystemPrompt) — converted here to a real UTC instant via the
+    // same DST-safe logic lib/opening-time.ts already uses for the
+    // deterministic regex path. Real bug, found 2026-07-20: this used to be
+    // written straight through with zero conversion, so a source's "12:30"
+    // rendered as "08:30" on the card (America/Santiago is UTC-4). Malformed
+    // output degrades to null rather than a silently wrong instant.
+    openingDatetime: c.openingDatetime ? parseLocalDatetimeToUtcIso(c.openingDatetime) : null,
+    // Not part of Haiku's own JSON schema (see buildSystemPrompt) — a
+    // Haiku-set openingDatetime is always time-confirmed by construction, so
+    // this defaults true here rather than asking Haiku to report it.
+    openingTimeConfirmed: true,
+  }));
 }
 
 // Deterministic backstop over Haiku's own decision: a sourceUrl shared by
