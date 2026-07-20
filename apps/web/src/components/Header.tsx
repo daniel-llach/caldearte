@@ -75,7 +75,7 @@ export default function Header({
   const windowSuffix = windowMode === "day" ? esCL.todaySuffix : esCL.thisWeekSuffix;
 
   return (
-    <header>
+    <header className="sticky top-0 z-20 bg-white pt-2 pb-3 -mt-2">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-baseline gap-3 flex-wrap">
           <span className="text-2xl md:text-5xl font-normal text-heading-gray">{esCL.appName}</span>
