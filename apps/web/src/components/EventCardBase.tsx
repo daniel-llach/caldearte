@@ -68,7 +68,7 @@ export default function EventCardBase({
       <div className={`flex flex-col gap-1.5 ${contentPaddingClass}`}>
         <p className={`${venueClass} text-venue-gray truncate`}>{venueLine}</p>
         <p className={`${titleClass} text-white`}>{event.title}</p>
-        {dateLine && <p className={`${periodClass} text-period-gray ${mapsHref ? "pl-9" : ""}`}>{dateLine}</p>}
+        {dateLine && <p className={`${periodClass} text-period-gray`}>{dateLine}</p>}
       </div>
 
       {mapsHref && (
@@ -76,17 +76,17 @@ export default function EventCardBase({
           href={mapsHref}
           target="_blank"
           rel="noopener noreferrer"
-          className="absolute bottom-3 left-3 w-8 h-8 rounded-full border border-white/70 flex items-center justify-center"
+          // Immediately left of the link-affordance icon (right-3, w-8 =
+          // 32px), same 12px gap as the card's own edge margins — right-14
+          // (56px) puts this icon's right edge 12px past the link icon's
+          // left edge.
+          className="absolute bottom-3 right-14 w-8 h-8 rounded-full border border-white/70 flex items-center justify-center"
           aria-label={esCL.directionsAriaLabel(venueLine)}
         >
-          <svg width="16" height="16" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path
-              d="M9 1.5c-2.9 0-5.25 2.29-5.25 5.11C3.75 10.5 9 16.5 9 16.5s5.25-6 5.25-9.89C14.25 3.79 11.9 1.5 9 1.5Z"
-              stroke="white"
-              strokeWidth="1.3"
-              strokeLinejoin="round"
-            />
-            <circle cx="9" cy="6.75" r="1.75" stroke="white" strokeWidth="1.3" />
+          {/* Google Maps "directions" turn-arrow glyph, not a location pin. */}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <polyline points="15 14 20 9 15 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M4 20v-7a4 4 0 0 1 4-4h12" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </a>
       )}
