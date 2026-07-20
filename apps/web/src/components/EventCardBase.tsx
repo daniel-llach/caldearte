@@ -50,6 +50,16 @@ export default function EventCardBase({
   const comunaAlreadyShown = comuna !== null && displayedVenue.toLowerCase().includes(comuna.toLowerCase());
   const venueLine = comuna && !comunaAlreadyShown ? `${displayedVenue} — ${comuna}` : displayedVenue;
 
+  // "Cómo llegar" — Google Maps DIRECTIONS (not a plain search pin), since
+  // that's what a visitor actually wants: a route from wherever they are
+  // to the venue. No lat/lng needed — Maps resolves a text address itself,
+  // and venueLine (already the most specific string we have: placeName,
+  // falling back to freeformLocation, with comuna appended when it isn't
+  // already implied) is a good enough query on its own; ", Chile" just
+  // disambiguates internationally.
+  const mapsQuery = venueLine.trim() ? `${venueLine}, Chile` : null;
+  const mapsHref = mapsQuery ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(mapsQuery)}` : null;
+
   return (
     <div className="relative bg-black rounded-2xl overflow-hidden flex flex-col h-full">
       <div className={`shrink-0 h-[185.53px] ${imageAspectClass}`}>
@@ -58,8 +68,28 @@ export default function EventCardBase({
       <div className={`flex flex-col gap-1.5 ${contentPaddingClass}`}>
         <p className={`${venueClass} text-venue-gray truncate`}>{venueLine}</p>
         <p className={`${titleClass} text-white`}>{event.title}</p>
-        {dateLine && <p className={`${periodClass} text-period-gray`}>{dateLine}</p>}
+        {dateLine && <p className={`${periodClass} text-period-gray ${mapsHref ? "pl-9" : ""}`}>{dateLine}</p>}
       </div>
+
+      {mapsHref && (
+        <a
+          href={mapsHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="absolute bottom-3 left-3 w-8 h-8 rounded-full border border-white/70 flex items-center justify-center"
+          aria-label={esCL.directionsAriaLabel(venueLine)}
+        >
+          <svg width="16" height="16" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path
+              d="M9 1.5c-2.9 0-5.25 2.29-5.25 5.11C3.75 10.5 9 16.5 9 16.5s5.25-6 5.25-9.89C14.25 3.79 11.9 1.5 9 1.5Z"
+              stroke="white"
+              strokeWidth="1.3"
+              strokeLinejoin="round"
+            />
+            <circle cx="9" cy="6.75" r="1.75" stroke="white" strokeWidth="1.3" />
+          </svg>
+        </a>
+      )}
 
       {event.sourceUrl && (
         <a
