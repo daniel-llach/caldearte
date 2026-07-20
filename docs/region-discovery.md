@@ -557,6 +557,28 @@ sets `opening_datetime` at all, so every Haiku-set value defaults this
 column to `true` (see `discover.ts`'s `parseCandidates`) — only the
 deterministic post-curation regex enrichment can produce `false`.
 
+**Haiku-set `openingDatetime` timezone bug (found and fixed 2026-07-20):**
+found via a user report — a card showed "08:30 hr" for an event whose own
+source page said "12:30 hrs" (Factoría Franklin), a suspiciously exact
+4-hour gap (America/Santiago is UTC-4). Root cause: `buildSystemPrompt`
+asked Haiku for "fecha Y hora exacta" with no format/timezone spec, and
+`parseCandidates` wrote Haiku's raw string straight to `opening_datetime`
+(a `timestamptz`) with zero conversion — unlike the deterministic regex
+path (`lib/opening-time.ts`), which has always correctly converted Chile
+wall-clock time to UTC via `santiagoWallTimeToUtcIso`. Whatever timezone
+convention Haiku happened to use for its raw string (most likely: local
+time with a bare "Z"/no-offset suffix, misread as UTC) silently shifted
+every Haiku-set opening hour. Fixed by requiring Haiku to report a plain
+"YYYY-MM-DDTHH:mm" (explicitly no "Z", no offset) and having
+`parseCandidates` convert it via the newly-exported
+`parseLocalDatetimeToUtcIso` (same underlying `santiagoWallTimeToUtcIso`),
+mirroring the regex path exactly. A malformed/unparseable string now
+degrades to `openingDatetime: null` rather than a silently wrong instant.
+Production rows written before this fix may still hold the wrong hour — a
+backfill was prepared separately (see the user's own record, not tracked
+in this repo) since curator has no production write access via its
+tooling here.
+
 ## Ranking & expansion (superseded, kept for historical reference)
 
 The original design below — a precalculated global population/distance

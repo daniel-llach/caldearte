@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractOpeningDatetime, type OpeningTimeConfig } from "./opening-time.js";
+import { extractOpeningDatetime, parseLocalDatetimeToUtcIso, type OpeningTimeConfig } from "./opening-time.js";
 
 const ARTEINFORMADO_CONFIG: OpeningTimeConfig = {
   pattern:
@@ -78,6 +78,20 @@ test("extractOpeningDatetime yields a date-only result (timeConfirmed: false) wh
   // Midnight Santiago time, deterministic — never actually displayed to a
   // visitor (EventCardBase only reads timeConfirmed), just a valid instant.
   assert.equal(readBackInSantiago(result!.iso), "00:00");
+});
+
+test("parseLocalDatetimeToUtcIso converts Haiku's plain Chile-local format to a real UTC instant (real bug, found 2026-07-20: was written through unconverted, shifting every timed inauguración 4h early)", () => {
+  // 12:30 Chile (winter, UTC-4, no DST in July) = 16:30 UTC.
+  assert.equal(parseLocalDatetimeToUtcIso("2026-07-26T12:30"), "2026-07-26T16:30:00.000Z");
+});
+
+test("parseLocalDatetimeToUtcIso accepts a trailing :ss", () => {
+  assert.equal(parseLocalDatetimeToUtcIso("2026-07-26T12:30:00"), "2026-07-26T16:30:00.000Z");
+});
+
+test("parseLocalDatetimeToUtcIso returns null for a malformed string rather than a wrong instant", () => {
+  assert.equal(parseLocalDatetimeToUtcIso("not a date"), null);
+  assert.equal(parseLocalDatetimeToUtcIso("2026-13-40T99:99"), null);
 });
 
 test("extractOpeningDatetime returns null when the pattern doesn't match", () => {
