@@ -23,13 +23,15 @@ function pluralize(n: number, singular: string, plural: string): string {
 // (nobody wants "0 inauguraciones y 2 exposiciones"), so it's dropped
 // entirely rather than shown as a zero. When both are zero, callers decide
 // their own fallback — this returns "" so the caller can detect that case.
-function countsPhrase(inauguracionesCount: number, exposCount: number, joiner: string): string {
+function countsPhrase(inauguracionesCount: number, exposCount: number, joiner: string, abbreviate = false): string {
   const parts: string[] = [];
   if (inauguracionesCount > 0) {
-    parts.push(`${inauguracionesCount} ${pluralize(inauguracionesCount, "inauguración", "inauguraciones")}`);
+    const word = abbreviate ? pluralize(inauguracionesCount, "inau", "inaus") : pluralize(inauguracionesCount, "inauguración", "inauguraciones");
+    parts.push(`${inauguracionesCount} ${word}`);
   }
   if (exposCount > 0) {
-    parts.push(`${exposCount} ${pluralize(exposCount, "exposición", "exposiciones")}`);
+    const word = abbreviate ? pluralize(exposCount, "expo", "expos") : pluralize(exposCount, "exposición", "exposiciones");
+    parts.push(`${exposCount} ${word}`);
   }
   return parts.join(joiner);
 }
@@ -54,8 +56,11 @@ export const esCL = {
   otherCity: "Otro",
   explorar: "Explorar",
 
-  headerSummary: (inauguracionesCount: number, exposCount: number) => {
-    const phrase = countsPhrase(inauguracionesCount, exposCount, " y ");
+  // abbreviate: true shortens "inauguración(es)"/"exposición(es)" to
+  // "inau(s)"/"expo(s)" — used on mobile, where the header has less
+  // horizontal room.
+  headerSummary: (inauguracionesCount: number, exposCount: number, abbreviate = false) => {
+    const phrase = countsPhrase(inauguracionesCount, exposCount, " y ", abbreviate);
     return phrase ? `${phrase} que visitar en` : "Descubre el arte que hay en";
   },
   // Appended after the city-pill button in the header's summary line —
