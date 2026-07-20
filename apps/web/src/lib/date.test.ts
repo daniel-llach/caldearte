@@ -15,6 +15,7 @@ import {
   isArchivableMonth,
   monthBounds,
   fmtInauguracionDate,
+  buildGoogleCalendarUrl,
 } from "./date";
 
 test("fmtShort formats a short date", () => {
@@ -78,6 +79,37 @@ test("fmtOpeningHour: whole hour", () => {
 
 test("fmtOpeningHour: non-zero minutes", () => {
   assert.equal(fmtOpeningHour("2026-07-11T23:30:00.000Z"), "19:30 hr");
+});
+
+test("buildGoogleCalendarUrl: confirmed hour produces a timed event 2h apart", () => {
+  const url = buildGoogleCalendarUrl({
+    title: "Dejar Atrás",
+    openingDatetime: "2026-07-15T23:00:00.000Z",
+    openingTimeConfirmed: true,
+    description: "Joaquín Reyes",
+    sourceUrl: "https://example.com/dejar-atras",
+    venueLine: "Isabel Croxatto Galería — Providencia",
+  });
+  const params = new URL(url).searchParams;
+  assert.equal(params.get("dates"), "20260715T230000Z/20260716T010000Z");
+  assert.equal(params.get("text"), "Dejar Atrás");
+  assert.equal(params.get("location"), "Isabel Croxatto Galería — Providencia");
+  assert.equal(params.get("details"), "Joaquín Reyes\n\nhttps://example.com/dejar-atras");
+  assert.equal(params.get("action"), "TEMPLATE");
+});
+
+test("buildGoogleCalendarUrl: unconfirmed hour produces an all-day event, no time component", () => {
+  const url = buildGoogleCalendarUrl({
+    title: "Sín-tesis",
+    openingDatetime: "2026-07-14T04:00:00.000Z",
+    openingTimeConfirmed: false,
+    description: null,
+    sourceUrl: null,
+    venueLine: "Galería NAC",
+  });
+  const params = new URL(url).searchParams;
+  assert.equal(params.get("dates"), "20260714/20260715");
+  assert.equal(params.get("details"), "");
 });
 
 test("isCurrentOrUpcoming: a run that ended last month is stale", () => {
