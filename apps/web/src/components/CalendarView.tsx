@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { esCL } from "@/i18n/es-CL";
@@ -39,8 +39,6 @@ function setCookie(name: string, value: string): void {
   document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${60 * 60 * 24 * 365}`;
 }
 
-const DESKTOP_BREAKPOINT = 768;
-
 export default function CalendarView({
   inauguraciones,
   exposActuales,
@@ -60,23 +58,11 @@ export default function CalendarView({
   archiveHref,
 }: CalendarViewProps) {
   const router = useRouter();
-  const containerRef = useRef<HTMLDivElement>(null);
   const cityPickerTriggerRef = useRef<HTMLButtonElement>(null);
-  const [isDesktop, setIsDesktop] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const city = cityById(cityId, cityNames);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      setIsDesktop(entries[0].contentRect.width >= DESKTOP_BREAKPOINT);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   function goToCity(nextCityId: string) {
     setCookie(CITY_COOKIE, nextCityId);
@@ -105,7 +91,7 @@ export default function CalendarView({
   const isEmpty = inauguraciones.length === 0 && exposActuales.length === 0;
 
   return (
-    <div ref={containerRef} className="w-full relative">
+    <div className="w-full relative">
       <Header
         city={city}
         familyMode={familyMode}
@@ -145,7 +131,7 @@ export default function CalendarView({
           {inauguraciones.length > 0 && (
             <section className="mt-10">
               <h2 className="text-3xl md:text-[41px] font-black tracking-wide text-heading-gray mb-6">{esCL.sectionInauguraciones}</h2>
-              <div style={{ display: "grid", gridTemplateColumns: `repeat(${isDesktop ? 2 : 1}, minmax(0,1fr))`, gap: isDesktop ? "118px" : "24px" }}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-[118px]">
                 {inauguraciones.map((e) => (
                   <InauguracionCard key={e.id} event={e} />
                 ))}
@@ -163,7 +149,7 @@ export default function CalendarView({
                   </Link>
                 )}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: `repeat(${isDesktop ? 3 : 1}, minmax(0,1fr))`, gap: "24px" }}>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {exposActuales.map((e) => (
                   <ExpoCard key={e.id} event={e} />
                 ))}
