@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { isChileanLocation, matchRegionId } from "./locations.js";
+import { CHILE_COMUNAS_SNAPSHOT } from "./chile-comunas-snapshot.js";
 
 const REGIONS = [
   { id: "r-santiago", name: "Santiago" },
@@ -50,15 +51,18 @@ test("isChileanLocation recognizes Frutillar (real production bug: a legitimate 
   assert.equal(isChileanLocation("Teatro del Lago, Frutillar"), true);
 });
 
-test("isChileanLocation recognizes every comuna a single real run actually searched (real bug, found 2026-07-20 via a user-requested audit: CHILE_MARKERS was a hand-picked ~100-entry subset that fell out of sync with the 346-comuna regions table — 14 of 25 comunas in one real run weren't in it at all, force-rejecting genuinely Chilean, Haiku-approved events)", () => {
-  for (const comuna of ["Colbún", "Freirina", "Cochamó", "Cochrane", "Codegua", "Coelemu", "Coinco", "Colchane", "Colina", "Collipulli", "Coltauco", "Combarbalá", "Contulmo"]) {
-    assert.equal(isChileanLocation(comuna), true, `${comuna} should be recognized as Chilean`);
-  }
-});
-
 test("isChileanLocation recognizes both the official (Coihaique) and legacy (Coyhaique) spellings", () => {
   assert.equal(isChileanLocation("Coihaique"), true);
   assert.equal(isChileanLocation("Coyhaique"), true);
+});
+
+test("isChileanLocation covers every comuna in the CHILE_COMUNAS_SNAPSHOT (regression guard for the whitelist-drift bug found 2026-07-20 — this is what would have caught Colbún & co. before a real run did)", () => {
+  const missing = CHILE_COMUNAS_SNAPSHOT.filter((comuna) => !isChileanLocation(comuna));
+  assert.deepEqual(
+    missing,
+    [],
+    `${missing.length} comuna(s) from the snapshot aren't recognized by isChileanLocation — CHILE_MARKERS needs updating: ${missing.join(", ")}`,
+  );
 });
 
 test("isChileanLocation returns false (not Chilean, doesn't throw) for null/undefined location — real production bug: Haiku returned status:'approved' with location:null, crashing the whole weekly batch run on `null.toLowerCase()`", () => {

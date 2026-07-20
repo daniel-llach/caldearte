@@ -643,14 +643,29 @@ fixed same-day; two more identified but deliberately deferred (see below).
   by content even though "Festival" in the title looks concert-adjacent at
   a glance). Confirmed correct on inspection, not touched.
 
+**Also fixed (2026-07-20, same day, as a follow-up):** a regression guard
+for the `CHILE_MARKERS` drift — `lib/chile-comunas-snapshot.ts` is a
+versioned, checked-in snapshot of every `regions.name` (346 rows,
+regenerate by re-running `select name from regions order by name;` and
+pasting the result back in whenever a migration adds/renames comunas), and
+`locations.test.ts` asserts `isChileanLocation` covers every name in it.
+This would have caught the Colbún-and-13-others bug before a real run did
+— but note it's a **static snapshot test, not a live query**: this repo
+has **no CI workflow that runs `pnpm test` at all** today (only
+`deploy-migrations.yml` and `event-discovery.yml` exist; the green checks
+on a PR are Vercel's `apps/web` deploy, unrelated to `apps/curator`'s test
+suite) — real production bug found while investigating this (2026-07-20):
+so the test only protects whoever happens to run the suite locally, and
+still needs a human to remember to regenerate the snapshot after a
+`regions` migration. Wiring an actual CI test workflow (and/or making
+this check live-query `regions` instead of a snapshot, when Supabase
+credentials are available — same optional-skip pattern already used by
+`usage-tracking integration`) are the natural next steps, not done here.
+
 **Structural gaps, not yet fixed (candidates for future work):**
 
-- `CHILE_MARKERS` is still a static snapshot, not derived live from
-  `regions` — a newly-seeded comuna won't be recognized until this file is
-  manually regenerated again. A test asserting 1:1 coverage against the
-  live `regions` table (run in CI, not at request time) would catch this
-  drift automatically instead of relying on another manual audit to
-  surface it.
+- No CI workflow runs `apps/curator`'s test suite at all (see above) —
+  worth its own fix, out of scope for this audit.
 - Dedup is still per-run, not cross-run: `locationDateKey`'s exact-match
   fingerprint (now first-comma-segment + date) only catches duplicates
   within candidates seen by `loadExistingKeys()` at that run's start — two
