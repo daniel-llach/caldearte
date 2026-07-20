@@ -13,6 +13,7 @@ import {
   logBareDomainSourceUrls,
   normalizeTitle,
   nullifyAggregatorSourceUrls,
+  nullifyOpeningDatetimeForKnownSources,
   searchUnit,
   curate,
   type EventCandidate,
@@ -171,6 +172,35 @@ test("logBareDomainSourceUrls ignores rejected candidates and candidates with no
   } finally {
     console.log = originalLog;
   }
+});
+
+test("nullifyOpeningDatetimeForKnownSources nulls a fabricated openingDatetime for mavi.uc.cl and uc.cl/agenda sources — real bugs, found 2026-07-20: two MAVI-sourced events got the identical fabricated hour, a third had a visita-mediada time stored as an inauguración", () => {
+  const candidates = [
+    { ...baseCandidate, title: "Bare MAVI domain", sourceUrl: "https://mavi.uc.cl", openingDatetime: "2026-07-22T19:00:00.000Z" },
+    { ...baseCandidate, title: "UC agenda detail page", sourceUrl: "https://www.uc.cl/agenda/actividad/mavi-uc-conmemora-su-25-aniversario", openingDatetime: "2026-07-25T20:00:00.000Z" },
+  ];
+  const result = nullifyOpeningDatetimeForKnownSources(candidates);
+  assert.equal(result[0].openingDatetime, null);
+  assert.match(result[0].curationReasoning, /FILTRO DE CÓDIGO/);
+  assert.equal(result[1].openingDatetime, null);
+});
+
+test("nullifyOpeningDatetimeForKnownSources leaves other domains, null openingDatetime, and null sourceUrl untouched", () => {
+  const candidates = [
+    { ...baseCandidate, title: "Different domain", sourceUrl: "https://example.cl/expo", openingDatetime: "2026-07-22T19:00:00.000Z" },
+    { ...baseCandidate, title: "No date to begin with", sourceUrl: "https://mavi.uc.cl", openingDatetime: null },
+    { ...baseCandidate, title: "No sourceUrl", sourceUrl: null, openingDatetime: "2026-07-22T19:00:00.000Z" },
+  ];
+  const result = nullifyOpeningDatetimeForKnownSources(candidates);
+  assert.equal(result[0].openingDatetime, "2026-07-22T19:00:00.000Z");
+  assert.equal(result[1].openingDatetime, null);
+  assert.equal(result[2].openingDatetime, "2026-07-22T19:00:00.000Z");
+});
+
+test("nullifyOpeningDatetimeForKnownSources doesn't treat the general uc.cl domain outside /agenda as a known no-inauguración source", () => {
+  const candidates = [{ ...baseCandidate, sourceUrl: "https://www.uc.cl/noticias/algo-completamente-distinto", openingDatetime: "2026-07-22T19:00:00.000Z" }];
+  const result = nullifyOpeningDatetimeForKnownSources(candidates);
+  assert.equal(result[0].openingDatetime, "2026-07-22T19:00:00.000Z");
 });
 
 test("filterKnownExclusions drops a raw search result whose own title matches a known out-of-scope event, before it ever reaches Haiku", () => {

@@ -229,11 +229,13 @@ Para cada evento real que encuentres, extrae:
 - título, descripción, artista (si se nombra)
 - \`runStartDate\`: día en que comienza la exhibición/muestra (solo fecha, sin hora), si se menciona
 - \`runEndDate\`: día en que termina, si se menciona (null si no se sabe)
-- \`openingDatetime\`: fecha Y hora exacta de la inauguración, SOLO si la fuente menciona una apertura/inauguración específica con hora — null si no hay una inauguración confirmada (una muestra puede no tener inauguración pública). **Formato obligatorio: "YYYY-MM-DDTHH:mm", SIEMPRE en hora LOCAL de Chile tal como la reporta la fuente — nunca agregues "Z" ni un offset de zona horaria, ni conviertas tú mismo a UTC** (ej. una fuente que dice "19:00 hrs" se reporta como "2026-07-15T19:00", nunca "2026-07-15T19:00:00Z" ni "...-04:00" ni "...-03:00" — el código se encarga de esa conversión).
+- \`openingDatetime\`: fecha Y hora exacta de la inauguración, SOLO si la fuente menciona una apertura/inauguración específica con hora — null si no hay una inauguración confirmada (una muestra puede no tener inauguración pública). **NUNCA inventes ni completes esta fecha con un valor "razonable" o "probable" — si no puedes citar la frase exacta de la fuente que da esa fecha Y esa hora, usa null.** Dos señales de alarma específicas, encontradas en producción (2026-07-20): (1) una publicación de red social que es un *registro/recuerdo* de una inauguración YA REALIZADA ("Compartimos este registro de la inauguración...", en pasado) no tiene una inauguración futura que reportar — openingDatetime debe ser null, aunque la publicación sea reciente; (2) una fecha real pero de un evento ya terminado (ej. "del 23 de diciembre al 28 de enero", sin relación con el mes buscado) no se convierte en una fecha del mes actual solo porque no tienes otra — si la fecha real no encaja con ${monthLabel}, el candidato se rechaza o se le pone openingDatetime null, nunca se sustituye por una fecha inventada. **Formato obligatorio: "YYYY-MM-DDTHH:mm", SIEMPRE en hora LOCAL de Chile tal como la reporta la fuente — nunca agregues "Z" ni un offset de zona horaria, ni conviertas tú mismo a UTC** (ej. una fuente que dice "19:00 hrs" se reporta como "2026-07-15T19:00", nunca "2026-07-15T19:00:00Z" ni "...-04:00" ni "...-03:00" — el código se encarga de esa conversión).
 - \`imageUrl\`: elige, de las "imágenes candidatas" listadas bajo cada fuente, la que realmente muestre una obra, flyer o foto del evento — NO un logo, ícono, foto de perfil, o imagen decorativa del sitio. Usa la descripción de cada imagen (cuando exista) para decidir: una descripción como "profile picture" NUNCA es correcta; una descripción que menciona un cartel, afiche, o texto del evento SÍ suele serlo. Si ninguna imagen candidata parece ser realmente del evento, usa null — no inventes ni elijas al azar.
 - \`sourceUrl\`: la URL de la fuente donde se puede ver más información del evento. Cada bloque de resultados trae su propia URL justo después del título, al inicio del bloque — si no encuentras una URL más específica para el evento individual, usa esa URL del bloque en vez de responder null. **INVARIANTE: si status es "approved", sourceUrl NUNCA puede ser null.** Si un bloque no tiene URL disponible, entonces el evento debe ser "rejected", no "approved".
 - \`location\`: la comuna/ciudad donde ocurre el evento, tal como aparece en la fuente (ej. "Las Condes, Santiago")
 - \`placeName\`: el nombre reconocible del lugar, cuando la fuente lo menciona — nombre de museo, galería, centro cultural, u otra institución (ej. "GAM", "Parque Cultural Valparaíso"); si no hay un nombre de institución pero sí una dirección o punto de referencia claro (ej. "Plaza Sotomayor", "Parque Forestal", una dirección de calle), usa eso. Si la fuente no da ninguno de los dos, usa null — no repitas la comuna/ciudad aquí, y no inventes un nombre que la fuente no menciona.
+
+Regla general, para todos los campos: si un dato específico (fecha, hora, título, artista, lugar) no aparece literalmente en el texto de la fuente, ese campo va null — nunca lo completes con un valor "razonable", "típico", o inferido de otros eventos que estés viendo en el mismo lote. Un texto sobre un evento que ya ocurrió (ej. "Compartimos este registro de la inauguración...", en pasado) no es evidencia de un evento futuro, aunque la publicación misma sea reciente.
 
 ${ART_SCOPE_POLICY}
 
@@ -320,6 +322,48 @@ export function applyKnownExclusionsFilter(candidates: EventCandidate[]): EventC
       ? { ...c, status: "rejected" as const, curationReasoning: `${c.curationReasoning} [FILTRO DE CÓDIGO: evento conocido fuera de alcance]` }
       : c,
   );
+}
+
+// Domains confirmed (2026-07-20, via a user-requested manual review of
+// real production events) to never publish a real inauguración date/hour
+// — only exhibition run dates and, for MAVI specifically, guided-tour
+// ("visita mediada") times that Haiku had mistakenly conflated with an
+// opening night more than once. Real bug found: two MAVI-sourced events
+// got the exact same fabricated openingDatetime, and a third had its
+// visita-mediada time stored as if it were an inauguración — despite the
+// prompt's own "SOLO si la fuente menciona..." instruction. MAVI's real
+// listing (mavi.uc.cl/exposiciones-actuales/) is a JS-rendered Next.js
+// app whose data API (api.agenda.uc.cl) returns 403 to a plain fetch, so
+// it can't be registered as a bright source with the current fetch-only
+// architecture (see docs/region-discovery.md's Event Discovery
+// quality-improvements section for the headless-browser plan) — these
+// events still get discovered incidentally via regular per-comuna search,
+// same as any other event. Rather than rejecting them outright (the
+// exhibition itself, and its run dates, are often real and legitimate),
+// this only strips the fabricated/misattributed openingDatetime, so the
+// event can still show as an "expo actual" with its real run dates.
+export function nullifyOpeningDatetimeForKnownSources(candidates: EventCandidate[]): EventCandidate[] {
+  return candidates.map((c) => {
+    if (!c.openingDatetime || !c.sourceUrl) return c;
+    let url: URL;
+    try {
+      url = new URL(c.sourceUrl);
+    } catch {
+      return c;
+    }
+    // uc.cl/www.uc.cl is a huge general university domain — only its
+    // /agenda section is the PUC events system MAVI's detail pages live
+    // on (see the comment above); mavi.uc.cl itself is unconditional.
+    const isKnownDomain =
+      url.hostname === "mavi.uc.cl" ||
+      ((url.hostname === "uc.cl" || url.hostname === "www.uc.cl") && url.pathname.startsWith("/agenda"));
+    if (!isKnownDomain) return c;
+    return {
+      ...c,
+      openingDatetime: null,
+      curationReasoning: `${c.curationReasoning} [FILTRO DE CÓDIGO: fuente conocida sin fechas de inauguración confiables (MAVI/UC agenda); openingDatetime forzado a null]`,
+    };
+  });
 }
 
 // Deterministic backstop over Haiku's own decision — see lib/locations.ts.
@@ -411,7 +455,9 @@ export async function curate(
   return {
     candidates: logBareDomainSourceUrls(
       enforceSourceUrlInvariant(
-        applyKnownExclusionsFilter(nullifyAggregatorSourceUrls(applyLocationFilter(parseCandidates(text)))),
+        applyKnownExclusionsFilter(
+          nullifyAggregatorSourceUrls(nullifyOpeningDatetimeForKnownSources(applyLocationFilter(parseCandidates(text)))),
+        ),
       ),
     ),
     usage: {
