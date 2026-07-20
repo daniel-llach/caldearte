@@ -1,8 +1,47 @@
+"use client";
+
+import { useState } from "react";
 import CardImage from "./CardImage";
 import { anchorDateOnly, fmtInauguracionDate, fmtOpeningHour, fmtPeriod } from "@/lib/date";
 import { deriveComuna } from "@/lib/comuna";
 import { esCL } from "@/i18n/es-CL";
 import type { EventRecord } from "@/lib/events";
+
+// Google Maps "directions" turn-arrow glyph, not a location pin —
+// `color` differs by context: white for the dark card button, dark for
+// the light mobile menu row.
+function DirectionsGlyph({ color }: { color: string }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <polyline points="15 14 20 9 15 4" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 20v-7a4 4 0 0 1 4-4h12" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Inline "external link" glyph for the mobile menu row — NOT the same
+// asset as the desktop icon (/icons/link-affordance.svg), which is
+// designed to sit on the card's own dark background; reusing it on the
+// light menu background risked an invisible (white-on-white) icon.
+function ExternalLinkGlyph({ color }: { color: string }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="15 3 21 3 21 9" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="10" y1="14" x2="21" y2="3" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function KebabGlyph() {
+  return (
+    <svg width="4" height="16" viewBox="0 0 4 16" fill="white" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="2" cy="2" r="1.7" />
+      <circle cx="2" cy="8" r="1.7" />
+      <circle cx="2" cy="14" r="1.7" />
+    </svg>
+  );
+}
 
 interface EventCardBaseProps {
   event: EventRecord;
@@ -60,6 +99,13 @@ export default function EventCardBase({
   const mapsQuery = venueLine.trim() ? `${venueLine}, Chile` : null;
   const mapsHref = mapsQuery ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(mapsQuery)}` : null;
 
+  // Both action icons collapse into a single "more options" (kebab)
+  // button, opening a small menu with the two destinations, each labeled.
+  // Originally mobile-only, but the user liked the collapsed UX enough
+  // (2026-07-20) to want it everywhere — no more desktop/mobile split.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const hasActions = Boolean(mapsHref || event.sourceUrl);
+
   return (
     <div className="relative bg-black rounded-2xl overflow-hidden flex flex-col h-full">
       <div className={`shrink-0 h-[185.53px] ${imageAspectClass}`}>
@@ -71,37 +117,62 @@ export default function EventCardBase({
         {dateLine && <p className={`${periodClass} text-period-gray`}>{dateLine}</p>}
       </div>
 
-      {mapsHref && (
-        <a
-          href={mapsHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          // Immediately left of the link-affordance icon (right-3, w-8 =
-          // 32px), same 12px gap as the card's own edge margins — right-14
-          // (56px) puts this icon's right edge 12px past the link icon's
-          // left edge.
-          className="absolute bottom-3 right-14 w-8 h-8 rounded-full border border-white/70 flex items-center justify-center"
-          aria-label={esCL.directionsAriaLabel(venueLine)}
-        >
-          {/* Google Maps "directions" turn-arrow glyph, not a location pin. */}
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <polyline points="15 14 20 9 15 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M4 20v-7a4 4 0 0 1 4-4h12" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </a>
-      )}
-
-      {event.sourceUrl && (
-        <a
-          href={event.sourceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="absolute bottom-3 right-3 w-8 h-8"
-          aria-label={event.title}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element -- provided icon asset, verbatim per design decision */}
-          <img src="/icons/link-affordance.svg" alt="" className="w-8 h-8" />
-        </a>
+      {/* A single kebab button opens a small menu with both destinations,
+          each with an icon + label — same collapsed treatment on every
+          screen size (originally mobile-only, promoted to desktop too on
+          2026-07-20 per explicit feedback: "me encanto el menu kebab lo
+          quiero para desktop tambien"). */}
+      {hasActions && (
+        <div className="absolute bottom-3 right-3">
+          {menuOpen && (
+            <>
+              <button
+                type="button"
+                aria-label={esCL.cardMoreOptionsAriaLabel}
+                className="fixed inset-0 z-10"
+                onClick={() => setMenuOpen(false)}
+              />
+              <div role="menu" className="absolute bottom-10 right-0 z-20 min-w-[190px] overflow-hidden rounded-xl bg-white shadow-lg py-1">
+                {mapsHref && (
+                  <a
+                    href={mapsHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    role="menuitem"
+                    className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-heading-gray"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    <DirectionsGlyph color="black" />
+                    {esCL.cardMenuDirections}
+                  </a>
+                )}
+                {event.sourceUrl && (
+                  <a
+                    href={event.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    role="menuitem"
+                    className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-heading-gray"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    <ExternalLinkGlyph color="black" />
+                    {esCL.cardMenuSource}
+                  </a>
+                )}
+              </div>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-label={esCL.cardMoreOptionsAriaLabel}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            className="relative z-20 w-8 h-8 rounded-full border border-white/70 flex items-center justify-center"
+          >
+            <KebabGlyph />
+          </button>
+        </div>
       )}
     </div>
   );
