@@ -26,32 +26,84 @@
 // LAST comma-separated segment (the trailing "..., Argentina"/"..., Perú"
 // a real cross-border result actually has), not anywhere in the string.
 
+// Real bug (found 2026-07-20, via a user-requested Event Discovery audit):
+// this list used to be a hand-picked ~100-entry subset, curated once for an
+// earlier, smaller rollout list — it silently fell out of sync as the
+// `regions` table grew to 346 comunas. In a single real run, 14 of the 25
+// comunas actually being searched that day (Colbún among them) weren't in
+// the list at all, so Haiku-approved, genuinely-Chilean events in those
+// comunas got force-rejected by this filter with "[FILTRO DE CÓDIGO:
+// ubicación no reconocida como chilena]" — a false negative, not a curation
+// call. Fixed by generating the comuna portion below directly from every
+// row in `regions` as of 2026-07-20 (`select name from regions order by
+// name`, normalized the same way this file already normalizes: NFD accent
+// strip + lowercase) instead of hand-maintaining a subset. This is a
+// snapshot, not a live query — see docs/region-discovery.md's Event
+// Discovery quality-improvements section for the plan to stop this
+// drifting again as new comunas get seeded.
 const CHILE_MARKERS = [
   "chile", "region metropolitana",
   // 16 administrative regions
   "arica y parinacota", "tarapaca", "antofagasta", "atacama", "coquimbo",
   "valparaiso", "libertador", "o'higgins", "ohiggins", "maule", "nuble",
   "biobio", "araucania", "los rios", "los lagos", "aysen", "magallanes",
-  // cities/comunas in or likely in the rollout list
-  "arica", "iquique", "alto hospicio", "calama", "tocopilla", "copiapo",
-  "vallenar", "chanaral", "la serena", "ovalle", "illapel", "san antonio",
-  "los andes", "san felipe", "quillota", "la ligua", "santiago",
-  "providencia", "las condes", "vitacura", "lo barnechea", "nunoa",
-  "la reina", "macul", "penalolen", "la florida", "puente alto",
-  "san bernardo", "maipu", "pudahuel", "cerrillos", "estacion central",
-  "quinta normal", "lo prado", "renca", "quilicura", "huechuraba",
-  "independencia", "recoleta", "conchali", "cerro navia", "el bosque",
-  "la cisterna", "san miguel", "san joaquin", "pedro aguirre cerda",
-  "la granja", "la pintana", "san ramon", "lo espejo", "melipilla",
-  "talagante", "buin", "vina del mar", "concon", "quilpue",
-  "villa alemana", "casablanca", "rancagua", "san fernando", "rengo",
-  "pichilemu", "talca", "curico", "linares", "cauquenes", "constitucion",
-  "chillan", "san carlos", "los angeles", "concepcion", "talcahuano",
-  "hualpen", "chiguayante", "san pedro de la paz", "coronel", "lota",
-  "penco", "tome", "hualqui", "santa juana", "temuco", "padre las casas",
-  "angol", "villarrica", "pucon", "valdivia", "la union", "puerto montt",
-  "osorno", "castro", "ancud", "puerto varas", "frutillar", "coyhaique",
-  "puerto aysen", "punta arenas", "puerto natales",
+  // All 346 comunas in `regions` as of 2026-07-20 — see comment above.
+  "aisen", "algarrobo", "alhue", "alto biobio", "alto del carmen", "alto hospicio",
+  "ancud", "andacollo", "angol", "antartica", "antofagasta", "antuco", "arauco", "arica",
+  "buin", "bulnes", "cabildo", "cabo de hornos", "cabrero", "calama", "calbuco", "caldera",
+  "calera", "calera de tango", "calle larga", "camarones", "camina", "canela", "canete",
+  "carahue", "cartagena", "casablanca", "castro", "catemu", "cauquenes", "cerrillos",
+  "cerro navia", "chaiten", "chanaral", "chanco", "chepica", "chiguayante", "chile chico",
+  "chillan", "chillan viejo", "chimbarongo", "cholchol", "chonchi", "cisnes", "cobquecura",
+  "cochamo", "cochrane", "codegua", "coelemu", "coihaique", "coyhaique", "coihueco", "coinco", "colbun",
+  "colchane", "colina", "collipulli", "coltauco", "combarbala", "concepcion", "conchali",
+  "concon", "constitucion", "contulmo", "copiapo", "coquimbo", "coronel", "corral",
+  "cunco", "curacautin", "curacavi", "curaco de velez", "curanilahue", "curarrehue",
+  "curepto", "curico", "dalcahue", "diego de almagro", "donihue", "el bosque", "el carmen",
+  "el monte", "el quisco", "el tabo", "empedrado", "ercilla", "estacion central",
+  "florida", "freire", "freirina", "fresia", "frutillar", "futaleufu", "futrono",
+  "galvarino", "general lagos", "gorbea", "graneros", "guaitecas", "hijuelas", "hualaihue",
+  "hualane", "hualpen", "hualqui", "huara", "huasco", "huechuraba", "illapel",
+  "independencia", "iquique", "isla de maipo", "isla de pascua", "juan fernandez",
+  "la cisterna", "la cruz", "la estrella", "la florida", "la granja", "la higuera",
+  "la ligua", "la pintana", "la reina", "la serena", "la union", "lago ranco",
+  "lago verde", "laguna blanca", "laja", "lampa", "lanco", "las cabras", "las condes",
+  "lautaro", "lebu", "licanten", "limache", "linares", "litueche", "llaillay",
+  "llanquihue", "lo barnechea", "lo espejo", "lo prado", "lolol", "loncoche", "longavi",
+  "lonquimay", "los alamos", "los andes", "los angeles", "los lagos", "los muermos",
+  "los sauces", "los vilos", "lota", "lumaco", "machali", "macul", "mafil", "maipu",
+  "malloa", "marchihue", "maria elena", "maria pinto", "mariquina", "maule", "maullin",
+  "mejillones", "melipeuco", "melipilla", "molina", "monte patria", "mostazal", "mulchen",
+  "nacimiento", "nancagua", "natales", "navidad", "negrete", "ninhue", "niquen", "nogales",
+  "nueva imperial", "nunoa", "olivar", "ollague", "olmue", "osorno", "ovalle",
+  "padre hurtado", "padre las casas", "paiguano", "paillaco", "paine", "palena",
+  "palmilla", "panguipulli", "panquehue", "papudo", "paredones", "parral",
+  "pedro aguirre cerda", "pelarco", "pelluhue", "pemuco", "penaflor", "penalolen",
+  "pencahue", "penco", "peralillo", "perquenco", "petorca", "peumo", "pica", "pichidegua",
+  "pichilemu", "pinto", "pirque", "pitrufquen", "placilla", "portezuelo", "porvenir",
+  "pozo almonte", "primavera", "providencia", "puchuncavi", "pucon", "pudahuel",
+  "puente alto", "puerto montt", "puerto octay", "puerto varas", "pumanque", "punitaqui",
+  "punta arenas", "puqueldon", "puren", "purranque", "putaendo", "putre", "puyehue",
+  "queilen", "quellon", "quemchi", "quilaco", "quilicura", "quilleco", "quillon",
+  "quillota", "quilpue", "quinchao", "quinta de tilcoco", "quinta normal", "quintero",
+  "quirihue", "rancagua", "ranquil", "rauco", "recoleta", "renaico", "renca", "rengo",
+  "requinoa", "retiro", "rinconada", "rio bueno", "rio claro", "rio hurtado", "rio ibanez",
+  "rio negro", "rio verde", "romeral", "saavedra", "sagrada familia", "salamanca",
+  "san antonio", "san bernardo", "san carlos", "san clemente", "san esteban", "san fabian",
+  "san felipe", "san fernando", "san gregorio", "san ignacio", "san javier", "san joaquin",
+  "san jose de maipo", "san juan de la costa", "san miguel", "san nicolas", "san pablo",
+  "san pedro", "san pedro de atacama", "san pedro de la paz", "san rafael", "san ramon",
+  "san rosendo", "san vicente", "santa barbara", "santa cruz", "santa juana",
+  "santa maria", "santiago", "santo domingo", "sierra gorda", "talagante", "talca",
+  "talcahuano", "taltal", "temuco", "teno", "teodoro schmidt", "tierra amarilla", "tiltil",
+  "timaukel", "tirua", "tocopilla", "tolten", "tome", "torres del paine", "tortel",
+  "traiguen", "treguaco", "tucapel", "valdivia", "vallenar", "valparaiso", "vichuquen",
+  "victoria", "vicuna", "vilcun", "villa alegre", "villa alemana", "villarrica",
+  "vina del mar", "vitacura", "yerbas buenas", "yumbel", "yungay", "zapallar",
+  // Extra alias not in the regions table itself (an official abbreviation
+  // of "O'Higgins" already covered above, kept for the apostrophe-free
+  // spelling some sources use).
+  "ohiggins",
 ];
 
 const FOREIGN_COUNTRY_MARKERS = [

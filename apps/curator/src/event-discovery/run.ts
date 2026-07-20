@@ -25,6 +25,7 @@ import { estimateCostUsd } from "../lib/pricing.js";
 import { knownSourceDomain } from "../lib/known-sources.js";
 import { KNOWN_LOW_QUALITY_SOURCE_DOMAINS } from "../lib/known-exclusions.js";
 import { matchRegionId, type RegionLike } from "../lib/locations.js";
+import { normalizeLocation } from "../lib/event-filters.js";
 import { enrichCandidates, type FetchLike as PageFetchLike } from "../lib/page-fetch.js";
 import { sendRunSummaryEmail, type RunSummary } from "../lib/notify.js";
 import {
@@ -183,7 +184,7 @@ async function recordBrightSourcesFetched(urls: string[], now: Date): Promise<vo
 //   it's treated as a third dedup signal.
 function locationDateKey(location: string, c: Pick<EventCandidate, "openingDatetime" | "runStartDate" | "runEndDate">): string {
   const dateFingerprint = c.openingDatetime ?? `${c.runStartDate ?? ""}|${c.runEndDate ?? ""}`;
-  return `${normalizeTitle(location)}|${dateFingerprint}`;
+  return `${normalizeLocation(location)}|${dateFingerprint}`;
 }
 
 async function loadExistingKeys(): Promise<{ titles: Set<string>; sourceUrls: Set<string>; locationDates: Set<string> }> {
