@@ -25,7 +25,7 @@ import { estimateCostUsd } from "../lib/pricing.js";
 import { knownSourceDomain } from "../lib/known-sources.js";
 import { KNOWN_LOW_QUALITY_SOURCE_DOMAINS } from "../lib/known-exclusions.js";
 import { matchRegionId, type RegionLike } from "../lib/locations.js";
-import { normalizeLocation } from "../lib/event-filters.js";
+import { normalizeLocation, isLikelySameTitle } from "../lib/event-filters.js";
 import { enrichCandidates, type FetchLike as PageFetchLike } from "../lib/page-fetch.js";
 import { sendRunSummaryEmail, type RunSummary } from "../lib/notify.js";
 import {
@@ -187,7 +187,35 @@ function locationDateKey(location: string, c: Pick<EventCandidate, "openingDatet
   return `${normalizeLocation(location)}|${dateFingerprint}`;
 }
 
-async function loadExistingKeys(): Promise<{ titles: Set<string>; sourceUrls: Set<string>; locationDates: Set<string> }> {
+// Date-only (no time-of-day) companion to locationDateKey, for the fuzzy
+// title-similarity fallback below — deliberately coarser than
+// locationDateKey's exact-datetime fingerprint, since the whole point is to
+// catch cases where two sources report slightly different exact hours for
+// what's otherwise the same real opening.
+function locationDateOnlyKey(location: string, c: Pick<EventCandidate, "openingDatetime" | "runStartDate" | "runEndDate">): string {
+  const dateOnly = (c.openingDatetime ?? c.runStartDate ?? c.runEndDate ?? "").slice(0, 10);
+  return `${normalizeLocation(location)}|${dateOnly}`;
+}
+
+interface SeenKeys {
+  titles: Set<string>;
+  sourceUrls: Set<string>;
+  locationDates: Set<string>;
+  // Real bug (found 2026-07-20, via a user-requested audit): none of the
+  // three exact-match signals above catch two DIFFERENT sources reporting
+  // the SAME real event with different exact hours ("19:00" vs "19:30")
+  // and different exact title wording — the location+datetime fingerprint
+  // misses on the time difference, and title/sourceUrl obviously differ
+  // too. Bucketed by the coarser date-only key; within a bucket, a new
+  // candidate is a duplicate if its title is a close match (see
+  // isLikelySameTitle) to ANY existing title already in that bucket —
+  // deliberately conservative (both a Jaccard threshold AND a minimum
+  // shared-word count) since a false merge here silently drops a real,
+  // distinct event, which is worse than an occasional missed duplicate.
+  titlesByLocationDateOnly: Map<string, string[]>;
+}
+
+async function loadExistingKeys(): Promise<SeenKeys> {
   const { data, error } = await getSupabaseClient()
     .from("events")
     .select("title, source_url, freeform_location, opening_datetime, run_start_date, run_end_date")
@@ -195,6 +223,18 @@ async function loadExistingKeys(): Promise<{ titles: Set<string>; sourceUrls: Se
 
   if (error) {
     throw new Error(`Failed to load existing discovered events: ${error.message}`);
+  }
+
+  const titlesByLocationDateOnly = new Map<string, string[]>();
+  for (const row of data ?? []) {
+    const key = locationDateOnlyKey(row.freeform_location, {
+      openingDatetime: row.opening_datetime,
+      runStartDate: row.run_start_date,
+      runEndDate: row.run_end_date,
+    });
+    const existing = titlesByLocationDateOnly.get(key);
+    if (existing) existing.push(row.title);
+    else titlesByLocationDateOnly.set(key, [row.title]);
   }
 
   return {
@@ -209,13 +249,14 @@ async function loadExistingKeys(): Promise<{ titles: Set<string>; sourceUrls: Se
         }),
       ),
     ),
+    titlesByLocationDateOnly,
   };
 }
 
 async function insertCandidates(
   candidates: EventCandidate[],
   regions: RegionLike[],
-  seen: { titles: Set<string>; sourceUrls: Set<string>; locationDates: Set<string> },
+  seen: SeenKeys,
   now: Date,
 ): Promise<number> {
   const client = getSupabaseClient();
@@ -226,15 +267,21 @@ async function insertCandidates(
 
     const titleKey = normalizeTitle(c.title);
     const locDateKey = locationDateKey(c.location, c);
+    const locDateOnlyKey = locationDateOnlyKey(c.location, c);
     const isDuplicateTitle = seen.titles.has(titleKey);
     const isDuplicateSourceUrl = c.sourceUrl !== null && seen.sourceUrls.has(c.sourceUrl);
     const isDuplicateLocationDate = seen.locationDates.has(locDateKey);
-    if (isDuplicateTitle || isDuplicateSourceUrl || isDuplicateLocationDate) {
-      const reason = isDuplicateLocationDate && !isDuplicateTitle && !isDuplicateSourceUrl
-        ? " (same location + date, different title/source)"
-        : isDuplicateSourceUrl && !isDuplicateTitle
-          ? " (same sourceUrl, different title)"
-          : "";
+    const isFuzzyDuplicateTitle = (seen.titlesByLocationDateOnly.get(locDateOnlyKey) ?? []).some((existingTitle) =>
+      isLikelySameTitle(existingTitle, c.title),
+    );
+    if (isDuplicateTitle || isDuplicateSourceUrl || isDuplicateLocationDate || isFuzzyDuplicateTitle) {
+      const reason = isFuzzyDuplicateTitle && !isDuplicateTitle && !isDuplicateSourceUrl && !isDuplicateLocationDate
+        ? " (same location + date, similar title — likely the same event reported with a different exact hour)"
+        : isDuplicateLocationDate && !isDuplicateTitle && !isDuplicateSourceUrl
+          ? " (same location + date, different title/source)"
+          : isDuplicateSourceUrl && !isDuplicateTitle
+            ? " (same sourceUrl, different title)"
+            : "";
       console.log(`[event-discovery] skipping duplicate: "${c.title}"${reason}`);
       continue;
     }
@@ -272,6 +319,9 @@ async function insertCandidates(
     seen.titles.add(titleKey);
     if (c.sourceUrl) seen.sourceUrls.add(c.sourceUrl);
     seen.locationDates.add(locDateKey);
+    const bucket = seen.titlesByLocationDateOnly.get(locDateOnlyKey);
+    if (bucket) bucket.push(c.title);
+    else seen.titlesByLocationDateOnly.set(locDateOnlyKey, [c.title]);
     if (c.status === "approved") inserted += 1;
   }
 

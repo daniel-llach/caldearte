@@ -629,52 +629,71 @@ fixed same-day; two more identified but deliberately deferred (see below).
 
 **Deliberately not fixed (judgment calls, not bugs):**
 
-- **Bare-domain-root `sourceUrl`s** (2 found: `https://www.museoregionalaysen.gob.cl`,
-  `https://culturacopiapo.cl` — a visitor clicking "Ver fuente original"
-  lands on a homepage, not the actual event page). Not force-rejected like
-  `enforceSourceUrlInvariant` does for a missing URL entirely, because some
-  small-comuna cultural centers genuinely only have a single-page site
-  where the homepage IS the correct and only page — a blanket
-  path-based heuristic risks false-rejecting those. Left as a known,
-  lower-severity link-quality gap rather than a fix with real
-  false-positive risk.
 - **Institutional-scale festivals classified as visual art** (e.g. "Tianfu
   Festival" — a light-sculpture installation festival, correctly in-scope
   by content even though "Festival" in the title looks concert-adjacent at
   a glance). Confirmed correct on inspection, not touched.
 
-**Also fixed (2026-07-20, same day, as a follow-up):** a regression guard
-for the `CHILE_MARKERS` drift — `lib/chile-comunas-snapshot.ts` is a
-versioned, checked-in snapshot of every `regions.name` (346 rows,
-regenerate by re-running `select name from regions order by name;` and
-pasting the result back in whenever a migration adds/renames comunas), and
-`locations.test.ts` asserts `isChileanLocation` covers every name in it.
-This would have caught the Colbún-and-13-others bug before a real run did
-— but note it's a **static snapshot test, not a live query**: this repo
-has **no CI workflow that runs `pnpm test` at all** today (only
-`deploy-migrations.yml` and `event-discovery.yml` exist; the green checks
-on a PR are Vercel's `apps/web` deploy, unrelated to `apps/curator`'s test
-suite) — real production bug found while investigating this (2026-07-20):
-so the test only protects whoever happens to run the suite locally, and
-still needs a human to remember to regenerate the snapshot after a
-`regions` migration. Wiring an actual CI test workflow (and/or making
-this check live-query `regions` instead of a snapshot, when Supabase
-credentials are available — same optional-skip pattern already used by
-`usage-tracking integration`) are the natural next steps, not done here.
+**Also fixed (2026-07-20, same day, as follow-ups):**
+
+- A regression guard for the `CHILE_MARKERS` drift —
+  `lib/chile-comunas-snapshot.ts` is a versioned, checked-in snapshot of
+  every `regions.name` (346 rows, regenerate by re-running `select name
+  from regions order by name;` and pasting the result back in whenever a
+  migration adds/renames comunas), and `locations.test.ts` asserts
+  `isChileanLocation` covers every name in it. This would have caught the
+  Colbún-and-13-others bug before a real run did — but note it's a
+  **static snapshot test, not a live query**: this repo has **no CI
+  workflow that runs `pnpm test` at all** today (only
+  `deploy-migrations.yml` and `event-discovery.yml` exist; the green
+  checks on a PR are Vercel's `apps/web` deploy, unrelated to
+  `apps/curator`'s test suite) — real production bug found while
+  investigating this (2026-07-20): so the test only protects whoever
+  happens to run the suite locally, and still needs a human to remember to
+  regenerate the snapshot after a `regions` migration. Wiring an actual CI
+  test workflow (and/or making this check live-query `regions` instead of
+  a snapshot, when Supabase credentials are available — same
+  optional-skip pattern already used by `usage-tracking integration`) are
+  the natural next steps, not done here.
+- **Cross-run fuzzy dedup** (`lib/event-filters.ts`'s new
+  `isLikelySameTitle`, used by `run.ts`'s `insertCandidates`): the exact
+  `locationDateKey` fingerprint only catches duplicates sharing the exact
+  same location AND exact same datetime — two sources reporting the same
+  real opening with slightly different exact hours ("19:00" vs "19:30")
+  still evaded it even after the location-normalization fix. Added a
+  fourth, coarser dedup signal: same normalized location + same calendar
+  DAY (not exact time) + title word-overlap (Jaccard) >= 0.6 with at least
+  2 shared significant words (generic art-event vocabulary like
+  "exposición"/"muestra"/"arte" and bare years are excluded from the word
+  sets first, so two genuinely different events don't get merged just for
+  sharing generic vocabulary and a comuna). Deliberately conservative on
+  both axes (day-level, not a wider date-range tolerance; two-part
+  threshold, not Jaccard alone) — a false merge silently drops a real,
+  distinct event, which is worse than an occasional missed duplicate.
+  Verified against the ARTEPUERTO trio itself: title similarity alone does
+  NOT flag any pair of those three real titles (they're genuinely too
+  different in wording) — confirming that bug was actually the
+  location-string-normalization gap fixed separately, not something title
+  similarity could or should have caught.
+- **Bare-domain-root `sourceUrl` visibility** (`discover.ts`'s new
+  `logBareDomainSourceUrls`): the 2 found (`museoregionalaysen.gob.cl`,
+  `culturacopiapo.cl`) are now logged (`[event-discovery] sourceUrl is a
+  bare domain root...`) in the workflow's own run logs for manual
+  spot-checking — same visibility mechanism `page-fetch.ts`'s own recovery
+  logs already use. Still deliberately NOT a hard rejection, for the same
+  reason noted originally: some small-comuna cultural centers genuinely
+  only have a single-page site where the homepage IS the correct and only
+  page, and a blanket path-based heuristic risks false-rejecting those the
+  same way the `isChileanLocation` whitelist drift did for real comunas.
 
 **Structural gaps, not yet fixed (candidates for future work):**
 
 - No CI workflow runs `apps/curator`'s test suite at all (see above) —
   worth its own fix, out of scope for this audit.
-- Dedup is still per-run, not cross-run: `locationDateKey`'s exact-match
-  fingerprint (now first-comma-segment + date) only catches duplicates
-  within candidates seen by `loadExistingKeys()` at that run's start — two
-  genuinely different sources describing the same real event with even
-  slightly different reported times (not just location text) would still
-  both get inserted. A fuzzy/near-duplicate check (e.g. same comuna +
-  title similarity + dates within a day) would catch more of this class,
-  at the cost of real complexity and a false-positive-merge risk of its
-  own.
+- Fuzzy dedup (above) is still bounded to a single calendar day and a
+  single run's `loadExistingKeys()` snapshot — two sources posting the
+  same event more than a day apart (rare, but possible for a slow-to-post
+  account) would still both get inserted.
 
 ## Ranking & expansion (superseded, kept for historical reference)
 

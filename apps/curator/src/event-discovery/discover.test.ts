@@ -10,6 +10,7 @@ import {
   filterKnownExclusions,
   firstOfMonthIso,
   isCurrentOrUpcoming,
+  logBareDomainSourceUrls,
   normalizeTitle,
   nullifyAggregatorSourceUrls,
   searchUnit,
@@ -133,6 +134,43 @@ test("enforceSourceUrlInvariant forces approved events without sourceUrl to reje
   assert.equal(result[1].status, "rejected", "approved without sourceUrl is forced to rejected");
   assert.match(result[1].curationReasoning, /invariante/);
   assert.equal(result[2].status, "rejected", "rejected without sourceUrl is unchanged");
+});
+
+test("logBareDomainSourceUrls logs a warning for an approved candidate whose sourceUrl is a bare domain root, but does NOT change its status — real audit finding (2026-07-20): 2 approved events had sourceUrl pointing only to a homepage, not the actual event page; a hard rejection risks false-rejecting a small comuna's genuinely single-page site", () => {
+  const candidates = [
+    { ...baseCandidate, title: "Bare root", status: "approved" as const, sourceUrl: "https://culturacopiapo.cl" },
+    { ...baseCandidate, title: "Bare root with trailing slash", status: "approved" as const, sourceUrl: "https://museoregionalaysen.gob.cl/" },
+    { ...baseCandidate, title: "Specific page", status: "approved" as const, sourceUrl: "https://example.cl/agenda/mi-expo" },
+  ];
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (msg: string) => logs.push(msg);
+  try {
+    const result = logBareDomainSourceUrls(candidates);
+    assert.deepEqual(result, candidates, "candidates and their status are never modified");
+    assert.equal(logs.length, 2);
+    assert.match(logs[0], /Bare root".*culturacopiapo\.cl/);
+    assert.match(logs[1], /Bare root with trailing slash/);
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test("logBareDomainSourceUrls ignores rejected candidates and candidates with no sourceUrl or an unparseable one", () => {
+  const candidates = [
+    { ...baseCandidate, status: "rejected" as const, sourceUrl: "https://bare-root-but-rejected.cl" },
+    { ...baseCandidate, status: "approved" as const, sourceUrl: null },
+    { ...baseCandidate, status: "approved" as const, sourceUrl: "not a url" },
+  ];
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (msg: string) => logs.push(msg);
+  try {
+    logBareDomainSourceUrls(candidates);
+    assert.equal(logs.length, 0);
+  } finally {
+    console.log = originalLog;
+  }
 });
 
 test("filterKnownExclusions drops a raw search result whose own title matches a known out-of-scope event, before it ever reaches Haiku", () => {

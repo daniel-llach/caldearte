@@ -352,6 +352,36 @@ export function enforceSourceUrlInvariant(candidates: EventCandidate[]): EventCa
   );
 }
 
+// Not a filter — approved-with-a-URL is exactly what
+// enforceSourceUrlInvariant already guarantees. This only surfaces LOW
+// -QUALITY links (a bare domain root, e.g. "https://culturacopiapo.cl",
+// not a specific event page a visitor could actually read) for manual
+// review — found via a user-requested audit (2026-07-20). Deliberately NOT
+// a hard rejection: some small-comuna cultural centers genuinely only have
+// a single-page site where the homepage IS the correct and only page, and
+// a blanket path-based heuristic risks false-rejecting those exactly the
+// way the isChileanLocation whitelist drift did for real comunas. Logged
+// so it's visible in the workflow's own run logs for a human to spot-check
+// periodically, same visibility mechanism page-fetch.ts's own recovery
+// logs already use.
+export function logBareDomainSourceUrls(candidates: EventCandidate[]): EventCandidate[] {
+  for (const c of candidates) {
+    if (c.status !== "approved" || !c.sourceUrl) continue;
+    let url: URL;
+    try {
+      url = new URL(c.sourceUrl);
+    } catch {
+      continue;
+    }
+    if (url.pathname === "/" || url.pathname === "") {
+      console.log(
+        `[event-discovery] sourceUrl is a bare domain root, not a specific event page — review manually: "${c.title}" -> ${c.sourceUrl}`,
+      );
+    }
+  }
+  return candidates;
+}
+
 export interface CurateResult {
   candidates: EventCandidate[];
   usage: DiscoverUsage;
@@ -379,8 +409,10 @@ export async function curate(
     .join("");
 
   return {
-    candidates: enforceSourceUrlInvariant(
-      applyKnownExclusionsFilter(nullifyAggregatorSourceUrls(applyLocationFilter(parseCandidates(text)))),
+    candidates: logBareDomainSourceUrls(
+      enforceSourceUrlInvariant(
+        applyKnownExclusionsFilter(nullifyAggregatorSourceUrls(applyLocationFilter(parseCandidates(text)))),
+      ),
     ),
     usage: {
       inputTokens: response.usage.input_tokens,
