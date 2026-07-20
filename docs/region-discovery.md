@@ -695,6 +695,69 @@ fixed same-day; two more identified but deliberately deferred (see below).
   same event more than a day apart (rare, but possible for a slow-to-post
   account) would still both get inserted.
 
+## Manual review follow-up (2026-07-20, same day) — fabricated openingDatetime + MAVI UC
+
+A user manual review of 3 live production events found a more serious
+issue than the audit above: **Haiku fabricated `openingDatetime` values
+that don't appear anywhere in the source**, not just misread ambiguous
+ones. Two unrelated events (both sourced from Instagram, unrelated
+comunas) got the exact same fabricated timestamp
+(`2026-07-22T23:00:00Z` = 19:00 Chile) — real content: one was a
+*registro* (recap, past tense) of a different, already-held inauguración;
+the other's real dates ("23 de diciembre al 28 de enero") had nothing to
+do with July at all. A third event (MAVI UC's "La llegada de lo blanco")
+had a *visita mediada* (guided-tour) date stored as if it were an
+inauguración — Haiku's own `curationReasoning` admitted "visita mediada
+confirmada," but the field still got written to `opening_datetime`.
+
+**Fixed — prompt hardening (`discover.ts`'s `buildSystemPrompt`):**
+`openingDatetime`'s field instruction now explicitly forbids inventing or
+"reasonably completing" a date, with the two real failure patterns above
+named as negative examples (a past-tense recap post; a real-but-unrelated
+date). A new general rule was added for all fields: nothing gets
+extracted unless it's literally present in the source text — no
+inferring from "similar" events in the same batch.
+
+**Fixed — deterministic backstop for MAVI/UC agenda
+(`discover.ts`'s `nullifyOpeningDatetimeForKnownSources`):** regardless of
+prompt quality, `openingDatetime` is now force-nulled (not the whole
+candidate rejected — the exhibition and its run dates are usually real)
+for any candidate whose `sourceUrl` is `mavi.uc.cl` or `uc.cl`/`www.uc.cl`
+under `/agenda` — confirmed via manual site investigation (below) that
+these domains never publish a real inauguración date.
+
+**Investigated, NOT built — MAVI as a bright source:** `mavi.uc.cl`'s own
+exhibition listing (`/exposiciones-actuales/`) is a client-rendered
+Next.js app whose data comes from `api.agenda.uc.cl` (a Strapi API) —
+that API returns `403 Forbidden` to a plain `fetch()` (confirmed via
+curl, with and without browser-like headers), so the listing can't be
+scraped with the curator's current fetch-only architecture. The
+**individual** detail pages it links to
+(`uc.cl/agenda/actividad/<slug>`) ARE plain-fetchable and contain real
+run dates, a real title, and confirmed no mention of an inauguración —
+but there's no way to discover their URLs without the blocked listing.
+These events keep getting found incidentally via regular per-comuna
+Tavily search (as they already were), just with the fabricated/
+misattributed opening time stripped.
+
+A real fix (MAVI as a proper bright source, with correct `sourceUrl` and
+`imageUrl` every time, not just when Tavily happens to surface the
+specific page) would need a headless browser (Puppeteer/Playwright) to
+render the listing — explicitly **not built now**, discussed and deferred
+by the user pending a proper plan: cost isn't in dollars (public repo,
+free Actions minutes; no Anthropic/Tavily calls involved) but in job
+duration (each JS-rendered fetch takes seconds vs. sub-second for a plain
+one, eating into the weekly batch's existing ~6h ceiling if not
+isolated) and a new dependency's fragility. The user's own proposed
+mitigation — run headless fetches as a **separate, deferred job** scoped
+only to the small number of bright sources that actually need it,
+decoupled from the main per-comuna batch — resolves the timing concern
+specifically; `run.ts` already excludes registered bright-source domains
+from regular Tavily search (`excludeDomains`), so the
+cross-contamination concern the user raised is already handled by
+existing code, not something the new job would need to add. Worth a
+proper implementation plan before building, not an ad-hoc addition here.
+
 ## Ranking & expansion (superseded, kept for historical reference)
 
 The original design below — a precalculated global population/distance
