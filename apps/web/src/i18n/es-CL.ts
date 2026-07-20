@@ -79,6 +79,12 @@ export const esCL = {
   // Aria-label for the "how to get there" icon on an event card — opens
   // Google Maps directions in a new tab.
   directionsAriaLabel: (venue: string) => `Cómo llegar a ${venue}`,
+  // Mobile-only: the directions/link icons collapse into a single "more
+  // options" (kebab) button, which opens a small menu with these two
+  // labeled entries instead.
+  cardMoreOptionsAriaLabel: "Más opciones",
+  cardMenuDirections: "Cómo llegar",
+  cardMenuSource: "Ver fuente original",
 
   archiveLink: "Revisa expos anteriores",
   archiveMonthTitle: (label: string) => `Expos anteriores — ${label}`,
