@@ -579,6 +579,88 @@ backfill was prepared separately (see the user's own record, not tracked
 in this repo) since curator has no production write access via its
 tooling here.
 
+## Event Discovery quality audit (2026-07-20)
+
+User-requested audit of a real production run (25 comunas + the `uchile.cl`
+bright source, 218 candidates, 90 approved). Four real issues found and
+fixed same-day; two more identified but deliberately deferred (see below).
+
+**Fixed:**
+
+- **`isChileanLocation` whitelist drift (`lib/locations.ts`)**: `CHILE_MARKERS`
+  was a hand-picked ~100-entry subset, curated once for an earlier, smaller
+  rollout list, never kept in sync as `regions` grew to 346 comunas. 14 of
+  the 25 comunas in the audited run (Colbún among them) weren't in it at
+  all — genuinely Chilean, Haiku-approved events in those comunas got
+  force-rejected with `[FILTRO DE CÓDIGO: ubicación no reconocida como
+  chilena]`. Fixed by regenerating the comuna portion of the list from a
+  full snapshot of `regions` (`select name from regions order by name`,
+  346 rows as of 2026-07-20) instead of a hand-maintained subset. Also
+  added "Coihaique" (official current spelling) alongside the pre-existing
+  "coyhaique" (legacy spelling), covering both. This is a snapshot, not a
+  live query — see "Structural gaps, not yet fixed" below for why it can
+  still drift again.
+- **Duplicate-insertion gap (`lib/event-filters.ts`'s new `normalizeLocation`,
+  used by `run.ts`'s `locationDateKey`)**: the same festival (ARTEPUERTO
+  2026 / Casaplan, Valparaíso) got inserted 3 times in one run — 3
+  different social posts reported the location as "Valparaíso, Chile" vs
+  "Valparaíso" vs a venue-prefixed variant, each producing a different
+  dedup fingerprint even though `normalizeTitle`-style
+  accent/case/whitespace normalization was already applied. Fixed by
+  extracting only the first comma-segment (the actual comuna/ciudad,
+  per `location`'s own documented meaning) before fingerprinting — a
+  trailing ", Chile" or region name is noise that varies source-to-source
+  for the same real place.
+- **`ART_SCOPE_POLICY` referenced a nonexistent status (`lib/curation-policy.ts`)**:
+  told Haiku to use `"pending_review"` for ambiguous artistic-intervention-
+  vs-conventional-show calls — but Event Discovery's `status` is strictly
+  binary (approved/rejected; see overview.md's "Ambiguous cases... not
+  built"). That instruction was unsatisfiable, leaving Haiku with no real
+  guidance for the ambiguous case. Likely contributed to two real
+  scope-creep approvals found in the same audit ("Conversatorio Quebrada
+  Honda", "Catastro Arte Público Constitución" — both literally panel
+  talks, approved with reasoning stretching them into "intervención
+  artística participativa"). Fixed to say "reject" for the ambiguous case
+  instead, matching the default-exclude philosophy the four content axes
+  already use, and to explicitly name conversatorios/charlas/mesas
+  redondas and generic cultural-heritage days as their own out-of-scope
+  category (previously only conventional theater/concerts/dance were
+  named explicitly).
+
+**Deliberately not fixed (judgment calls, not bugs):**
+
+- **Bare-domain-root `sourceUrl`s** (2 found: `https://www.museoregionalaysen.gob.cl`,
+  `https://culturacopiapo.cl` — a visitor clicking "Ver fuente original"
+  lands on a homepage, not the actual event page). Not force-rejected like
+  `enforceSourceUrlInvariant` does for a missing URL entirely, because some
+  small-comuna cultural centers genuinely only have a single-page site
+  where the homepage IS the correct and only page — a blanket
+  path-based heuristic risks false-rejecting those. Left as a known,
+  lower-severity link-quality gap rather than a fix with real
+  false-positive risk.
+- **Institutional-scale festivals classified as visual art** (e.g. "Tianfu
+  Festival" — a light-sculpture installation festival, correctly in-scope
+  by content even though "Festival" in the title looks concert-adjacent at
+  a glance). Confirmed correct on inspection, not touched.
+
+**Structural gaps, not yet fixed (candidates for future work):**
+
+- `CHILE_MARKERS` is still a static snapshot, not derived live from
+  `regions` — a newly-seeded comuna won't be recognized until this file is
+  manually regenerated again. A test asserting 1:1 coverage against the
+  live `regions` table (run in CI, not at request time) would catch this
+  drift automatically instead of relying on another manual audit to
+  surface it.
+- Dedup is still per-run, not cross-run: `locationDateKey`'s exact-match
+  fingerprint (now first-comma-segment + date) only catches duplicates
+  within candidates seen by `loadExistingKeys()` at that run's start — two
+  genuinely different sources describing the same real event with even
+  slightly different reported times (not just location text) would still
+  both get inserted. A fuzzy/near-duplicate check (e.g. same comuna +
+  title similarity + dates within a day) would catch more of this class,
+  at the cost of real complexity and a false-positive-merge risk of its
+  own.
+
 ## Ranking & expansion (superseded, kept for historical reference)
 
 The original design below — a precalculated global population/distance
