@@ -76,6 +76,10 @@ export const esCL = {
   // confirms a date but never an hour (see EventRecord.openingTimeConfirmed).
   consultHourWithVenue: "consulta la hora con el lugar",
 
+  // Aria-label for the "how to get there" icon on an event card — opens
+  // Google Maps directions in a new tab.
+  directionsAriaLabel: (venue: string) => `Cómo llegar a ${venue}`,
+
   archiveLink: "Revisa expos anteriores",
   archiveMonthTitle: (label: string) => `Expos anteriores — ${label}`,
   archiveMonthDescription: (count: number, label: string, sample: string) =>
