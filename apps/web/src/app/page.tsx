@@ -8,6 +8,7 @@ import {
   splitInauguracionesYExpos,
   countByCity,
   cityNamesFromEvents,
+  thumbnailsByCity,
   findNextEvent,
   listArchiveMonths,
   type WindowMode,
@@ -59,6 +60,10 @@ export default async function HomePage() {
   const cityCountsDay = countByCity(filterActiveInRange(visible, today, today), today, today);
   const cityCountsWeek = countByCity(filterActiveInRange(visible, weekStart, weekEnd), weekStart, weekEnd);
   const cityCounts = windowMode === "day" ? cityCountsDay : cityCountsWeek;
+  // Preview thumbnails for the "Arte en todas partes" carousel — computed
+  // over the same all-comunas activeInRange set countByCity already uses,
+  // not the selected city's own narrowed event list.
+  const cityThumbnails = thumbnailsByCity(activeInRange, 4);
 
   // A manual pick (CITY_COOKIE) always wins and is never re-resolved. With
   // no cookie yet, resolve fresh from Vercel's IP-geolocation headers every
@@ -111,6 +116,7 @@ export default async function HomePage() {
         cityCounts={cityCounts}
         cityCountsDay={cityCountsDay}
         cityCountsWeek={cityCountsWeek}
+        cityThumbnails={cityThumbnails}
         nextEvent={nextEvent}
         regions={regions}
         archiveHref={archiveHref}

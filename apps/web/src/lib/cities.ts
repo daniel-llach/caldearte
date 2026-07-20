@@ -164,6 +164,55 @@ export function resolveDefaultCityId(
   return DEFAULT_CITY_ID;
 }
 
+// Narrows citiesWithEvents' output for the "Arte en todas partes" carousel
+// (real gap found 2026-07-20: with all 346 comunas seeded, the horizontal
+// scroll got too long). Same "misma región -> aledaña" idea
+// resolveDefaultCityId already uses for one comuna, generalized to N:
+// start at the current city's own admin región, then widen outward by
+// `adminRegionOrder` distance (1, 2, 3...) until at least `min` comunas
+// qualify — geographically nearest regions fill in first. If that pool is
+// bigger than `max` (the common case for Región Metropolitana, which
+// alone usually has far more than 10 active comunas), keep only the `max`
+// with the most combined events (inauguraciones + exposActuales), so a
+// region-rich día doesn't just reproduce the original "too long" problem
+// one región at a time. Final display order is always alphabetical — the
+// count only decides which comunas make the cut, never the order they're
+// shown in. No known admin región for the current city (ungrouped comuna)
+// -> no narrowing at all, same safe fallback groupCitiesByRegion already
+// uses for that case.
+export function narrowCitiesByRegion(
+  cities: City[],
+  metaByCityId: Map<string, RegionMeta>,
+  currentCityId: string,
+  cityCounts: Record<string, CityCounts>,
+  { min = 6, max = 10 }: { min?: number; max?: number } = {},
+): City[] {
+  const currentOrder = metaByCityId.get(currentCityId)?.adminRegionOrder;
+  if (currentOrder === null || currentOrder === undefined) return cities;
+
+  let distance = 0;
+  let selected: City[] = [];
+  // 16 = Chile's total admin región count, a safe upper bound on how far
+  // this ever needs to widen.
+  while (selected.length < min && distance <= 16) {
+    selected = cities.filter((c) => {
+      const order = metaByCityId.get(c.id)?.adminRegionOrder;
+      return order !== null && order !== undefined && Math.abs(order - currentOrder) <= distance;
+    });
+    distance += 1;
+  }
+
+  if (selected.length > max) {
+    const totalCount = (c: City) => {
+      const counts = cityCounts[c.id];
+      return (counts?.inauguraciones ?? 0) + (counts?.exposActuales ?? 0);
+    };
+    selected = [...selected].sort((a, b) => totalCount(b) - totalCount(a)).slice(0, max);
+  }
+
+  return [...selected].sort((a, b) => a.name.localeCompare(b.name, "es"));
+}
+
 // Keyed by the same slugified id every City already uses (cityIdFromRegionName),
 // so it joins directly against citiesWithEvents' output with no extra
 // lookup step.

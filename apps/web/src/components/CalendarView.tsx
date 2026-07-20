@@ -29,6 +29,7 @@ interface CalendarViewProps {
   cityCounts: Record<string, CityCounts>; // the CONFIRMED window's counts — CityCarousel/Header
   cityCountsDay: Record<string, CityCounts>; // both variants, for the picker's live Hoy/Semanal preview
   cityCountsWeek: Record<string, CityCounts>;
+  cityThumbnails: Record<string, EventRecord[]>; // up to 4 preview events per comuna — CityCarousel
   nextEvent: EventRecord | null; // empty-state fallback, beyond "today"
   regions: RegionMeta[]; // for the city picker's región grouping
   archiveHref: string | null; // "Revisá expos anteriores" link target — null when no month is archived yet
@@ -53,6 +54,7 @@ export default function CalendarView({
   cityCounts,
   cityCountsDay,
   cityCountsWeek,
+  cityThumbnails,
   nextEvent,
   regions,
   archiveHref,
@@ -79,6 +81,7 @@ export default function CalendarView({
   function goToCity(nextCityId: string) {
     setCookie(CITY_COOKIE, nextCityId);
     setLocationOpen(false);
+    window.scrollTo(0, 0);
     router.refresh();
   }
 
@@ -95,6 +98,7 @@ export default function CalendarView({
     setCookie(CITY_COOKIE, nextCityId);
     setCookie(WINDOW_MODE_COOKIE, nextWindowMode);
     setLocationOpen(false);
+    window.scrollTo(0, 0);
     router.refresh();
   }
 
@@ -169,7 +173,14 @@ export default function CalendarView({
         </>
       )}
 
-      <CityCarousel cityCounts={cityCounts} cityNames={cityNames} excludeCityId={cityId} onSelectCity={goToCity} />
+      <CityCarousel
+        cityCounts={cityCounts}
+        cityNames={cityNames}
+        cityThumbnails={cityThumbnails}
+        regions={regions}
+        excludeCityId={cityId}
+        onSelectCity={goToCity}
+      />
 
       <Footer />
 

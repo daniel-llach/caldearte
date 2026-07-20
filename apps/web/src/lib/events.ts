@@ -266,6 +266,22 @@ export function sumCounts(counts: CityCounts[]): CityCounts {
   );
 }
 
+// Per-city preview thumbnails for the "Arte en todas partes" carousel — up
+// to `maxPerCity` events, newest/soonest anchor date first (same
+// sortByAnchorDesc ordering already used for inauguraciones/exposActuales
+// display). Only ever keys a city that actually has a qualifying event —
+// same "built from real data, not a fixed list" shape as countByCity.
+export function thumbnailsByCity(events: EventRecord[], maxPerCity = 4): Record<string, EventRecord[]> {
+  const byCity: Record<string, EventRecord[]> = {};
+  for (const e of sortByAnchorDesc(events)) {
+    const cityId = resolveCityId(e);
+    if (cityId === OTHER_CITY.id) continue;
+    if (!(cityId in byCity)) byCity[cityId] = [];
+    if (byCity[cityId].length < maxPerCity) byCity[cityId].push(e);
+  }
+  return byCity;
+}
+
 // Cascading empty-state support: the earliest current-or-upcoming event
 // (month-level, not window-exact) that falls AFTER the current window ends
 // — so an empty section/page can say "the next one is on X" instead of

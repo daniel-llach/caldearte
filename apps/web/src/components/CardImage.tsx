@@ -2,23 +2,13 @@
 
 import { useState } from "react";
 import { esCL } from "@/i18n/es-CL";
-import { resolveCardImage, type ImageSourceKind } from "@/lib/image-source";
+import { resolveCardImage, PLACEHOLDER_BG } from "@/lib/image-source";
 
 interface CardImageProps {
   imageUrl: string | null;
   sourceUrl: string | null;
   sensitivityTags: string[];
 }
-
-// The three placeholder PNGs are already complete, ready-to-use
-// backgrounds (gradient/marble + logo baked in per public/placeholders/) —
-// no separate icon overlay needed except the "web" variant's dynamic
-// domain-text pill, which can't be baked into a static image.
-const PLACEHOLDER_BG: Record<ImageSourceKind, string> = {
-  instagram: "/placeholders/instagram.png",
-  facebook: "/placeholders/facebook.png",
-  web: "/placeholders/web.png",
-};
 
 export default function CardImage({ imageUrl, sourceUrl, sensitivityTags }: CardImageProps) {
   const [revealed, setRevealed] = useState(false);

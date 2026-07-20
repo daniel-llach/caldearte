@@ -28,6 +28,17 @@ export type CardImage =
   | { type: "photo"; url: string }
   | { type: "placeholder"; source: ImageSourceKind; domain: string | null };
 
+// The three placeholder PNGs are already complete, ready-to-use
+// backgrounds (gradient/marble + logo baked in per public/placeholders/) —
+// shared between CardImage.tsx (full-size card) and CityThumbnails.tsx
+// (small preview tiles), so it lives next to the ImageSourceKind it
+// indexes rather than duplicated in each component.
+export const PLACEHOLDER_BG: Record<ImageSourceKind, string> = {
+  instagram: "/placeholders/instagram.png",
+  facebook: "/placeholders/facebook.png",
+  web: "/placeholders/web.png",
+};
+
 // Photo wins whenever a real image exists — EXCEPT for Instagram/Facebook
 // sources, where it never does. Confirmed in production: an imageUrl
 // scraped from an Instagram-sourced event is a signed, short-lived CDN
