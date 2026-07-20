@@ -6,6 +6,7 @@ import {
   filterByCity,
   splitInauguracionesYExpos,
   countByCity,
+  thumbnailsByCity,
   cityNamesFromEvents,
   findNextEvent,
   sumCounts,
@@ -127,6 +128,26 @@ test("countByCity tallies per city, dropping 'otro', for ANY comuna a real event
   assert.deepEqual(counts.valparaiso, { inauguraciones: 0, exposActuales: 1 });
   assert.deepEqual(counts["las-condes"], { inauguraciones: 0, exposActuales: 1 });
   assert.equal(counts.otro, undefined);
+});
+
+test("thumbnailsByCity groups by comuna, newest anchor date first, capped at maxPerCity, dropping 'otro'", () => {
+  const events = [
+    event({ id: "a", freeformLocation: "Galería X, Santiago", openingDatetime: "2026-07-01T22:00:00+00:00" }),
+    event({ id: "b", freeformLocation: "Sala Y, Santiago", openingDatetime: "2026-07-10T22:00:00+00:00" }),
+    event({ id: "c", freeformLocation: "Sala Z, Santiago", openingDatetime: "2026-07-05T22:00:00+00:00" }),
+    event({ id: "d", freeformLocation: "Sala W, Valparaíso" }),
+    event({ id: "e", freeformLocation: "" }), // "otro" — never surfaced
+  ];
+  const thumbnails = thumbnailsByCity(events, 2);
+  // Newest anchor first ("b" opened 2026-07-10, before "c" 2026-07-05), capped at 2 — "a" (oldest) drops off.
+  assert.deepEqual(thumbnails.santiago.map((e) => e.id), ["b", "c"]);
+  assert.deepEqual(thumbnails.valparaiso.map((e) => e.id), ["d"]);
+  assert.equal(thumbnails.otro, undefined);
+});
+
+test("thumbnailsByCity defaults to 4 per city", () => {
+  const events = Array.from({ length: 6 }, (_, i) => event({ id: `e${i}`, freeformLocation: "Galería X, Santiago" }));
+  assert.equal(thumbnailsByCity(events).santiago.length, 4);
 });
 
 test("cityNamesFromEvents builds id -> real display name from regionName (preferred) or the freeform_location trailing segment", () => {

@@ -1,13 +1,16 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { esCL } from "@/i18n/es-CL";
-import { citiesWithEvents } from "@/lib/cities";
-import type { CityCounts } from "@/lib/events";
+import { citiesWithEvents, narrowCitiesByRegion, buildRegionMetaByCityId } from "@/lib/cities";
+import type { CityCounts, EventRecord, RegionMeta } from "@/lib/events";
+import CityThumbnails from "./CityThumbnails";
 
 interface CityCarouselProps {
   cityCounts: Record<string, CityCounts>;
   cityNames: Record<string, string>;
+  cityThumbnails: Record<string, EventRecord[]>;
+  regions: RegionMeta[];
   excludeCityId: string;
   onSelectCity: (cityId: string) => void;
 }
@@ -17,8 +20,15 @@ interface CityCarouselProps {
 // count. "Otro" is never shown here (no sensible "Explorar" destination).
 // A city with nothing to show today (0 inauguraciones AND 0 exposiciones)
 // isn't a real "explore this" destination either — "muestra lo que hay".
-export default function CityCarousel({ cityCounts, cityNames, excludeCityId, onSelectCity }: CityCarouselProps) {
-  const cities = citiesWithEvents(cityCounts, cityNames, { excludeCityId });
+export default function CityCarousel({ cityCounts, cityNames, cityThumbnails, regions, excludeCityId, onSelectCity }: CityCarouselProps) {
+  const metaByCityId = useMemo(() => buildRegionMetaByCityId(regions), [regions]);
+  // Narrowed to the current comuna's admin región (widening to neighboring
+  // regions only if that alone doesn't reach the minimum, and trimmed to
+  // the busiest ones if it's a very region-rich día) — see
+  // narrowCitiesByRegion's own doc comment (cities.ts) for the real gap
+  // this fixes (found 2026-07-20: 346 seeded comunas made this scroll far
+  // too long).
+  const cities = narrowCitiesByRegion(citiesWithEvents(cityCounts, cityNames, { excludeCityId }), metaByCityId, excludeCityId, cityCounts);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [activeDot, setActiveDot] = useState(0);
 
@@ -32,7 +42,7 @@ export default function CityCarousel({ cityCounts, cityNames, excludeCityId, onS
   if (cities.length === 0) return null;
 
   return (
-    <section className="mt-16">
+    <section className="mt-16 bg-stone-50 rounded-2xl p-6 md:p-8">
       <h2 className="text-2xl md:text-[34px] font-black tracking-wide text-heading-gray mb-6">{esCL.sectionArteEnTodasPartes}</h2>
       <div
         ref={scrollRef}
@@ -46,11 +56,13 @@ export default function CityCarousel({ cityCounts, cityNames, excludeCityId, onS
             <button
               key={city.id}
               onClick={() => onSelectCity(city.id)}
-              className="snap-start shrink-0 w-[85%] sm:w-[46%] md:w-[31%] text-left bg-white rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.1)] p-4 flex flex-col gap-2.5"
+              className="snap-start shrink-0 w-[85%] sm:w-[46%] md:w-[31%] text-left bg-white rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.1)] p-4 flex flex-col gap-3 cursor-pointer transition-shadow hover:shadow-[0_4px_14px_rgba(0,0,0,0.15)]"
             >
-              <p className="text-lg font-bold text-heading-gray">{city.name}</p>
-              <p className="text-sm text-muted-gray">{esCL.cityStats(counts.inauguraciones, counts.exposActuales)}</p>
-              <span className="text-sm font-semibold text-heading-gray">{esCL.explorar} →</span>
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <p className="text-lg font-bold text-heading-gray">{city.name}</p>
+                <p className="text-sm text-heading-gray">— {esCL.cityStats(counts.inauguraciones, counts.exposActuales)}</p>
+              </div>
+              <CityThumbnails events={cityThumbnails[city.id] ?? []} />
             </button>
           );
         })}

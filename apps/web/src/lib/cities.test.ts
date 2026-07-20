@@ -10,6 +10,7 @@ import {
   matchesQuery,
   buildRegionMetaByCityId,
   groupCitiesByRegion,
+  narrowCitiesByRegion,
   OTHER_CITY,
   DEFAULT_CITY_ID,
 } from "./cities";
@@ -201,4 +202,77 @@ test("groupCitiesByRegion groups a comuna with no RegionMeta at all into a fallb
   assert.equal(groups.length, 1);
   assert.equal(groups[0].country, "otro");
   assert.deepEqual(groups[0].ungrouped, [{ id: "unknown", name: "Unknown" }]);
+});
+
+// narrowCitiesByRegion — real gap found 2026-07-20: with all 346 comunas
+// seeded, "Arte en todas partes" scrolled far too long. RM sits at
+// adminRegionOrder 7 (see regionMeta's own comment); V Valparaíso is 6,
+// VI O'Higgins is 8 — used below to test the "widen to neighbors" case.
+function city(name: string): { id: string; name: string } {
+  return { id: slugify(name), name };
+}
+
+function countsFor(cities: { id: string; name: string }[], eventsEach = 1): Record<string, CityCounts> {
+  return Object.fromEntries(cities.map((c) => [c.id, { inauguraciones: eventsEach, exposActuales: 0 }]));
+}
+
+test("narrowCitiesByRegion keeps only the current comuna's own admin región when that alone already reaches the minimum", () => {
+  const rmCities = ["Las Condes", "Vitacura", "Ñuñoa", "Providencia", "Maipú", "Puente Alto"].map(city);
+  const valpoCity = city("Viña del Mar");
+  const meta = buildRegionMetaByCityId([
+    regionMeta({ name: "Santiago" }), // the current city itself — adminRegionOrder 7 (RM), needed to resolve currentOrder
+    ...rmCities.map((c) => regionMeta({ name: c.name })), // adminRegionOrder 7 (RM), from the default
+    regionMeta({ name: valpoCity.name, adminRegionName: "Valparaíso", adminRegionOrder: 6 }),
+  ]);
+  const cities = [...rmCities, valpoCity];
+  const result = narrowCitiesByRegion(cities, meta, "santiago", countsFor(cities));
+  assert.deepEqual(
+    result.map((c) => c.id),
+    rmCities.map((c) => c.id).sort((a, b) => a.localeCompare(b, "es")),
+    "Valparaíso never appears — RM alone already has 6",
+  );
+});
+
+test("narrowCitiesByRegion widens to the nearest neighboring región when the current one alone doesn't reach the minimum", () => {
+  const rmCities = ["Las Condes", "Vitacura"].map(city); // only 2, below the min of 6
+  const valpoCities = ["Viña del Mar", "Valparaíso", "Quilpué", "Concón"].map(city); // order 6, adjacent
+  const ohigginsCities = ["Rancagua", "Rengo"].map(city); // order 8, also adjacent
+  const araucaniaCity = city("Temuco"); // order much further south — never pulled in
+  const meta = buildRegionMetaByCityId([
+    regionMeta({ name: "Santiago" }), // the current city itself — adminRegionOrder 7 (RM), needed to resolve currentOrder
+    ...rmCities.map((c) => regionMeta({ name: c.name })),
+    ...valpoCities.map((c) => regionMeta({ name: c.name, adminRegionName: "Valparaíso", adminRegionOrder: 6 })),
+    ...ohigginsCities.map((c) => regionMeta({ name: c.name, adminRegionName: "O'Higgins", adminRegionOrder: 8 })),
+    regionMeta({ name: araucaniaCity.name, adminRegionName: "Araucanía", adminRegionOrder: 10 }),
+  ]);
+  const cities = [...rmCities, ...valpoCities, ...ohigginsCities, araucaniaCity];
+  const result = narrowCitiesByRegion(cities, meta, "santiago", countsFor(cities));
+
+  assert.ok(result.length >= 6, "reaches the minimum by widening one step (order 7 ± 1 = regions 6 and 8)");
+  assert.ok(!result.some((c) => c.id === araucaniaCity.id), "a further-away región is never pulled in once the minimum is already met");
+});
+
+test("narrowCitiesByRegion trims down to the busiest comunas (by total events) when the qualifying pool exceeds the maximum, then re-sorts alphabetically", () => {
+  // 11 candidates; "Recoleta" is first alphabetically-irrelevant to its
+  // count (deliberately given the LOWEST positional/alphabetical
+  // standing among a hand-picked low scorer) so surviving the trim can
+  // only be explained by its count, not by name or array order.
+  const names = ["Las Condes", "Vitacura", "Ñuñoa", "Providencia", "Maipú", "Puente Alto", "San Bernardo", "La Florida", "Santiago", "Peñalolén", "Recoleta"];
+  const cities = names.map(city);
+  const meta = buildRegionMetaByCityId(cities.map((c) => regionMeta({ name: c.name })));
+  // Every comuna gets 1 event except "Recoleta" (99, the clear winner) and
+  // "Vitacura" (0, the clear loser) — Vitacura is the one that must be
+  // dropped to go from 11 down to the max of 10.
+  const counts: Record<string, CityCounts> = Object.fromEntries(
+    cities.map((c) => [c.id, { inauguraciones: c.name === "Recoleta" ? 99 : c.name === "Vitacura" ? 0 : 1, exposActuales: 0 }]),
+  );
+  const result = narrowCitiesByRegion(cities, meta, "santiago", counts, { min: 6, max: 10 });
+  const expectedNames = names.filter((n) => n !== "Vitacura").sort((a, b) => a.localeCompare(b, "es"));
+  assert.deepEqual(result.map((c) => c.name), expectedNames);
+});
+
+test("narrowCitiesByRegion doesn't narrow at all when the current comuna's admin región is unknown", () => {
+  const cities = ["A", "B", "C"].map(city);
+  const result = narrowCitiesByRegion(cities, new Map(), "santiago", countsFor(cities));
+  assert.deepEqual(result, cities, "no adminRegionOrder for the current city -> safe fallback, unchanged list");
 });
