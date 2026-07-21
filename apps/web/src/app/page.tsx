@@ -14,7 +14,7 @@ import {
   type WindowMode,
 } from "@/lib/events";
 import { DEFAULT_CITY_ID, buildRegionMetaByCityId, resolveDefaultCityId } from "@/lib/cities";
-import { todayInSantiago, currentWeekInSantiago } from "@/lib/date";
+import { todayInSantiago, currentWeekInSantiago, isCurrentOrUpcoming } from "@/lib/date";
 import { CITY_COOKIE, FAMILY_MODE_COOKIE, WINDOW_MODE_COOKIE } from "@/lib/cookies";
 import CalendarView from "@/components/CalendarView";
 
@@ -64,6 +64,12 @@ export default async function HomePage() {
   // over the same all-comunas activeInRange set countByCity already uses,
   // not the selected city's own narrowed event list.
   const cityThumbnails = thumbnailsByCity(activeInRange, 4);
+  // SearchPanel's own scope: every active/upcoming event, every comuna —
+  // deliberately NOT narrowed to rangeStart/rangeEnd or the selected city
+  // (see the product discussion: a scoped-empty search result is
+  // ambiguous — "doesn't exist" vs. "wrong filter"). Never includes past
+  // (archived) events; that stays the Archive's own job.
+  const searchableEvents = visible.filter((e) => isCurrentOrUpcoming(e, today));
 
   // A manual pick (CITY_COOKIE) always wins and is never re-resolved. With
   // no cookie yet, resolve fresh from Vercel's IP-geolocation headers every
@@ -117,6 +123,7 @@ export default async function HomePage() {
         cityCountsDay={cityCountsDay}
         cityCountsWeek={cityCountsWeek}
         cityThumbnails={cityThumbnails}
+        searchableEvents={searchableEvents}
         nextEvent={nextEvent}
         regions={regions}
         archiveHref={archiveHref}

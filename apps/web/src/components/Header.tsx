@@ -1,7 +1,6 @@
 "use client";
 
 import type { RefObject } from "react";
-import Link from "next/link";
 import { esCL } from "@/i18n/es-CL";
 import type { City } from "@/lib/cities";
 import type { WindowMode } from "@/lib/events";
@@ -18,7 +17,8 @@ interface HeaderProps {
   exposCount: number;
   onOpenCityPicker: () => void;
   cityPickerTriggerRef: RefObject<HTMLButtonElement | null>;
-  onOpenMobileMenu: () => void;
+  onOpenSearch: () => void;
+  onOpenMenu: () => void;
   onToggleFamilyMode: () => void;
 }
 
@@ -54,6 +54,15 @@ function FamilyModeToggle({ on, onToggle }: { on: boolean; onToggle: () => void 
   );
 }
 
+function SearchGlyph() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+      <line x1="16.2" y1="16.2" x2="21" y2="21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default function Header({
   city,
   familyMode,
@@ -65,7 +74,8 @@ export default function Header({
   exposCount,
   onOpenCityPicker,
   cityPickerTriggerRef,
-  onOpenMobileMenu,
+  onOpenSearch,
+  onOpenMenu,
   onToggleFamilyMode,
 }: HeaderProps) {
   const dateLabel = windowMode === "day" ? fmtHeaderDate(today) : fmtWeekHeader(rangeStart, rangeEnd);
@@ -89,16 +99,30 @@ export default function Header({
           </span>
         </div>
 
+        {/* Desktop: search + Modo familiar stay inline (real estate mobile
+            doesn't have) — Curatoria/Expos anteriores/Contacto moved into
+            the shared ☰ Menú drawer, same drawer mobile uses, just without
+            its Modo familiar row (see MenuDrawer.tsx). */}
         <div className="hidden md:flex items-center gap-4 text-[15px] text-heading-gray shrink-0 pt-2">
-          <Link href="/privacidad">{esCL.curatoria}</Link>
-          <span className="text-stone-300">-</span>
+          <button onClick={onOpenSearch} aria-label={esCL.searchAriaLabel} className="text-heading-gray">
+            <SearchGlyph />
+          </button>
           <span>{esCL.familyMode}</span>
           <FamilyModeToggle on={familyMode} onToggle={onToggleFamilyMode} />
+          <button onClick={onOpenMenu} aria-label={esCL.menu} className="flex items-center gap-1.5 text-heading-gray">
+            <span className="text-xl leading-none">☰</span>
+            <span>{esCL.menu}</span>
+          </button>
         </div>
 
-        <button onClick={onOpenMobileMenu} className="md:hidden text-heading-gray text-2xl leading-none shrink-0" aria-label={esCL.menu}>
-          ☰
-        </button>
+        <div className="md:hidden flex items-center gap-4 shrink-0">
+          <button onClick={onOpenSearch} aria-label={esCL.searchAriaLabel} className="text-heading-gray">
+            <SearchGlyph />
+          </button>
+          <button onClick={onOpenMenu} className="text-heading-gray text-2xl leading-none" aria-label={esCL.menu}>
+            ☰
+          </button>
+        </div>
       </div>
 
       <div className="mt-3 md:mt-4 flex items-center gap-2 flex-wrap text-[15px] md:text-xl text-heading-gray">

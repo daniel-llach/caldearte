@@ -2,7 +2,6 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { esCL } from "@/i18n/es-CL";
 import { cityById } from "@/lib/cities";
 import { CITY_COOKIE, FAMILY_MODE_COOKIE, WINDOW_MODE_COOKIE } from "@/lib/cookies";
@@ -15,6 +14,7 @@ import CityCarousel from "./CityCarousel";
 import Footer from "./Footer";
 import CityPickerPanel from "./CityPickerPanel";
 import MenuDrawer from "./MenuDrawer";
+import SearchPanel from "./SearchPanel";
 
 interface CalendarViewProps {
   inauguraciones: EventRecord[];
@@ -30,9 +30,10 @@ interface CalendarViewProps {
   cityCountsDay: Record<string, CityCounts>; // both variants, for the picker's live Hoy/Semanal preview
   cityCountsWeek: Record<string, CityCounts>;
   cityThumbnails: Record<string, EventRecord[]>; // up to 4 preview events per comuna — CityCarousel
+  searchableEvents: EventRecord[]; // active/upcoming, every comuna — SearchPanel's own scope
   nextEvent: EventRecord | null; // empty-state fallback, beyond "today"
   regions: RegionMeta[]; // for the city picker's región grouping
-  archiveHref: string | null; // "Revisá expos anteriores" link target — null when no month is archived yet
+  archiveHref: string | null; // "Expos anteriores" row target in MenuDrawer — null when no month is archived yet
 }
 
 function setCookie(name: string, value: string): void {
@@ -53,6 +54,7 @@ export default function CalendarView({
   cityCountsDay,
   cityCountsWeek,
   cityThumbnails,
+  searchableEvents,
   nextEvent,
   regions,
   archiveHref,
@@ -61,6 +63,7 @@ export default function CalendarView({
   const cityPickerTriggerRef = useRef<HTMLButtonElement>(null);
   const [locationOpen, setLocationOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const city = cityById(cityId, cityNames);
 
@@ -103,7 +106,8 @@ export default function CalendarView({
         exposCount={exposActuales.length}
         onOpenCityPicker={() => setLocationOpen(true)}
         cityPickerTriggerRef={cityPickerTriggerRef}
-        onOpenMobileMenu={() => setDrawerOpen(true)}
+        onOpenSearch={() => setSearchOpen(true)}
+        onOpenMenu={() => setDrawerOpen(true)}
         onToggleFamilyMode={toggleFamilyMode}
       />
 
@@ -141,14 +145,7 @@ export default function CalendarView({
 
           {exposActuales.length > 0 && (
             <section className="mt-16">
-              <div className="flex items-baseline justify-between mb-6">
-                <h2 className="text-3xl md:text-[41px] font-semibold tracking-wide text-heading-gray">{esCL.sectionExposActuales}</h2>
-                {archiveHref && (
-                  <Link href={archiveHref} className="text-sm text-muted-gray underline shrink-0">
-                    {esCL.archiveLink}
-                  </Link>
-                )}
-              </div>
+              <h2 className="text-3xl md:text-[41px] font-semibold tracking-wide text-heading-gray mb-6">{esCL.sectionExposActuales}</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {exposActuales.map((e) => (
                   <ExpoCard key={e.id} event={e} />
@@ -188,9 +185,12 @@ export default function CalendarView({
       <MenuDrawer
         open={drawerOpen}
         familyMode={familyMode}
+        archiveHref={archiveHref}
         onClose={() => setDrawerOpen(false)}
         onToggleFamilyMode={toggleFamilyMode}
       />
+
+      <SearchPanel open={searchOpen} events={searchableEvents} onClose={() => setSearchOpen(false)} />
     </div>
   );
 }
