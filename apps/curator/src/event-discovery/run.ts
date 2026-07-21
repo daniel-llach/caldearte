@@ -26,7 +26,8 @@ import { knownSourceDomain } from "../lib/known-sources.js";
 import { KNOWN_LOW_QUALITY_SOURCE_DOMAINS } from "../lib/known-exclusions.js";
 import { matchRegionId, type RegionLike } from "../lib/locations.js";
 import { normalizeLocation, isLikelySameTitle } from "../lib/event-filters.js";
-import { enrichCandidates, type FetchLike as PageFetchLike } from "../lib/page-fetch.js";
+import { enrichCandidates, isSocialMediaUrl, type FetchLike as PageFetchLike } from "../lib/page-fetch.js";
+import { rehostImage, type RehostImageFn } from "../lib/image-rehost.js";
 import { sendRunSummaryEmail, type RunSummary } from "../lib/notify.js";
 import {
   buildBlock,
@@ -262,6 +263,7 @@ export async function insertCandidates(
   regions: RegionLike[],
   seen: SeenKeys,
   now: Date,
+  rehostImageFn: RehostImageFn = rehostImage,
 ): Promise<number> {
   const client = getSupabaseClient();
   let inserted = 0;
@@ -290,6 +292,17 @@ export async function insertCandidates(
       continue;
     }
 
+    // Instagram/Facebook's own imageUrl is a signed CDN link that rots
+    // within hours-to-days (confirmed against real production samples) — a
+    // rejected/pending candidate is never displayed, so only re-host for one
+    // that's actually about to be inserted as approved. On failure this
+    // resolves to null rather than storing a link already known to rot; see
+    // image-rehost.ts's own doc comment.
+    let imageUrl = c.imageUrl;
+    if (c.status === "approved" && imageUrl && c.sourceUrl && isSocialMediaUrl(c.sourceUrl)) {
+      imageUrl = await rehostImageFn(imageUrl, client);
+    }
+
     const { error } = await client.from("events").insert({
       freeform_location: c.location,
       place_name: c.placeName,
@@ -305,7 +318,7 @@ export async function insertCandidates(
       sensitivity_tags: c.sensitivityTags,
       source: "discovered",
       source_url: c.sourceUrl,
-      image_url: c.imageUrl,
+      image_url: imageUrl,
       curation_status: c.status,
       curation_reasoning: c.curationReasoning,
     });
@@ -425,6 +438,7 @@ export interface RunDeps {
   searchUnitFn?: typeof searchUnit;
   fetchBrightSourcesFn?: typeof fetchBrightSources;
   pageFetchFn?: PageFetchLike;
+  rehostImageFn?: RehostImageFn;
   sendRunSummaryEmailFn?: typeof sendRunSummaryEmail;
   now?: Date;
 }
@@ -440,6 +454,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   const searchUnitFn = deps.searchUnitFn ?? searchUnit;
   const fetchBrightSourcesFn = deps.fetchBrightSourcesFn ?? fetchBrightSources;
   const pageFetchFn = deps.pageFetchFn ?? fetch;
+  const rehostImageFn = deps.rehostImageFn ?? rehostImage;
   const client = getSupabaseClient();
 
   await pruneOldRawSearchResults(now);
@@ -532,7 +547,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
         summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
         await enrichCandidates(candidates, pageFetchFn);
         allCandidates.push(...candidates);
-        inserted = await insertCandidates(candidates, regions, seenKeys, now);
+        inserted = await insertCandidates(candidates, regions, seenKeys, now, rehostImageFn);
         summary.candidates.insertedCount += inserted;
       }
 
@@ -569,7 +584,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
       summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
       await enrichCandidates(candidates, pageFetchFn);
       allCandidates.push(...candidates);
-      const inserted = await insertCandidates(candidates, regions, seenKeys, now);
+      const inserted = await insertCandidates(candidates, regions, seenKeys, now, rehostImageFn);
       summary.candidates.insertedCount += inserted;
       console.log(`[event-discovery] bright sources: ${inserted} new approved event(s)`);
     }
