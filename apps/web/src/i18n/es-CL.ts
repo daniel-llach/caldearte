@@ -23,15 +23,13 @@ function pluralize(n: number, singular: string, plural: string): string {
 // (nobody wants "0 inauguraciones y 2 exposiciones"), so it's dropped
 // entirely rather than shown as a zero. When both are zero, callers decide
 // their own fallback — this returns "" so the caller can detect that case.
-function countsPhrase(inauguracionesCount: number, exposCount: number, joiner: string, abbreviate = false): string {
+function countsPhrase(inauguracionesCount: number, exposCount: number, joiner: string): string {
   const parts: string[] = [];
   if (inauguracionesCount > 0) {
-    const word = abbreviate ? pluralize(inauguracionesCount, "inau", "inaus") : pluralize(inauguracionesCount, "inauguración", "inauguraciones");
-    parts.push(`${inauguracionesCount} ${word}`);
+    parts.push(`${inauguracionesCount} ${pluralize(inauguracionesCount, "inauguración", "inauguraciones")}`);
   }
   if (exposCount > 0) {
-    const word = abbreviate ? pluralize(exposCount, "expo", "expos") : pluralize(exposCount, "exposición", "exposiciones");
-    parts.push(`${exposCount} ${word}`);
+    parts.push(`${exposCount} ${pluralize(exposCount, "exposición", "exposiciones")}`);
   }
   return parts.join(joiner);
 }
@@ -65,13 +63,21 @@ export const esCL = {
   searchHint: "Busca entre todos los eventos vigentes y próximos, en cualquier comuna.",
   noSearchResults: "No encontramos eventos con ese término.",
 
-  // abbreviate: true shortens "inauguración(es)"/"exposición(es)" to
-  // "inau(s)"/"expo(s)" — used on mobile, where the header has less
-  // horizontal room.
-  headerSummary: (inauguracionesCount: number, exposCount: number, abbreviate = false) => {
-    const phrase = countsPhrase(inauguracionesCount, exposCount, " y ", abbreviate);
+  // Desktop only — see headerSummaryMobile below for mobile's more compact
+  // single-total version.
+  headerSummary: (inauguracionesCount: number, exposCount: number) => {
+    const phrase = countsPhrase(inauguracionesCount, exposCount, " y ");
     return phrase ? `${phrase} que visitar en` : "Descubre el arte que hay en";
   },
+  // Mobile-only, where the header has less horizontal room — a single
+  // total instead of headerSummary's inauguración/exposición breakdown.
+  // `totalCount` is exposActuales' own count, not inau+expo summed —
+  // inauguraciones is an overlapping HIGHLIGHTED SUBSET of exposActuales
+  // (an opening-this-week event counts in both), so exposActuales alone
+  // already IS the full "everything happening" total; summing both would
+  // double-count it.
+  headerSummaryMobile: (totalCount: number) =>
+    totalCount > 0 ? `${totalCount} ${pluralize(totalCount, "evento", "eventos")} en` : "Descubre el arte que hay en",
   // Appended after the city-pill button in the header's summary line —
   // "hoy" for Día mode, "esta semana" for Semana mode.
   todaySuffix: "hoy",
