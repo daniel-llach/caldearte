@@ -17,10 +17,19 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     changeFrequency: "monthly",
     priority: 0.5,
   }));
+  // One URL per event's own shareable/indexable permalink (see
+  // app/eventos/[id]/page.tsx) — "weekly" since a row can still change
+  // after being written (e.g. an opening hour confirmed later).
+  const eventUrls: MetadataRoute.Sitemap = events.map((e) => ({
+    url: `${base}/eventos/${e.id}`,
+    changeFrequency: "weekly",
+    priority: 0.4,
+  }));
   return [
     { url: base, changeFrequency: "daily", priority: 1 },
     { url: `${base}/privacidad`, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/contacto`, changeFrequency: "yearly", priority: 0.3 },
     ...archiveUrls,
+    ...eventUrls,
   ];
 }

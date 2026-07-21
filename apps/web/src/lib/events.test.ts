@@ -15,6 +15,7 @@ import {
   eventsForMonth,
   searchEvents,
   filterByPlaceName,
+  truncateDescription,
   type EventRecord,
 } from "./events";
 
@@ -240,4 +241,17 @@ test("filterByPlaceName matches placeName, accent-insensitive", () => {
   const noMatch = event({ id: "b", placeName: "Otra Sala" });
   const nullPlace = event({ id: "c", placeName: null });
   assert.deepEqual(filterByPlaceName([match, noMatch, nullPlace], "croxatto").map((e) => e.id), ["a"]);
+});
+
+test("truncateDescription leaves a short description untouched, null stays null", () => {
+  assert.equal(truncateDescription("Una muestra breve."), "Una muestra breve.");
+  assert.equal(truncateDescription(null), null);
+});
+
+test("truncateDescription cuts a long description to maxLength and appends an ellipsis", () => {
+  const long = "a".repeat(300);
+  const result = truncateDescription(long, 220);
+  assert.equal(result?.length, 221); // 220 chars + "…"
+  assert.ok(result?.endsWith("…"));
+  assert.equal(result?.slice(0, 220), "a".repeat(220));
 });

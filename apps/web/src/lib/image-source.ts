@@ -9,19 +9,27 @@ export interface ImageSource {
   domain: string | null;
 }
 
+// General-purpose — unlike deriveImageSource below, returns the real
+// hostname for EVERY domain, Instagram/Facebook included (deriveImageSource
+// deliberately nulls those out, since its own domain field only ever
+// mattered for the "web" placeholder's on-image label).
+export function extractDomain(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return null; // scraped URLs aren't guaranteed parseable
+  }
+}
+
 export function deriveImageSource(sourceUrl: string | null): ImageSource {
   if (!sourceUrl) return { kind: "web", domain: null };
 
-  let hostname: string;
-  try {
-    hostname = new URL(sourceUrl).hostname;
-  } catch {
-    return { kind: "web", domain: null }; // scraped URLs aren't guaranteed parseable
-  }
+  const hostname = extractDomain(sourceUrl);
+  if (hostname === null) return { kind: "web", domain: null };
 
   if (hostname.includes("instagram.com")) return { kind: "instagram", domain: null };
   if (hostname.includes("facebook.com")) return { kind: "facebook", domain: null };
-  return { kind: "web", domain: hostname.replace(/^www\./, "") };
+  return { kind: "web", domain: hostname };
 }
 
 export type CardImage =

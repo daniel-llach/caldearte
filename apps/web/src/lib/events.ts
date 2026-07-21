@@ -369,3 +369,14 @@ export function filterByPlaceName(events: EventRecord[], query: string): EventRe
   if (!trimmed) return events;
   return events.filter((e) => e.placeName !== null && matchesQuery(e.placeName, trimmed));
 }
+
+// `description` is curation-extracted text from the source (Haiku's own
+// system prompt says "extrae... descripción", not "resume/reescribe") —
+// close to a verbatim excerpt, not our own summary. Never shown in full on
+// an individually shareable/indexable page (see /eventos/[id]) — always
+// truncated, with the source link right there for the rest.
+export function truncateDescription(description: string | null, maxLength = 220): string | null {
+  if (!description) return null;
+  if (description.length <= maxLength) return description;
+  return description.slice(0, maxLength).trimEnd() + "…";
+}

@@ -8,19 +8,28 @@ interface CardImageProps {
   imageUrl: string | null;
   sourceUrl: string | null;
   sensitivityTags: string[];
+  // True only on the standalone /eventos/[id] page: shows the real photo at
+  // its own natural aspect ratio (no crop) instead of the home/archive
+  // cards' fixed-height object-cover crop. Placeholders have no real
+  // dimensions to respect, so they keep a fixed aspect box either way.
+  fullSize?: boolean;
 }
 
-export default function CardImage({ imageUrl, sourceUrl, sensitivityTags }: CardImageProps) {
+export default function CardImage({ imageUrl, sourceUrl, sensitivityTags, fullSize = false }: CardImageProps) {
   const [revealed, setRevealed] = useState(false);
   const sensitive = sensitivityTags.length > 0;
   const image = resolveCardImage({ imageUrl, sourceUrl });
   const blurClass = sensitive && !revealed ? "blur-xl scale-110" : "";
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-stone-800">
+    <div className={`relative w-full ${fullSize && image.type === "photo" ? "" : "h-full"} overflow-hidden bg-stone-800`}>
       {image.type === "photo" ? (
         // eslint-disable-next-line @next/next/no-img-element -- external, unoptimized scraped URLs, see next.config.ts
-        <img src={image.url} alt="" className={`w-full h-full object-cover transition-[filter] duration-300 ${blurClass}`} />
+        <img
+          src={image.url}
+          alt=""
+          className={`w-full transition-[filter] duration-300 ${fullSize ? "h-auto" : "h-full object-cover"} ${blurClass}`}
+        />
       ) : (
         <div
           className={`w-full h-full bg-cover bg-center transition-[filter] duration-300 ${blurClass}`}

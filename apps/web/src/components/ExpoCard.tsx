@@ -1,7 +1,7 @@
 import EventCardBase from "./EventCardBase";
 import type { EventRecord } from "@/lib/events";
 
-export default function ExpoCard({ event }: { event: EventRecord }) {
+export default function ExpoCard({ event, standalone }: { event: EventRecord; standalone?: boolean }) {
   return (
     <EventCardBase
       event={event}
@@ -11,6 +11,7 @@ export default function ExpoCard({ event }: { event: EventRecord }) {
       titleClass="text-lg font-bold"
       periodClass="text-sm"
       contentPaddingClass="p-4"
+      standalone={standalone}
     />
   );
 }

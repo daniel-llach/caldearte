@@ -1,6 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deriveImageSource, resolveCardImage } from "./image-source";
+import { deriveImageSource, extractDomain, resolveCardImage } from "./image-source";
+
+test("extractDomain strips www. and returns the real hostname for any domain, including Instagram/Facebook", () => {
+  assert.equal(extractDomain("https://www.arteinformado.com/agenda/f/x"), "arteinformado.com");
+  assert.equal(extractDomain("https://www.instagram.com/p/abc123/"), "instagram.com");
+  assert.equal(extractDomain("https://www.facebook.com/events/123"), "facebook.com");
+});
+
+test("extractDomain returns null for an unparseable URL, doesn't throw", () => {
+  assert.equal(extractDomain("not a url"), null);
+});
 
 test("deriveImageSource recognizes instagram.com", () => {
   assert.deepEqual(deriveImageSource("https://www.instagram.com/p/abc123/"), { kind: "instagram", domain: null });
