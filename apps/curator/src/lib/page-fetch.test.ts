@@ -35,15 +35,22 @@ test("fetchOgImage also matches the reversed content-then-property attribute ord
   assert.equal(result, "https://cdn.cl/afiche.jpg");
 });
 
-test("fetchOgImage returns null on a non-2xx response, missing tag, or social domain — never throws", async () => {
+test("fetchOgImage returns null on a non-2xx response or missing tag — never throws", async () => {
   assert.equal(await fetchOgImage("https://portaldisc.com/expo", stubFetch("<html></html>", false)), null);
   assert.equal(await fetchOgImage("https://portaldisc.com/expo", stubFetch("<html><head></head></html>")), null);
-  assert.equal(
-    await fetchOgImage("https://instagram.com/p/xyz", async () => {
-      throw new Error("should never be called for a social URL");
-    }),
-    null,
-  );
+});
+
+// Real bug found 2026-07-20: this file used to hard-skip Instagram/Facebook
+// entirely, assuming those pages need JS/login for a plain fetch — verified
+// against 9 real production post/reel URLs that this isn't true for
+// individual post/reel permalinks, only for profile/feed pages. Removing
+// the block recovers a real image for a large fraction of Instagram/
+// Facebook-sourced events that previously always fell back to the
+// generic placeholder.
+test("fetchOgImage now fetches Instagram/Facebook post/reel permalinks too — no longer hard-skipped", async () => {
+  const html = `<meta property="og:image" content="https://scontent.cdninstagram.com/afiche.jpg">`;
+  assert.equal(await fetchOgImage("https://www.instagram.com/reel/abc123", stubFetch(html)), "https://scontent.cdninstagram.com/afiche.jpg");
+  assert.equal(await fetchOgImage("https://www.facebook.com/museo/posts/123", stubFetch(html)), "https://scontent.cdninstagram.com/afiche.jpg");
 });
 
 test("fetchOgImage degrades to null when the fetch itself throws", async () => {
@@ -141,7 +148,7 @@ test("enrichCandidates fills imageUrl only for approved candidates with no image
   assert.equal(candidates[0].imageUrl, "https://cdn.cl/recovered.jpg", "recovered for the eligible candidate");
   assert.equal(candidates[1].imageUrl, "https://x.cl/ya-tiene.jpg", "untouched — already had an image");
   assert.equal(candidates[2].imageUrl, null, "untouched — rejected");
-  assert.equal(candidates[3].imageUrl, null, "untouched — social media sourceUrl");
+  assert.equal(candidates[3].imageUrl, "https://cdn.cl/recovered.jpg", "recovered — Instagram/Facebook are no longer skipped (see 2026-07-20 fetchOgImage tests)");
   assert.equal(candidates[4].imageUrl, null, "untouched — no sourceUrl to fetch");
 });
 

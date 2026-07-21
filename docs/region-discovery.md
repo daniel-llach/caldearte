@@ -579,6 +579,56 @@ backfill was prepared separately (see the user's own record, not tracked
 in this repo) since curator has no production write access via its
 tooling here.
 
+**Instagram/Facebook no longer hard-skipped (found and fixed 2026-07-20):**
+a product-value audit found ~66% of approved events showing the generic
+placeholder instead of a real photo, and traced it to Instagram/Facebook
+being ~59% of approved events combined with `fetchDetailHtml` hard-skipping
+any social-media `sourceUrl` — a design decision made on the assumption
+those pages "need JS/login to render for a plain fetch," never actually
+verified. Tested against 9 real production URLs (6 Instagram reels/posts, 3
+Facebook posts): a plain fetch, no special headers, no crawler-impersonating
+user-agent, reliably returned a working `og:image` for every one — that
+assumption held for profile/feed pages, not for individual post/reel
+permalinks. `fetchDetailHtml` no longer excludes these domains, so
+`enrichCandidates` now recovers an image for them the same way it already
+does for every other source. `isSocialMediaUrl` stays exported — still used
+by `image-rehost.ts` to know when a recovered `imageUrl` is one of these
+signed, short-lived CDN links that needs re-hosting before it rots (see
+"Post-curation image re-hosting" below). Same ToS-gray-zone caveat as any
+scrape of a site with no official API for this use case — could stop
+working without notice if Meta changes markup or tightens bot detection;
+not a guaranteed-permanent fix, worth re-verifying if image recovery for
+these sources silently drops off in a future run.
+
+### Post-curation image re-hosting (`lib/image-rehost.ts`, added 2026-07-20)
+
+An Instagram/Facebook `imageUrl` — whether it came from Tavily directly or
+from the `enrichCandidates` recovery above — is always a signed CDN link
+(`scontent.cdninstagram.com`/`fbcdn.net`) that rots within hours to days
+(confirmed against real samples: one was already dead a few hours after
+capture). `apps/web`'s `resolveCardImage` has always distrusted these
+entirely for that reason, always showing the branded placeholder instead.
+`insertCandidates` (`event-discovery/run.ts`) now downloads the image at
+curation time — while the signed link is still valid — and re-uploads it to
+a public `event-images` Supabase Storage bucket
+(`supabase/migrations/20260720080000_create_event_images_bucket.sql`),
+swapping in the new permanent URL before the row is written. Fails closed
+to `null` on any error (bad content-type, oversized body, network/upload
+failure) rather than storing a link already known to rot. `resolveCardImage`
+now trusts a URL on the same host as `NEXT_PUBLIC_SUPABASE_URL` as a real
+photo, while still falling back to the placeholder for a raw, untouched
+social CDN link.
+
+**Deliberately scoped, not a full fix**: this only covers events that
+already have an `imageUrl` captured (whether via Tavily or the
+`enrichCandidates` recovery above) — storage cost was checked before
+building (real measured sample sizes 25KB-1.9MB, ~9 re-hostable
+Instagram/Facebook events/week at the current batch size project to
+roughly 4 years before Supabase Storage's 1GB free tier is reached — no
+near-term pressure). Not retroactive: events already approved before this
+shipped keep showing their placeholder; the effect only applies going
+forward.
+
 ## Event Discovery quality audit (2026-07-20)
 
 User-requested audit of a real production run (25 comunas + the `uchile.cl`

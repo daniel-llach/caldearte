@@ -4,12 +4,21 @@
 // an image (Tavily left it null) and/or a specific opening date+time (the
 // candidate's source only gave a date range — see known-sources.ts's
 // openingTimeExtractor). Not a new crawl, just using a URL we already
-// collected. Instagram/Facebook are excluded entirely (any path) per the
-// user's call: ToS risk, and those pages need JS/login to render for a
-// plain fetch anyway, so a fetch there would just fail or scrape something
-// misleading. Regex-only, matching this workspace's established convention
+// collected. Regex-only, matching this workspace's established convention
 // (no HTML-parsing library — see event-discovery/extractors.ts's
 // extractImgTags).
+//
+// Instagram/Facebook individual post/reel permalinks ARE fetched here too
+// (as of 2026-07-20) — previously assumed to need JS/login to render, but
+// verified against 9 real production samples (6 Instagram, 3 Facebook):
+// a plain fetch, no special headers, no crawler-impersonating user-agent,
+// reliably returns a working og:image for these single-post pages (unlike
+// profile/feed pages, which do show a login wall). Same ToS-gray-zone
+// caveat as any scrape of a third-party site with no official API — could
+// stop working without notice if Meta changes markup or tightens
+// detection; isSocialMediaUrl stays exported for image-rehost.ts, which
+// still needs to know when a recovered image is one of these signed,
+// short-lived CDN links that must be re-hosted before it rots.
 import { findOpeningTimeConfig } from "./known-sources.js";
 import { extractOpeningDatetime } from "./opening-time.js";
 
@@ -97,7 +106,6 @@ function resolveImageFromHtml(html: string, pageUrl: string): string | null {
 // (social URL, non-2xx, network error) — never throws, so a broken page
 // never blocks the candidate it belongs to.
 async function fetchDetailHtml(url: string, fetchImpl: FetchLike): Promise<string | null> {
-  if (isSocialMediaUrl(url)) return null;
   try {
     const res = await fetchImpl(url);
     if (!res.ok) return null;
