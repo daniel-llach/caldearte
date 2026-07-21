@@ -4,16 +4,19 @@ import { esCL } from "@/i18n/es-CL";
 interface MenuDrawerProps {
   open: boolean;
   familyMode: boolean;
+  archiveHref: string | null; // "Expos anteriores" row — omitted when no month is archived yet
   onClose: () => void;
   onToggleFamilyMode: () => void;
 }
 
-// Mobile-only: the hamburger opens this (Curatoria link + Modo familiar
-// toggle, neither shown inline on mobile). Curatoria links out to
-// /privacidad rather than duplicating that page's content in a second
-// place — this drawer used to have its own "curatoria" view with the same
-// text as /privacidad's "Cómo curamos" section.
-export default function MenuDrawer({ open, familyMode, onClose, onToggleFamilyMode }: MenuDrawerProps) {
+// Opens from both the mobile hamburger AND the desktop "☰ Menú" trigger —
+// same drawer, same content, EXCEPT the Modo familiar row (md:hidden):
+// desktop shows that toggle inline in the header itself (real estate
+// mobile doesn't have), so it would be redundant here on desktop. Curatoria
+// links out to /privacidad rather than duplicating that page's content in
+// a second place — this drawer used to have its own "curatoria" view with
+// the same text as /privacidad's "Cómo curamos" section.
+export default function MenuDrawer({ open, familyMode, archiveHref, onClose, onToggleFamilyMode }: MenuDrawerProps) {
   return (
     <>
       <div
@@ -37,7 +40,17 @@ export default function MenuDrawer({ open, familyMode, onClose, onToggleFamilyMo
           <span>{esCL.curatoria}</span>
           <span className="text-stone-300">›</span>
         </Link>
-        <div className="flex items-center justify-between py-2.5">
+        {archiveHref && (
+          <Link href={archiveHref} onClick={onClose} className="w-full text-left text-sm text-heading-gray py-2.5 border-b border-stone-200 flex items-center justify-between">
+            <span>{esCL.archiveLink}</span>
+            <span className="text-stone-300">›</span>
+          </Link>
+        )}
+        <Link href="/contacto" onClick={onClose} className="w-full text-left text-sm text-heading-gray py-2.5 flex items-center justify-between">
+          <span>{esCL.footer.contacto}</span>
+          <span className="text-stone-300">›</span>
+        </Link>
+        <div className="md:hidden flex items-center justify-between py-2.5 border-t border-stone-200">
           <span className="text-sm text-heading-gray">{esCL.familyMode}</span>
           <button
             onClick={onToggleFamilyMode}

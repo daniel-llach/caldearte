@@ -56,6 +56,15 @@ export const esCL = {
   otherCity: "Otro",
   explorar: "Explorar",
 
+  // Global search panel — scope is every active/upcoming event in every
+  // comuna, not just what's currently on screen (see SearchPanel.tsx).
+  searchAriaLabel: "Buscar eventos",
+  closeSearch: "Cerrar búsqueda",
+  searchTitle: "Buscar eventos",
+  searchPlaceholder: "Buscar por título, artista o lugar...",
+  searchHint: "Busca entre todos los eventos vigentes y próximos, en cualquier comuna.",
+  noSearchResults: "No encontramos eventos con ese término.",
+
   // abbreviate: true shortens "inauguración(es)"/"exposición(es)" to
   // "inau(s)"/"expo(s)" — used on mobile, where the header has less
   // horizontal room.
