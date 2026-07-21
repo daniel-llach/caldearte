@@ -126,7 +126,7 @@ export default function Header({
       </div>
 
       <div className="mt-3 md:mt-4 flex items-center gap-2 flex-wrap text-[15px] md:text-xl text-heading-gray">
-        <span className="md:hidden">{esCL.headerSummary(inauguracionesCount, exposCount, true)}</span>
+        <span className="md:hidden">{esCL.headerSummaryMobile(exposCount)}</span>
         <span className="hidden md:inline">{esCL.headerSummary(inauguracionesCount, exposCount)}</span>
         <button
           ref={cityPickerTriggerRef}
