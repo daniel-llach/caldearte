@@ -99,6 +99,9 @@ export const esCL = {
   // Aria-label for the "how to get there" icon on an event card — opens
   // Google Maps directions in a new tab.
   directionsAriaLabel: (venue: string) => `Cómo llegar a ${venue}`,
+  // Aria-label for the whole-card link to /eventos/[id] (EventCardBase) —
+  // the card itself has no visible link text, just an overlay.
+  eventCardAriaLabel: (title: string) => `Ver ${title}`,
   // Mobile-only: the directions/link icons collapse into a single "more
   // options" (kebab) button, which opens a small menu with these two
   // labeled entries instead.
@@ -107,6 +110,29 @@ export const esCL = {
   cardMenuSource: "Ver fuente original",
   // Inauguraciones only — see EventCardBase's gating on variant + openingDatetime.
   cardMenuAddToCalendar: "Agregar a mi calendario",
+  // "Compartir" is a row/button that reveals the targets below (with a
+  // "← Volver" to go back), not all listed flat — explicit web intents,
+  // not navigator.share (see EventCardBase's own doc comment: the
+  // OS-native sheet is inconsistent, and WhatsApp specifically is the
+  // dominant channel for this audience). Instagram/TikTok have no public
+  // web share-intent URL at all, so "Copiar link" is the deliberate
+  // catch-all for those and anywhere else.
+  cardMenuShare: "Compartir",
+  cardMenuBack: "Volver",
+  cardMenuWhatsApp: "WhatsApp",
+  cardMenuTwitter: "X (Twitter)",
+  cardMenuFacebook: "Facebook",
+  cardMenuCopyLink: "Copiar link",
+  shareLinkCopied: "Link copiado",
+
+  // /eventos/[id] — the shareable, individually-linkable page for one
+  // event (see docs/risks.md's ToS note on scraped sources: this page's
+  // whole point is to make attribution unmissable, not buried in a menu).
+  eventPageBackToHome: "Ver más eventos en Caldearte",
+  eventPageSourceLabel: (domain: string) => `Fuente: ${domain}`,
+  eventPageSourceLink: "Ver publicación original ↗",
+  eventPageAttributionNote: (domain: string) =>
+    `Esta información fue recopilada por Caldearte a partir de una publicación pública de ${domain}.`,
 
   archiveLink: "Revisa expos anteriores",
   archiveMonthTitle: (label: string) => `Expos anteriores — ${label}`,
