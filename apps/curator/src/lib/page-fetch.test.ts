@@ -53,6 +53,26 @@ test("fetchOgImage now fetches Instagram/Facebook post/reel permalinks too — n
   assert.equal(await fetchOgImage("https://www.facebook.com/museo/posts/123", stubFetch(html)), "https://scontent.cdninstagram.com/afiche.jpg");
 });
 
+// Real production bug, found 2026-07-22 running Event Discovery for real:
+// only 2 of 29 approved candidates got an image. Traced to a raw HTML
+// entity left undecoded — Instagram's CDN URLs always carry query-string
+// separators as the literal "&amp;" inside the content="" attribute, not
+// "&". Confirmed via a real fetch: the corrupted URL (with "&amp;" left
+// in) 403s, the same URL decoded to "&" returns a real JPEG. Not a
+// bot-blocking issue, despite looking exactly like one.
+test("fetchOgImage decodes HTML entities in the URL — real Instagram CDN links break otherwise", async () => {
+  const html = `<meta property="og:image" content="https://scontent.cdninstagram.com/img.jpg?stp=abc&amp;_nc_ohc=xyz&amp;oh=00_A&amp;oe=6A66">`;
+  const result = await fetchOgImage("https://www.instagram.com/p/abc123", stubFetch(html));
+  assert.equal(result, "https://scontent.cdninstagram.com/img.jpg?stp=abc&_nc_ohc=xyz&oh=00_A&oe=6A66");
+});
+
+test("extractTwitterImage also decodes HTML entities", () => {
+  assert.equal(
+    extractTwitterImage(`<meta name="twitter:image" content="/img.jpg?a=1&amp;b=2">`),
+    "/img.jpg?a=1&b=2",
+  );
+});
+
 test("fetchOgImage degrades to null when the fetch itself throws", async () => {
   const failing: FetchLike = async () => {
     throw new Error("network down");

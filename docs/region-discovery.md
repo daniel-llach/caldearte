@@ -760,6 +760,27 @@ near-term pressure). Not retroactive: events already approved before this
 shipped keep showing their placeholder; the effect only applies going
 forward.
 
+**Instagram/Facebook image recovery effectively broken since it shipped,
+found and fixed 2026-07-22:** manual review of the 2026-07-22 production
+run found only 2 of 29 approved candidates had an image at all — looked
+like a bot-blocking issue at first (Instagram's CDN is exactly the kind of
+host that blocks datacenter fetches) but wasn't. Root cause:
+`extractOgImage`/`extractTwitterImage` (`lib/page-fetch.ts`) captured a
+`<meta ... content="...">` attribute's raw HTML value with no entity
+decoding — Instagram's CDN URLs are always query-string-heavy (signature
+params `oh`/`oe` the CDN needs to authorize the request), and HTML encodes
+`&` as `&amp;` inside an attribute value, so every recovered URL came
+through with the literal text `&amp;` instead of `&`, corrupting the query
+string and losing the signature entirely. Confirmed directly: fetching the
+corrupted URL 403s regardless of user-agent or referer; fetching the exact
+same URL with `&amp;` decoded back to `&` returns a real JPEG. This bug
+predates today — it's been silently starving `image-rehost.ts` of anything
+to rehost since Instagram/Facebook detail-page fetching shipped
+(2026-07-20), not a regression from this session's other fixes. Fixed with
+a small `decodeHtmlEntities` step (`&amp;`, `&quot;`, `&#39;`, `&lt;`,
+`&gt;` — only what can plausibly appear inside a URL, not a general
+decoder) applied to both extractors' captured value.
+
 ## Event Discovery quality audit (2026-07-20)
 
 User-requested audit of a real production run (25 comunas + the `uchile.cl`
