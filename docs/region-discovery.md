@@ -581,6 +581,24 @@ hallucination warnings already in the prompt (see above) are unchanged —
 this only affects the missing-hour case, not the "is this actually an
 inauguración" judgment call the user also asked about.
 
+**Follow-on regression from the above, found and fixed same day
+(2026-07-21):** the deterministic post-curation re-fetch (`lib/page-fetch.ts`'s
+`processCandidate`/`enrichCandidates`, for the 2 known sources with a
+registered `openingTimeExtractor` — arteinformado.com, uchile.cl) used to
+gate on `c.openingDatetime === null`, since before this fix that was the
+only way a date-only confirmation from Haiku could arrive. Once Haiku
+started reporting date-only confirmations as a real `openingDatetime` +
+`openingTimeConfirmed: false` (immediately above), that gate stopped
+firing for exactly this case — the one it exists for. Concretely: a known
+source's detail page that actually states the real inauguración hour
+would previously get it recovered via regex re-fetch; after the
+`openingTimeConfirmed` change and before this fix, it silently kept
+Haiku's "00:00, unconfirmed" placeholder instead, even though the real
+hour was one fetch away. Fixed by gating on `!c.openingTimeConfirmed`
+instead — covers both the original no-confirmation-at-all case (still
+paired with `openingDatetime: null`) and the date-only case, without
+needing to check `openingDatetime` at all.
+
 **Haiku-set `openingDatetime` timezone bug (found and fixed 2026-07-20):**
 found via a user report — a card showed "08:30 hr" for an event whose own
 source page said "12:30 hrs" (Factoría Franklin), a suspiciously exact
