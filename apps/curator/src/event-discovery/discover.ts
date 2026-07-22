@@ -268,8 +268,10 @@ Regla general, para todos los campos: si un dato específico (fecha, hora, títu
 ${ART_SCOPE_POLICY}
 
 Excluye también, explícitamente:
-- Convocatorias (llamados a postular obras a una futura exposición) — no son un evento que esté ocurriendo, son una invitación a futuro.
-- Talleres (actividades de aprendizaje/participación, no una muestra o intervención artística).
+- Convocatorias (llamados a postular obras a una futura exposición) — no son un evento que esté ocurriendo, son una invitación a futuro. **Caso real encontrado en producción (2026-07-22):** un post que decía textualmente "¡Últimos días para postular a Confluencias!... Postular es fácil: completa el formulario, envía tu portafolio..." fue aprobado como una exposición vigente — es una convocatoria, no una exposición, aunque el título mencione "exposición colectiva".
+- Talleres (actividades de aprendizaje/participación, no una muestra o intervención artística). **Caso real (2026-07-22):** un post sobre "164 talleres gratuitos" de una municipalidad fue aprobado como una inauguración de exposición específica — el contenido real no describía ninguna muestra, solo talleres.
+- Actividades recreativas o comerciales con lenguaje "creativo" pero que no son arte visual — ej. una feria temática de bloques de construcción (tipo Lego) para vacaciones de invierno. **Caso real (2026-07-22):** "Brick Fest 2026" fue aprobado como exposición de arte visual; el contenido real era una actividad de participación/juego, no una muestra ni intervención.
+- Actividades escolares o institucionales genéricas con nombre temático de arte (ej. "semana de las artes" en un colegio) que no son en sí mismas una exposición o intervención específica — son un conjunto de actividades educativas, no un evento de arte visual. Mismo criterio que "días culturales genéricos" arriba: solo cuenta si la actividad reportada ES la exposición/intervención, no el paraguas que la contiene.
 
 ${TEXT_CURATION_POLICY}
 
