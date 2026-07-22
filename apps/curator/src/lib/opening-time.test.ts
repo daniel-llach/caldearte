@@ -182,6 +182,13 @@ test("extractGenericInauguracionHour returns null when there's no inauguración/
   assert.equal(extractGenericInauguracionHour("<p>Exposición abierta hasta el 30 de julio</p>"), null);
 });
 
+// Real production gap, found 2026-07-21 running Event Discovery for real
+// (see docs/region-discovery.md): missed by the original 15-URL sample.
+test("extractGenericInauguracionHour parses 'Inauguración D MES HH:MM hrs' — no 'de' between day and month", () => {
+  const html = "Inauguración 10 julio 12:00 hrs. Hasta el 31 de julio";
+  assert.deepEqual(extractGenericInauguracionHour(html), { day: 10, month0: 6, hour: 12, minute: 0 });
+});
+
 test("extractGenericInauguracionHour returns null for an unrecognized month abbreviation", () => {
   assert.equal(extractGenericInauguracionHour("Inauguración: 4 de foo, 19 hrs"), null);
 });

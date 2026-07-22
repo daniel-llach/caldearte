@@ -673,6 +673,21 @@ examples in the sample: `"Inauguración: [día,] D de MES[,] HH[:MM]
 h/hrs/horas"` (Michel Taverne: "Inauguración: 4 de junio, 19 hrs"; Centex:
 "Inauguración: sábado 11 de julio, 12:00 horas").
 
+**"de" made optional (found and fixed 2026-07-21, same day):** ran Event
+Discovery manually right after shipping this to check all 4 fixes with
+real data. 5 approved candidates landed with a confirmed date and
+unconfirmed hour, but the generic extractor recovered 0 — traced it to a
+real page (Quilpué, Instagram) whose text read "Inauguración 10 julio
+12:00 hrs", no "de" between the day and the month, unlike every example in
+the original 15-URL sample (which is why it wasn't caught building this).
+Fixed by making "de" optional in the pattern. Same run separately
+validated the freshness backstop hard: 17 of the 47 candidates Haiku
+itself approved got overridden to `rejected` in code for a real publish
+date that didn't match July 2026 — including a 2024 Instagram post
+("Casa del Arte", Talca) whose caption read as a perfectly current
+"jueves 2 de julio... 19:00 hrs" two years early, and a 2019 utalca.cl
+listing page.
+
 **Haiku-set `openingDatetime` timezone bug (found and fixed 2026-07-20):**
 found via a user report — a card showed "08:30 hr" for an event whose own
 source page said "12:30 hrs" (Factoría Franklin), a suspiciously exact

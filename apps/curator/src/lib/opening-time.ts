@@ -192,8 +192,13 @@ export interface GenericHourMatch {
 // day/month against the date Haiku already confirmed before trusting the
 // hour — this function only reports what it found, not whether it's safe
 // to use.
+// "de" between day and month is optional — real production gap, found
+// 2026-07-21 running Event Discovery for real: "Inauguración 10 julio
+// 12:00 hrs" (Quilpué, Instagram) has no "de" at all, unlike every example
+// in the original 15-URL sample. Missed because that sample happened not
+// to include this phrasing.
 const GENERIC_INAUGURACION_HOUR_PATTERN =
-  /inaugur\w*:?[^.]{0,40}?(?<day>\d{1,2})\s+de\s+(?<month>[a-zé]{3})[a-zé]*\.?,?\s*(?<hour>\d{1,2})(?::(?<minute>\d{2}))?\s*h(?:rs?)?\.?/i;
+  /inaugur\w*:?[^.]{0,40}?(?<day>\d{1,2})\s+(?:de\s+)?(?<month>[a-zé]{3})[a-zé]*\.?,?\s*(?<hour>\d{1,2})(?::(?<minute>\d{2}))?\s*h(?:rs?)?\.?/i;
 
 export function extractGenericInauguracionHour(html: string): GenericHourMatch | null {
   const text = collapseWhitespace(html);
