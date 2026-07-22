@@ -47,13 +47,35 @@ export function isSocialMediaUrl(url: string): boolean {
 // the winner happens once, in fetchOgImage below — these stay pure and
 // individually testable.
 
+// Real production bug, found 2026-07-22 running Event Discovery for real:
+// meta-tag `content` attributes are raw HTML, so a URL's query string
+// separators come through as the literal entity `&amp;`, not `&` — e.g.
+// Instagram's own CDN URLs (always query-string-heavy, carrying the
+// signature params `oh`/`oe` the CDN needs to authorize the request) came
+// through as "...&amp;oh=...&amp;oe=..." verbatim. Only 2 of 29 approved
+// candidates in that run got an image; fetching the corrupted URL directly
+// (not through this codebase, a raw curl) confirmed the exact failure —
+// 403 with the literal "&amp;" left in, 200 with a real JPEG once decoded
+// back to "&". Not a bot-blocking issue at all, despite looking like one.
+// Only the handful of entities that can plausibly appear inside a URL are
+// covered — this is not a general-purpose HTML entity decoder.
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
 // property/content order varies in the wild — match both.
 const OG_IMAGE_REGEX = /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i;
 const OG_IMAGE_REGEX_REVERSED = /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["'][^>]*>/i;
 
 export function extractOgImage(html: string): string | null {
   const match = html.match(OG_IMAGE_REGEX) ?? html.match(OG_IMAGE_REGEX_REVERSED);
-  return match?.[1]?.trim() || null;
+  const content = match?.[1]?.trim();
+  return content ? decodeHtmlEntities(content) : null;
 }
 
 const TWITTER_IMAGE_REGEX = /<meta[^>]+name=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["'][^>]*>/i;
@@ -61,7 +83,8 @@ const TWITTER_IMAGE_REGEX_REVERSED = /<meta[^>]+content=["']([^"']+)["'][^>]+nam
 
 export function extractTwitterImage(html: string): string | null {
   const match = html.match(TWITTER_IMAGE_REGEX) ?? html.match(TWITTER_IMAGE_REGEX_REVERSED);
-  return match?.[1]?.trim() || null;
+  const content = match?.[1]?.trim();
+  return content ? decodeHtmlEntities(content) : null;
 }
 
 // A page's own structured data (schema.org Article/Event/etc.) sometimes
