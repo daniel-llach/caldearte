@@ -21,6 +21,7 @@
 // short-lived CDN links that must be re-hosted before it rots.
 import { findOpeningTimeConfig } from "./known-sources.js";
 import { extractOpeningDatetime } from "./opening-time.js";
+import { extractPublishedDate, isStalePublishYear } from "./post-freshness.js";
 
 export type FetchLike = (url: string) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
@@ -138,9 +139,19 @@ interface EnrichCandidateLike {
 // posture as this file's other tunables.
 const ENRICHMENT_CONCURRENCY = 4;
 
-async function processCandidate<T extends EnrichCandidateLike>(c: T, fetchImpl: FetchLike): Promise<void> {
+async function processCandidate<T extends EnrichCandidateLike>(c: T, fetchImpl: FetchLike, referenceDate: Date): Promise<void> {
   try {
-    const needsImage = c.imageUrl === null;
+    const html = await fetchDetailHtml(c.sourceUrl!, fetchImpl);
+    if (!html) return;
+
+    if (c.imageUrl === null) {
+      const image = resolveImageFromHtml(html, c.sourceUrl!);
+      if (image) {
+        console.log(`[page-fetch] recovered image from ${c.sourceUrl}`);
+        c.imageUrl = image;
+      }
+    }
+
     // `!c.openingTimeConfirmed` (not `c.openingDatetime === null`) covers
     // both cases this re-fetch can help with: no confirmed inauguración at
     // all (openingDatetime null, openingTimeConfirmed false together — see
@@ -152,18 +163,6 @@ async function processCandidate<T extends EnrichCandidateLike>(c: T, fetchImpl: 
     // re-fetch for known sources (arteinformado.com, uchile.cl) in exactly
     // the case it exists for.
     const openingConfig = !c.openingTimeConfirmed && c.sourceUrl ? findOpeningTimeConfig(c.sourceUrl) : null;
-    if (!needsImage && !openingConfig) return;
-
-    const html = await fetchDetailHtml(c.sourceUrl!, fetchImpl);
-    if (!html) return;
-
-    if (needsImage) {
-      const image = resolveImageFromHtml(html, c.sourceUrl!);
-      if (image) {
-        console.log(`[page-fetch] recovered image from ${c.sourceUrl}`);
-        c.imageUrl = image;
-      }
-    }
     if (openingConfig) {
       const opening = extractOpeningDatetime(html, openingConfig);
       if (opening) {
@@ -174,28 +173,39 @@ async function processCandidate<T extends EnrichCandidateLike>(c: T, fetchImpl: 
         c.openingTimeConfirmed = opening.timeConfirmed;
       }
     }
+
+    // Deterministic freshness backstop (see post-freshness.ts) — runs for
+    // every approved candidate, independent of whether image/opening-time
+    // enrichment was needed, since a stale post can arrive with a
+    // Haiku-confirmed image AND hour just as easily as with neither.
+    const publishedDate = extractPublishedDate(html);
+    if (publishedDate && isStalePublishYear(publishedDate, referenceDate)) {
+      console.log(
+        `[page-fetch] rejected ${c.sourceUrl}: real publish date ${publishedDate.toISOString().slice(0, 10)} doesn't match the curated year`,
+      );
+      c.status = "rejected";
+    }
   } catch (err) {
     console.error(`[page-fetch] enrichment failed for ${c.sourceUrl}: ${(err as Error).message}`);
   }
 }
 
 // Mutates eligible candidates in place — one fetch per candidate covers
-// BOTH image and opening-time recovery (never fetches the same sourceUrl
-// twice for the same candidate). Small and bounded (a handful of events
-// per run fit this scope), fetched in chunks of ENRICHMENT_CONCURRENCY
-// rather than fully sequential or fully unbounded.
+// image recovery, opening-time recovery, AND the freshness backstop
+// (never fetches the same sourceUrl twice for the same candidate). Every
+// approved candidate with a sourceUrl is now eligible (not just ones
+// missing an image/hour) since the freshness check applies universally —
+// small and bounded (a handful of approved events per run fit this
+// scope), fetched in chunks of ENRICHMENT_CONCURRENCY rather than fully
+// sequential or fully unbounded.
 export async function enrichCandidates<T extends EnrichCandidateLike>(
   candidates: T[],
   fetchImpl: FetchLike = fetch,
+  referenceDate: Date = new Date(),
 ): Promise<void> {
-  const eligible = candidates.filter(
-    (c) =>
-      c.status === "approved" &&
-      c.sourceUrl &&
-      (c.imageUrl === null || (!c.openingTimeConfirmed && findOpeningTimeConfig(c.sourceUrl) !== null)),
-  );
+  const eligible = candidates.filter((c) => c.status === "approved" && c.sourceUrl);
   for (let i = 0; i < eligible.length; i += ENRICHMENT_CONCURRENCY) {
     const batch = eligible.slice(i, i + ENRICHMENT_CONCURRENCY);
-    await Promise.all(batch.map((c) => processCandidate(c, fetchImpl)));
+    await Promise.all(batch.map((c) => processCandidate(c, fetchImpl, referenceDate)));
   }
 }

@@ -545,7 +545,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
           usage,
         });
         summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
-        await enrichCandidates(candidates, pageFetchFn);
+        await enrichCandidates(candidates, pageFetchFn, now);
         allCandidates.push(...candidates);
         inserted = await insertCandidates(candidates, regions, seenKeys, now, rehostImageFn);
         summary.candidates.insertedCount += inserted;
@@ -582,7 +582,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
       const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
       await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
       summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
-      await enrichCandidates(candidates, pageFetchFn);
+      await enrichCandidates(candidates, pageFetchFn, now);
       allCandidates.push(...candidates);
       const inserted = await insertCandidates(candidates, regions, seenKeys, now, rehostImageFn);
       summary.candidates.insertedCount += inserted;
