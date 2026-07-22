@@ -580,7 +580,9 @@ export async function curate(
       enforceSourceUrlInvariant(
         applyKnownExclusionsFilter(
           nullifyAggregatorSourceUrls(
+            enforceDateCompleteness(
             nullifyOpeningDatetimeForKnownSources(applyLocationFilter(enforceGroundedQuotes(parseCandidates(text), block))),
+          ),
           ),
         ),
       ),
@@ -594,16 +596,50 @@ export async function curate(
   };
 }
 
-// Month-level date backstop, mirroring the prompt's rule deterministically:
-// an event is stale only if its run (end date, or start date when no end is
-// given) ended in a month BEFORE the current one. An event with no parseable
-// date at all is unusable for a calendar (and violates the DB's
+// Day-level date backstop (tightened from month-level 2026-07-22 — see
+// docs/region-discovery.md): an event is stale if its run (end date, or
+// start date when no end is given) ended before TODAY. Was previously
+// month-level, matching the curation prompt's own "month, not day" rule
+// for a *different* purpose (not penalizing an event whose specific date
+// within the searched month already passed relative to the search) — but
+// that same month-level bucket let genuinely long-over events survive
+// through the rest of their search month, found via manual review: an
+// exhibition that closed January 12, a post confirming an inauguración
+// that closed July 11 (11 days stale by the 22nd), both still "in the
+// current month" by the old rule. Compares calendar day, not raw
+// timestamp, so an event ending later TODAY still counts as current
+// regardless of what time `now` is. An event with no parseable date at
+// all is unusable for a calendar (and violates the DB's
 // events_has_some_date constraint) — also dropped here.
+function dayOnly(date: Date): number {
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
 export function isCurrentOrUpcoming(c: EventCandidate, now: Date): boolean {
   const dateStr = c.runEndDate ?? c.runStartDate ?? c.openingDatetime;
   if (!dateStr) return false;
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return false;
-  const monthValue = (date: Date) => date.getFullYear() * 12 + date.getMonth();
-  return monthValue(d) >= monthValue(now);
+  return dayOnly(d) >= dayOnly(now);
+}
+
+// Completeness backstop, found 2026-07-22 via manual review: an approved
+// candidate with genuinely NO date information — no confirmed
+// openingDatetime AND no complete runStartDate/runEndDate pair — still
+// got shown (real case: "Salón de Julio 2026," approved with reasoning
+// admitting "sin fecha específica confirmada de apertura" and no run
+// dates either). An inauguración needs a confirmed date (hour optional,
+// see openingTimeConfirmed); an expo with no inauguración needs BOTH a
+// start and an end date — a single date alone isn't enough to place it on
+// a calendar meaningfully.
+export function enforceDateCompleteness(candidates: EventCandidate[]): EventCandidate[] {
+  return candidates.map((c) =>
+    c.status === "approved" && !c.openingDatetime && !(c.runStartDate && c.runEndDate)
+      ? {
+          ...c,
+          status: "rejected" as const,
+          curationReasoning: `${c.curationReasoning} [FILTRO DE CÓDIGO: sin fecha de inauguración confirmada ni rango de exhibición completo (inicio y fin); rechazado]`,
+        }
+      : c,
+  );
 }

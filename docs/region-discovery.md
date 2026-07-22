@@ -1097,6 +1097,42 @@ radius as the sourceUrl/date crashes documented elsewhere in this doc.
 Fixed by making both functions null-safe (`| null | undefined` in the
 signature, empty string / `null` fallback) — same pattern, not a new one.
 
+**Day-level freshness + date-completeness backstops, added 2026-07-22:**
+the user manually audited all 24 candidates approved in the clean-slate
+run above and found two more systemic gaps, unrelated to grounding:
+
+1. **`isCurrentOrUpcoming` was month-level, not day-level** (see its own
+   doc comment) — an event whose run ended 11+ days ago still passed
+   because the search month itself hadn't changed yet. Real examples: an
+   exhibition closed January 12, another closed February 6, a "José
+   Venturelli" inauguración whose exhibition closed July 11 (11 days
+   stale relative to the July 22 run) — all still shown as current.
+   Tightened to compare calendar day against `now`, not month. Real
+   month-level behavior it does NOT change: an event opening next month,
+   found incidentally, still counts as valid — only the "already fully
+   over" case got stricter.
+2. **New `enforceDateCompleteness` filter**: an approved candidate with
+   no confirmed `openingDatetime` AND no complete `runStartDate`+
+   `runEndDate` pair has nothing to place it on a calendar. Real case:
+   "Salón de Julio 2026," approved with `curationReasoning` itself
+   admitting "sin fecha específica confirmada de apertura" and no run
+   dates either — a genuinely empty date picture that still got shown.
+   An inauguración only needs a confirmed date (the hour can stay
+   unconfirmed, per the 2026-07-21 `openingTimeConfirmed` work above);
+   an expo with no inauguración needs both ends of its run, not just one.
+
+Both are pure code, no prompt change, chained into `curate()` alongside
+the other backstops.
+
+**Known, not fixed here — flagged as a separate, later task:** the same
+audit found several approved candidates violating scope rules the prompt
+*already* states explicitly (a call-for-submissions/convocatoria, a
+non-art "Lego"-style winter activity, a municipal workshops post, a
+school "semana de las artes" activity) — a prompt-adherence gap, not a
+grounding or date-completeness gap. Revisit with concrete negative
+examples from these real cases, same technique as the grounding section
+above, once there's a next round scheduled for it.
+
 ## Ranking & expansion (superseded, kept for historical reference)
 
 The original design below — a precalculated global population/distance

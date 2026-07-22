@@ -5,6 +5,7 @@ import {
   applyLocationFilter,
   buildQueries,
   currentMonthLabel,
+  enforceDateCompleteness,
   enforceGroundedQuotes,
   enforceSourceUrlInvariant,
   filterImageCandidates,
@@ -33,7 +34,7 @@ const baseCandidate: EventCandidate = {
   description: null,
   artist: null,
   runStartDate: "2026-07-05",
-  runEndDate: null,
+  runEndDate: "2026-07-31", // complete pair by default — see enforceDateCompleteness
   openingDatetime: null,
   openingTimeConfirmed: true,
   mediumType: "tradicional",
@@ -373,21 +374,62 @@ test("applyKnownExclusionsFilter forces a matching approved candidate to rejecte
   assert.equal(result[2].status, "approved");
 });
 
-test("isCurrentOrUpcoming applies the month-level rule, not day-level", () => {
-  const now = new Date(2026, 6, 12); // July 12, 2026, local time
-  // Run ended earlier this same month but its date already passed → still current.
-  assert.equal(isCurrentOrUpcoming({ ...baseCandidate, runStartDate: "2026-07-01", runEndDate: "2026-07-10" }, now), true);
+// Tightened from month-level to day-level 2026-07-22 (see
+// docs/region-discovery.md) — manual review found genuinely long-over
+// events (closed 11+ days earlier) still surviving because the old rule
+// only cared whether the searched MONTH was still current.
+test("isCurrentOrUpcoming applies the day-level rule", () => {
+  const now = new Date(Date.UTC(2026, 6, 12)); // July 12, 2026
+  // Ends later today → still current.
+  assert.equal(isCurrentOrUpcoming({ ...baseCandidate, runStartDate: "2026-07-01", runEndDate: "2026-07-12" }, now), true);
+  // Ended yesterday, same month → stale under the new day-level rule (was "true" under the old month-level rule).
+  assert.equal(isCurrentOrUpcoming({ ...baseCandidate, runStartDate: "2026-07-01", runEndDate: "2026-07-11" }, now), false);
   // Ended in a previous month → stale.
   assert.equal(isCurrentOrUpcoming({ ...baseCandidate, runStartDate: "2026-05-01", runEndDate: "2026-06-28" }, now), false);
   // Opens next month → valid (future event found incidentally).
   assert.equal(isCurrentOrUpcoming({ ...baseCandidate, runStartDate: "2026-08-09", runEndDate: null }, now), true);
-  // Only an opening datetime, this month → valid.
+  // Only an opening datetime, later today → valid.
   assert.equal(
-    isCurrentOrUpcoming({ ...baseCandidate, runStartDate: null, openingDatetime: "2026-07-20T19:00:00-04:00" }, now),
+    isCurrentOrUpcoming({ ...baseCandidate, runStartDate: null, openingDatetime: "2026-07-12T19:00:00-04:00" }, now),
     true,
   );
   // No date at all → unusable.
   assert.equal(isCurrentOrUpcoming({ ...baseCandidate, runStartDate: null, runEndDate: null, openingDatetime: null }, now), false);
+});
+
+test("enforceDateCompleteness keeps an approved candidate with a confirmed openingDatetime, even with no run dates at all", () => {
+  const filtered = enforceDateCompleteness([
+    { ...baseCandidate, openingDatetime: "2026-07-12T19:00:00.000Z", runStartDate: null, runEndDate: null },
+  ]);
+  assert.equal(filtered[0].status, "approved");
+});
+
+test("enforceDateCompleteness keeps an approved candidate with a complete runStartDate+runEndDate pair, even with no opening", () => {
+  const filtered = enforceDateCompleteness([
+    { ...baseCandidate, openingDatetime: null, runStartDate: "2026-07-01", runEndDate: "2026-07-31" },
+  ]);
+  assert.equal(filtered[0].status, "approved");
+});
+
+// Real production case, found 2026-07-22: "Salón de Julio 2026" was
+// approved with reasoning admitting "sin fecha específica confirmada de
+// apertura" and no run dates either — nothing to place it on a calendar.
+test("enforceDateCompleteness rejects an approved candidate with no openingDatetime and an incomplete or missing run-date pair", () => {
+  const noDatesAtAll = enforceDateCompleteness([{ ...baseCandidate, openingDatetime: null, runStartDate: null, runEndDate: null }]);
+  assert.equal(noDatesAtAll[0].status, "rejected");
+
+  const onlyStart = enforceDateCompleteness([{ ...baseCandidate, openingDatetime: null, runStartDate: "2026-07-01", runEndDate: null }]);
+  assert.equal(onlyStart[0].status, "rejected");
+
+  const onlyEnd = enforceDateCompleteness([{ ...baseCandidate, openingDatetime: null, runStartDate: null, runEndDate: "2026-07-31" }]);
+  assert.equal(onlyEnd[0].status, "rejected");
+});
+
+test("enforceDateCompleteness leaves already-rejected candidates untouched", () => {
+  const filtered = enforceDateCompleteness([
+    { ...baseCandidate, status: "rejected", openingDatetime: null, runStartDate: null, runEndDate: null },
+  ]);
+  assert.equal(filtered[0].status, "rejected");
 });
 
 test("normalizeTitle strips accents, quotes, and collapses whitespace", () => {
