@@ -20,7 +20,12 @@
 // still needs to know when a recovered image is one of these signed,
 // short-lived CDN links that must be re-hosted before it rots.
 import { findOpeningTimeConfig } from "./known-sources.js";
-import { extractOpeningDatetime } from "./opening-time.js";
+import {
+  extractGenericInauguracionHour,
+  extractOpeningDatetime,
+  santiagoWallTimeToUtcIso,
+  utcIsoToSantiagoDateParts,
+} from "./opening-time.js";
 import { extractPublishedDate, isStalePublishYear } from "./post-freshness.js";
 
 export type FetchLike = (url: string) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
@@ -171,6 +176,22 @@ async function processCandidate<T extends EnrichCandidateLike>(c: T, fetchImpl: 
         );
         c.openingDatetime = opening.iso;
         c.openingTimeConfirmed = opening.timeConfirmed;
+      }
+    } else if (!c.openingTimeConfirmed && c.openingDatetime) {
+      // Generic hour recovery — no known-source config for this domain, but
+      // Haiku already confirmed the DATE itself (openingDatetime is set),
+      // just not the hour. Cross-checks the generic match's day/month
+      // against the date Haiku already confirmed before trusting it — a
+      // page can mention other dates/times unrelated to this inauguración
+      // (a venue's regular opening hours, another listed event), so a bare
+      // "found a time somewhere" match on its own isn't enough (see
+      // extractGenericInauguracionHour's own doc comment).
+      const confirmed = utcIsoToSantiagoDateParts(c.openingDatetime);
+      const generic = extractGenericInauguracionHour(html);
+      if (confirmed && generic && generic.day === confirmed.day && generic.month0 === confirmed.month0) {
+        console.log(`[page-fetch] recovered generic hour from ${c.sourceUrl} (day/month cross-checked against Haiku's confirmed date)`);
+        c.openingDatetime = santiagoWallTimeToUtcIso(confirmed.year, confirmed.month0, confirmed.day, generic.hour, generic.minute);
+        c.openingTimeConfirmed = true;
       }
     }
 

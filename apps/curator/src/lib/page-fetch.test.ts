@@ -247,6 +247,50 @@ test("enrichCandidates still recovers the real hour when Haiku already confirmed
   assert.equal(candidate.openingTimeConfirmed, true, "real hour recovered from the page, not left as unconfirmed");
 });
 
+// Real production examples, found via manual sampling 2026-07-21 (see
+// docs/region-discovery.md and opening-time.ts's extractGenericInauguracionHour).
+test("enrichCandidates recovers the hour via the generic pattern when there's no known-source config, cross-checked against Haiku's already-confirmed date", async () => {
+  const candidate = makeCandidate({
+    imageUrl: "https://x.cl/ya-tiene.jpg",
+    sourceUrl: "https://www.instagram.com/p/some-post",
+    openingDatetime: "2026-06-04T04:00:00.000Z", // 2026-06-04 00:00 Chile — date confirmed, hour not
+    openingTimeConfirmed: false,
+  });
+
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    text: async () => "🗓️ Inauguración: 4 de junio, 19 hrs",
+  });
+
+  await enrichCandidates([candidate], fetchImpl);
+
+  assert.equal(candidate.openingTimeConfirmed, true);
+  assert.equal(candidate.openingDatetime, "2026-06-04T23:00:00.000Z", "19:00 Chile time on the confirmed day, not the placeholder");
+});
+
+test("enrichCandidates does NOT trust a generic hour match whose day doesn't match Haiku's already-confirmed date", async () => {
+  const candidate = makeCandidate({
+    imageUrl: "https://x.cl/ya-tiene.jpg",
+    sourceUrl: "https://www.instagram.com/p/some-post",
+    openingDatetime: "2026-06-04T04:00:00.000Z", // confirmed day is the 4th
+    openingTimeConfirmed: false,
+  });
+
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    // Page mentions an inauguración on a DIFFERENT day (5th) — could be a
+    // different event on the same page, or the venue's own opening hours.
+    text: async () => "🗓️ Inauguración: 5 de junio, 19 hrs",
+  });
+
+  await enrichCandidates([candidate], fetchImpl);
+
+  assert.equal(candidate.openingTimeConfirmed, false, "mismatched day — placeholder left untouched, not overwritten with an unrelated hour");
+  assert.equal(candidate.openingDatetime, "2026-06-04T04:00:00.000Z");
+});
+
 test("enrichCandidates does not attempt opening-time recovery for a source with no openingTimeExtractor configured", async () => {
   const candidate = makeCandidate({
     imageUrl: "https://x.cl/ya-tiene.jpg",

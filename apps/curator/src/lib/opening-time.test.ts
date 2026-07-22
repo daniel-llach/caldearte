@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractOpeningDatetime, parseLocalDatetimeToUtcIso, type OpeningTimeConfig } from "./opening-time.js";
+import {
+  extractGenericInauguracionHour,
+  extractOpeningDatetime,
+  parseLocalDatetimeToUtcIso,
+  utcIsoToSantiagoDateParts,
+  type OpeningTimeConfig,
+} from "./opening-time.js";
 
 const ARTEINFORMADO_CONFIG: OpeningTimeConfig = {
   pattern:
@@ -147,4 +153,35 @@ test("extractOpeningDatetime's year inference keeps the current year for a date 
   const result = extractOpeningDatetime(html, UCHILE_CONFIG, referenceDate);
   assert.ok(result);
   assert.equal(result!.iso.slice(0, 4), "2026");
+});
+
+test("utcIsoToSantiagoDateParts is the inverse of santiagoWallTimeToUtcIso", () => {
+  const iso = "2026-06-04T23:00:00.000Z"; // 2026-06-04 19:00 Chile (UTC-4 in June, southern-hemisphere winter, no DST)
+  const parts = utcIsoToSantiagoDateParts(iso);
+  assert.deepEqual(parts, { year: 2026, month0: 5, day: 4 });
+});
+
+test("utcIsoToSantiagoDateParts returns null for an unparseable ISO string", () => {
+  assert.equal(utcIsoToSantiagoDateParts("not a date"), null);
+});
+
+// Real production examples, found via manual sampling 2026-07-21 (see
+// docs/region-discovery.md): both real recoverable-hour cases matched this
+// exact shape.
+test("extractGenericInauguracionHour parses 'Inauguración: D de MES, HH hrs'", () => {
+  const html = "🗓️ Inauguración: 4 de junio, 19 hrs";
+  assert.deepEqual(extractGenericInauguracionHour(html), { day: 4, month0: 5, hour: 19, minute: 0 });
+});
+
+test("extractGenericInauguracionHour parses 'Inauguración: [día,] D de MES, HH:MM horas'", () => {
+  const html = "*Inauguración: sábado 11 de julio, 12:00 horas*";
+  assert.deepEqual(extractGenericInauguracionHour(html), { day: 11, month0: 6, hour: 12, minute: 0 });
+});
+
+test("extractGenericInauguracionHour returns null when there's no inauguración/hour mention at all", () => {
+  assert.equal(extractGenericInauguracionHour("<p>Exposición abierta hasta el 30 de julio</p>"), null);
+});
+
+test("extractGenericInauguracionHour returns null for an unrecognized month abbreviation", () => {
+  assert.equal(extractGenericInauguracionHour("Inauguración: 4 de foo, 19 hrs"), null);
 });

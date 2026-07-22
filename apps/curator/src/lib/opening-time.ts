@@ -73,6 +73,31 @@ export function santiagoWallTimeToUtcIso(year: number, month0: number, day: numb
   return new Date(guess.getTime() + correctionMs).toISOString();
 }
 
+// Inverse of santiagoWallTimeToUtcIso — a UTC instant back to its
+// America/Santiago wall-clock date parts. No guess-correct pass needed
+// here (unlike the forward direction): formatting an already-known instant
+// into a timezone is direct, the two-pass correction above only exists
+// because santiagoWallTimeToUtcIso starts from wall-clock parts with no
+// instant yet. Used by page-fetch.ts's generic hour recovery to read back
+// the day/month/year Haiku already confirmed, for cross-checking against
+// a separately-extracted hour (see extractGenericInauguracionHour below).
+export function utcIsoToSantiagoDateParts(iso: string): { year: number; month0: number; day: number } | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Santiago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? NaN);
+  const year = get("year");
+  const month0 = get("month") - 1;
+  const day = get("day");
+  if ([year, month0, day].some((n) => Number.isNaN(n))) return null;
+  return { year, month0, day };
+}
+
 // Converts a plain "YYYY-MM-DDTHH:mm" (Chile wall-clock, no offset/"Z" —
 // see event-discovery/discover.ts's buildSystemPrompt, which instructs
 // Haiku to report exactly this format) into a real UTC ISO instant, via the
@@ -142,4 +167,47 @@ export function extractOpeningDatetime(html: string, config: OpeningTimeConfig, 
   if ([hourNum, minuteNum].some((n) => Number.isNaN(n))) return null;
 
   return { iso: santiagoWallTimeToUtcIso(yearNum, month0, dayNum, hourNum, minuteNum), timeConfirmed };
+}
+
+export interface GenericHourMatch {
+  day: number;
+  month0: number;
+  hour: number;
+  minute: number;
+}
+
+// Generic (not tied to any one domain's markup) fallback for recovering
+// just the HOUR when Haiku already confirmed the date itself — unlike
+// OpeningTimeConfig's per-domain patterns above, this one is deliberately
+// loose about surrounding markup, matched against ANY fetched page. Found
+// via manual sampling of 15 real production sourceUrls (2026-07-21, see
+// docs/region-discovery.md): both real examples of a recoverable hour used
+// this same shape — "Inauguración: [día,] D de MES[,] HH[:MM] h/hrs/horas"
+// (Michel Taverne: "Inauguración: 4 de junio, 19 hrs"; Centex: "Inauguración:
+// sábado 11 de julio, 12:00 horas"). Deliberately does NOT resolve a final
+// date/instant itself (unlike extractOpeningDatetime) — a generic pattern
+// run against an arbitrary page can find a day/month/hour that has nothing
+// to do with THIS event (a venue's opening hours, another listed event on
+// the same page). The caller (page-fetch.ts) must cross-check the returned
+// day/month against the date Haiku already confirmed before trusting the
+// hour — this function only reports what it found, not whether it's safe
+// to use.
+const GENERIC_INAUGURACION_HOUR_PATTERN =
+  /inaugur\w*:?[^.]{0,40}?(?<day>\d{1,2})\s+de\s+(?<month>[a-zé]{3})[a-zé]*\.?,?\s*(?<hour>\d{1,2})(?::(?<minute>\d{2}))?\s*h(?:rs?)?\.?/i;
+
+export function extractGenericInauguracionHour(html: string): GenericHourMatch | null {
+  const text = collapseWhitespace(html);
+  const match = text.match(GENERIC_INAUGURACION_HOUR_PATTERN);
+  if (!match?.groups) return null;
+
+  const { day, month, hour, minute } = match.groups;
+  const month0 = ES_MONTH_ABBR[month?.toLowerCase() ?? ""];
+  if (month0 === undefined) return null;
+
+  const dayNum = Number(day);
+  const hourNum = Number(hour);
+  const minuteNum = minute ? Number(minute) : 0;
+  if ([dayNum, hourNum, minuteNum].some((n) => Number.isNaN(n))) return null;
+
+  return { day: dayNum, month0, hour: hourNum, minute: minuteNum };
 }
