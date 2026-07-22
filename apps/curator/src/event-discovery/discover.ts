@@ -432,12 +432,41 @@ function normalizeForMatch(text: string): string {
 // (title, description, run dates) may still be perfectly real; this
 // mirrors nullifyOpeningDatetimeForKnownSources's existing "strip the
 // unreliable part, keep the rest" approach.
+//
+// Splits `block` into per-result sections keyed by URL, mirroring
+// buildBlock's own format (`### title\nurl\ncontent...`, sections joined
+// by a blank line) — so a candidate's quote is checked against ONLY the
+// section for its own sourceUrl, not the whole block. Real gap found
+// 2026-07-22, first production run after this filter shipped: checking
+// against the whole block let Haiku cite REAL text from a DIFFERENT
+// result in the same batch and misattribute it to an unrelated candidate
+// — two confirmed cases ("Instalación País: Chile 2026", a plain photo
+// post with no date, approved with a fabricated Cerrillos venue/date;
+// "Expo Noah Bliazi", approved citing an inauguración quote that was
+// real text from a different, unrelated Puente Alto post about
+// workshops). Falls back to checking the whole block only when a
+// candidate's sourceUrl doesn't match any section header exactly (e.g. an
+// aggregator/listing URL, or a URL Haiku composed slightly differently)
+// — degrading to the previous, coarser check rather than over-rejecting
+// on a lookup miss.
+function splitBlockByUrl(block: string): Map<string, string> {
+  const sections = new Map<string, string>();
+  for (const part of block.split(/\n\n(?=### )/)) {
+    const url = part.split("\n")[1]?.trim();
+    if (url) sections.set(url, part);
+  }
+  return sections;
+}
+
 export function enforceGroundedQuotes(candidates: EventCandidate[], block: string): EventCandidate[] {
-  const normalizedBlock = normalizeForMatch(block);
-  const isGrounded = (quote: string | null) => !!quote && normalizedBlock.includes(normalizeForMatch(quote));
+  const sections = splitBlockByUrl(block);
 
   return candidates.map((c) => {
     if (c.status !== "approved") return c;
+
+    const ownSection = c.sourceUrl ? sections.get(c.sourceUrl) : undefined;
+    const searchSpace = normalizeForMatch(ownSection ?? block);
+    const isGrounded = (quote: string | null) => !!quote && searchSpace.includes(normalizeForMatch(quote));
 
     if (!isGrounded(c.locationQuote)) {
       return {

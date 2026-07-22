@@ -169,6 +169,65 @@ test("enforceGroundedQuotes normalizes whitespace/case — doesn't false-reject 
   assert.equal(filtered[0].status, "approved");
 });
 
+// Real production gap, found 2026-07-22 (first run after this filter
+// shipped): checking a quote against the WHOLE block let Haiku cite real
+// text from a DIFFERENT result in the same batch and misattribute it to
+// an unrelated candidate. Two confirmed cases: "Instalación País: Chile
+// 2026" (a plain photo post, no date at all) got a fabricated Cerrillos
+// venue/date; "Expo Noah Bliazi" got an inauguración quote that was real
+// text from an unrelated Puente Alto workshops post. This reproduces that
+// exact shape: two results in one block, a candidate citing the OTHER
+// result's real text as if it were its own.
+test("enforceGroundedQuotes checks a candidate's quotes only against its OWN result section — a quote that's real but belongs to a different result doesn't count", () => {
+  const block = [
+    "## Resultados",
+    "",
+    "### Instalación País: Chile 2026\nhttps://www.instagram.com/p/DWz9QRfkfhr\nUna de las fotos de la selección de Chile. Urban Installations, 1993-2026.",
+    "### Otra exposición\nhttps://example.cl/otra-expo\nInauguración: 9 de julio en Cerrillos, Santiago.",
+  ].join("\n\n");
+
+  const filtered = enforceGroundedQuotes(
+    [
+      {
+        ...baseCandidate,
+        sourceUrl: "https://www.instagram.com/p/DWz9QRfkfhr", // its OWN section has no date/venue at all
+        openingDatetime: "2026-07-09T00:00:00.000Z",
+        dateQuote: "9 de julio", // real text, but from the OTHER result
+        locationQuote: "Cerrillos, Santiago", // real text, but from the OTHER result
+      },
+    ],
+    block,
+  );
+
+  assert.equal(filtered[0].status, "rejected", "the location quote isn't in this candidate's own section, even though it's real text elsewhere in the block");
+});
+
+test("enforceGroundedQuotes still grounds correctly when quotes genuinely belong to the candidate's own section, in a multi-result block", () => {
+  const block = [
+    "## Resultados",
+    "",
+    "### Instalación País: Chile 2026\nhttps://www.instagram.com/p/DWz9QRfkfhr\nUna de las fotos de la selección de Chile. Urban Installations, 1993-2026.",
+    "### Otra exposición\nhttps://example.cl/otra-expo\nInauguración: 9 de julio en Cerrillos, Santiago.",
+  ].join("\n\n");
+
+  const filtered = enforceGroundedQuotes(
+    [{ ...baseCandidate, sourceUrl: "https://example.cl/otra-expo", openingDatetime: "2026-07-09T00:00:00.000Z", dateQuote: "9 de julio", locationQuote: "Cerrillos, Santiago" }],
+    block,
+  );
+
+  assert.equal(filtered[0].status, "approved");
+  assert.ok(filtered[0].openingDatetime);
+});
+
+test("enforceGroundedQuotes falls back to checking the whole block when a candidate's sourceUrl doesn't match any result section (e.g. an aggregator URL)", () => {
+  const block = "### Muestra X\nhttps://example.cl/expo\nInauguración: 26 de julio a las 12:30 en Providencia, Santiago, Chile.";
+  const filtered = enforceGroundedQuotes(
+    [{ ...baseCandidate, sourceUrl: "https://agenda.cl/listado-general", locationQuote: "Providencia, Santiago, Chile" }],
+    block,
+  );
+  assert.equal(filtered[0].status, "approved");
+});
+
 test("nullifyAggregatorSourceUrls nulls sourceUrl when 2+ approved candidates share it (a listing page, not an event page), but leaves a uniquely-sourced one alone", () => {
   const listing = "https://agenda.cl/listado";
   const candidates = [
