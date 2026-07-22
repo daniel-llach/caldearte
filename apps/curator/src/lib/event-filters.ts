@@ -33,7 +33,17 @@ export function normalizeTitle(title: string): string {
 // so only the FIRST comma-segment is the actual signal — a trailing ",
 // Chile"/", Región de ..." is noise that varies source-to-source for the
 // same real place.
-export function normalizeLocation(location: string): string {
+// Real production bug (found 2026-07-22, running Event Discovery for
+// real): `insertCandidates` computes this dedup key for EVERY candidate,
+// not just approved ones — a rejected candidate can legitimately have a
+// null `location` (Haiku sometimes doesn't bother filling it in for an
+// event it's discarding), and this crashed the whole unit on
+// `null.split(",")`, same class of failure as `isChileanLocation`'s own
+// null-safety fix (lib/locations.ts). `| null | undefined` in the
+// signature documents that this function must survive exactly the input
+// that broke it, not just the declared type.
+export function normalizeLocation(location: string | null | undefined): string {
+  if (!location) return "";
   const firstSegment = location.split(",")[0];
   return normalizeTitle(firstSegment);
 }

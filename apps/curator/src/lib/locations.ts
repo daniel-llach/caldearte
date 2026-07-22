@@ -158,7 +158,13 @@ export interface RegionLike {
 // shapes without over-matching: a segment like "Viña del Mar" (a real,
 // distinct comuna, not simply "Valparaíso" reworded) still correctly
 // won't match, since it isn't the literal region name in any segment.
-export function matchRegionId(location: string, regions: RegionLike[]): string | null {
+// `| null | undefined` for the same reason isChileanLocation's own
+// signature does — a candidate's location can genuinely be null at
+// runtime despite the declared type (see normalizeLocation's doc comment,
+// lib/event-filters.ts, for the real 2026-07-22 crash this class of bug
+// caused).
+export function matchRegionId(location: string | null | undefined, regions: RegionLike[]): string | null {
+  if (!location) return null;
   const normalized = stripAccents(location.toLowerCase());
   const segments = normalized.split(",").map((s) => s.trim());
   for (const segment of segments) {

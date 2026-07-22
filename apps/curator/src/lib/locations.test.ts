@@ -30,6 +30,15 @@ test("matchRegionId doesn't over-match a genuinely different comuna just because
   assert.equal(matchRegionId("Sala Viña del Mar, Viña del Mar", REGIONS), null);
 });
 
+// Real production bug, found 2026-07-22: a rejected candidate can
+// legitimately have a null location (Haiku doesn't always fill it in for
+// an event it's discarding), and insertCandidates calls matchRegionId on
+// every candidate, not just approved ones — crashed the whole unit.
+test("matchRegionId returns null for null/undefined rather than crashing", () => {
+  assert.equal(matchRegionId(null, REGIONS), null);
+  assert.equal(matchRegionId(undefined, REGIONS), null);
+});
+
 test("matchRegionId returns null when unmatched (the 'otro' case)", () => {
   assert.equal(matchRegionId("un lugar cualquiera, Chile", REGIONS), null, "'Chile' alone doesn't match any region name");
   assert.equal(matchRegionId("Rancagua", REGIONS), null);
