@@ -253,12 +253,67 @@ test("enrichCandidates does not attempt opening-time recovery for a source with 
     sourceUrl: "https://portaldisc.com/expo-1",
   });
 
-  const fetchImpl: FetchLike = async () => {
-    throw new Error("should never be called — no image and no opening-time goal for this candidate");
-  };
+  // Still fetched (the freshness backstop, below, applies to every approved
+  // candidate) — the point of this test is only that no opening-time regex
+  // fires without a registered config, not that the fetch itself is skipped.
+  const fetchImpl: FetchLike = async () => ({ ok: true, status: 200, text: async () => "<html>sin datos de fecha</html>" });
 
   await enrichCandidates([candidate], fetchImpl);
   assert.equal(candidate.openingDatetime, null);
+});
+
+// Real production case, found via manual sampling 2026-07-21 (see
+// docs/region-discovery.md): a news article resurfacing in a July 2026
+// search whose own JSON-LD datePublished is 2023 — Haiku curated it as a
+// current July 2026 event with no self-aware signal of the real year.
+test("enrichCandidates rejects an approved candidate whose real publish year doesn't match the run's target year", async () => {
+  const candidate = makeCandidate({
+    imageUrl: "https://x.cl/ya-tiene.jpg",
+    openingTimeConfirmed: true,
+    sourceUrl: "https://prensaeventos.cl/rio-cochrane",
+  });
+
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    text: async () => `<script type="application/ld+json">{"datePublished":"2023-07-12T14:03:53+00:00"}</script>`,
+  });
+
+  await enrichCandidates([candidate], fetchImpl, new Date("2026-07-15T00:00:00Z"));
+
+  assert.equal(candidate.status, "rejected");
+});
+
+test("enrichCandidates leaves a fresh, same-year candidate approved", async () => {
+  const candidate = makeCandidate({
+    imageUrl: "https://x.cl/ya-tiene.jpg",
+    openingTimeConfirmed: true,
+    sourceUrl: "https://prensaeventos.cl/algo-vigente",
+  });
+
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    text: async () => `<script type="application/ld+json">{"datePublished":"2026-07-01T00:00:00+00:00"}</script>`,
+  });
+
+  await enrichCandidates([candidate], fetchImpl, new Date("2026-07-15T00:00:00Z"));
+
+  assert.equal(candidate.status, "approved");
+});
+
+test("enrichCandidates leaves a candidate approved when no publish-date signal is found — unknown is never treated as stale", async () => {
+  const candidate = makeCandidate({
+    imageUrl: "https://x.cl/ya-tiene.jpg",
+    openingTimeConfirmed: true,
+    sourceUrl: "https://prensaeventos.cl/sin-metadata",
+  });
+
+  const fetchImpl: FetchLike = async () => ({ ok: true, status: 200, text: async () => "<html><body>Sin fecha</body></html>" });
+
+  await enrichCandidates([candidate], fetchImpl, new Date("2026-07-15T00:00:00Z"));
+
+  assert.equal(candidate.status, "approved");
 });
 
 test("enrichCandidates fetches in bounded-concurrency batches, never more than 4 in flight at once", async () => {

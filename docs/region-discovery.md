@@ -599,6 +599,63 @@ instead — covers both the original no-confirmation-at-all case (still
 paired with `openingDatetime: null`) and the date-only case, without
 needing to check `openingDatetime` at all.
 
+**Deterministic freshness backstop, `lib/post-freshness.ts` (added
+2026-07-21):** the user asked whether a post-curation re-fetch could
+verify a candidate is genuinely a valid, current inauguración and not an
+old post re-surfacing — same underlying concern as the timezone/hour bugs
+above, but about the YEAR being wrong rather than the hour being missing.
+Investigated by sampling 15 real production `sourceUrl`s currently sitting
+at `openingTimeConfirmed: false` (fetched for real, not assumed) before
+building anything, per this doc's own established practice of validating
+regexes against real pages first. Found **7 of 15 (47%) had a real publish
+date that didn't match the month Haiku searched for** — worse than an
+earlier, narrower measurement that only checked for an explicit wrong year
+inside Haiku's own `curationReasoning` text and concluded (incorrectly)
+that the two 2026-07-18 hallucination-guard prompt fixes had already
+closed this gap. Two real examples the narrower measurement missed
+entirely: "Río Cochrane" (a prensaeventos.cl news article whose own
+JSON-LD `datePublished` is 2023-07-12, over 3 years before the July 2026
+run that surfaced it) and "Lafken Püllü" (an Instagram post about an April
+30, 2026 opening, curated into a July 2026 run — same year, 3 months off).
+
+Two independent publish-date signals, found via the same sampling: (1)
+standard `datePublished` (JSON-LD) / `article:published_time` meta —
+common across CMS-driven sites, and (2) Instagram's `og:description`
+caption byline (`"<user> on <Month> <DD>, <YYYY>:"`), which Instagram
+emits instead of the standard tags above. Facebook was checked and
+exposes neither via a plain fetch — not covered. `extractPublishedDate`
+tries both, returning `null` (never treated as stale) when neither is
+present, which is the common case.
+
+`isStalePublishYear` deliberately compares **only the year**, not the
+month — the sample showed real, legitimate same-year gaps (an exhibition
+announced weeks ahead of its own opening, or still running weeks after
+it), and month-level comparison would risk rejecting those without more
+data to tune a threshold safely. Every confirmed-stale case in the sample
+had a different year from the target run; every legitimate case shared
+the target year. The "Lafken Püllü" case above (same year, wrong month)
+is a known, **documented, unhandled gap** — revisit with more real
+same-year-mismatch data before tightening this rule.
+
+Wired into `enrichCandidates`: previously a candidate was only re-fetched
+if it needed an image or a known-source opening-time extraction; now
+**every approved candidate with a `sourceUrl` is fetched**, since a stale
+post can arrive with an image and a confirmed hour just as easily as
+without — the freshness check has to run independent of what else needs
+enriching. A stale match sets `status: "rejected"` directly in code (same
+"belt and suspenders" pattern as the Recoleta foreign-country blocklist
+override above), so a stale candidate never reaches `insertCandidates`
+regardless of how confident Haiku's own `curationReasoning` was.
+
+**Explicitly out of scope, discussed and deferred (2026-07-21):** a
+generic (non-domain-specific) regex to recover a missing inauguración
+HOUR from any `sourceUrl`, not just the 2 known sources above. Sampled the
+same 15 URLs specifically for this: only 3 of 6 genuinely valid
+inauguraciones (50%) had any extractable hour in the source at all — a
+low enough hit rate, relative to the effort/false-positive risk of a
+general pattern, that it wasn't worth building yet. Revisit if a future
+sampling pass shows a meaningfully higher rate.
+
 **Haiku-set `openingDatetime` timezone bug (found and fixed 2026-07-20):**
 found via a user report — a card showed "08:30 hr" for an event whose own
 source page said "12:30 hrs" (Factoría Franklin), a suspiciously exact
