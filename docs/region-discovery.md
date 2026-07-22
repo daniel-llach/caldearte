@@ -1171,7 +1171,29 @@ one. Left this PR unmerged for review (same as the grounding PR, #100)
 since it changes the curation prompt, even though it doesn't touch
 `docs/curation-policy.md` itself.
 
-## Ranking & expansion (superseded, kept for historical reference)
+**Prompt-only fix proved unreliable, escalated to a deterministic filter
+the same day (2026-07-22):** re-ran Event Discovery on a clean slate with
+the scope-classification examples above already merged. "CONFLUENCIAS
+II" — the exact same Instagram post used as the convocatoria negative
+example — was approved again, on the very next run, with the real
+"¡Últimos días para postular... completa el formulario, envía tu
+portafolio" text still sitting right there in its own section of the
+block Haiku received. A free-text example is a suggestion Haiku can
+still ignore, same lesson as "NUNCA inventes" alone not stopping
+fabrication. Escalated with `rejectConvocatorias`/`looksLikeConvocatoria`
+(`discover.ts`) — a deterministic keyword check, same "belt and
+suspenders" pattern as the Recoleta location override: requires a call-
+to-action phrase (`postular`/`postulaciones`/`convocatoria abierta`/
+`llamado a artistas`) together with a companion term
+(`formulario`/`portafolio`/`bases de la convocatoria`/`plazo... postula`)
+in the SAME phrase's vicinity — deliberately not just "postular" alone,
+to avoid false-rejecting a real exhibition that merely mentions having
+come out of a past convocatoria retrospectively (e.g. "obra seleccionada
+en la convocatoria 2025, ahora en exhibición"). Checked against each
+candidate's own result section only (reuses `enforceGroundedQuotes`'s
+`splitBlockByUrl`), same cross-contamination guard. Self-mergeable — pure
+code, no prompt change, same category as the grounding/freshness/
+completeness backstops (#101-103), not the prompt-text PRs (#100, #104).
 
 The original design below — a precalculated global population/distance
 ranking with automatic expansion on saturation — predates the decision to

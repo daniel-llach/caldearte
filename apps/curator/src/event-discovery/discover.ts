@@ -491,6 +491,52 @@ export function enforceGroundedQuotes(candidates: EventCandidate[], block: strin
   });
 }
 
+// Deterministic backstop for convocatorias, added 2026-07-22 after a
+// prompt-only fix (adding a real convocatoria as a negative example,
+// same PR that shipped the rest of the scope-classification examples)
+// proved unreliable: the EXACT same real post ("¡Últimos días para
+// postular a Confluencias!... Postular es fácil: completa el formulario,
+// envía tu portafolio...") was approved again on the very next production
+// run, despite that near-verbatim text now being in the prompt as an
+// explicit "don't approve this" example. A free-text example is a
+// suggestion Haiku can still ignore; this makes it a hard rule instead —
+// same escalation already used for Recoleta (prompt instruction alone
+// failed once there too, see applyLocationFilter above).
+//
+// Deliberately narrow to avoid false-rejecting a real exhibition that
+// merely MENTIONS a past convocatoria in its own history (e.g. "obra
+// seleccionada en la convocatoria 2025") — requires "postular"/
+// "postulaciones"/"convocatoria abierta"/"llamado a artistas" together
+// with a companion term (formulario/portafolio/bases/plazo) that only
+// shows up in an ACTIVE call for submissions, not a retrospective mention.
+const CONVOCATORIA_CALL_TO_ACTION = /postular|postulaciones|convocatoria abierta|llamado a artistas/i;
+const CONVOCATORIA_COMPANION_TERMS = [/formulario/i, /portafolio/i, /bases de la convocatoria/i, /plazo.{0,20}postula/i];
+
+export function looksLikeConvocatoria(text: string): boolean {
+  if (!CONVOCATORIA_CALL_TO_ACTION.test(text)) return false;
+  return CONVOCATORIA_COMPANION_TERMS.some((p) => p.test(text));
+}
+
+// Checks each candidate's OWN result section (same splitBlockByUrl reuse
+// as enforceGroundedQuotes above), not the whole block — same
+// cross-contamination concern applies here too.
+export function rejectConvocatorias(candidates: EventCandidate[], block: string): EventCandidate[] {
+  const sections = splitBlockByUrl(block);
+
+  return candidates.map((c) => {
+    if (c.status !== "approved") return c;
+
+    const ownSection = c.sourceUrl ? sections.get(c.sourceUrl) : undefined;
+    if (!looksLikeConvocatoria(ownSection ?? block)) return c;
+
+    return {
+      ...c,
+      status: "rejected" as const,
+      curationReasoning: `${c.curationReasoning} [FILTRO DE CÓDIGO: la fuente contiene lenguaje de convocatoria/llamado a postular; forzado a rejected]`,
+    };
+  });
+}
+
 // Deterministic backstop over Haiku's own decision — see lib/locations.ts.
 export function applyLocationFilter(candidates: EventCandidate[]): EventCandidate[] {
   return candidates.map((c) =>
@@ -577,18 +623,19 @@ export async function curate(
     .map((b) => b.text)
     .join("");
 
-  return {
-    candidates: logBareDomainSourceUrls(
-      enforceSourceUrlInvariant(
-        applyKnownExclusionsFilter(
-          nullifyAggregatorSourceUrls(
-            enforceDateCompleteness(
-            nullifyOpeningDatetimeForKnownSources(applyLocationFilter(enforceGroundedQuotes(parseCandidates(text), block))),
-          ),
-          ),
+  const groundedCandidates = rejectConvocatorias(enforceGroundedQuotes(parseCandidates(text), block), block);
+  const filteredCandidates = logBareDomainSourceUrls(
+    enforceSourceUrlInvariant(
+      applyKnownExclusionsFilter(
+        nullifyAggregatorSourceUrls(
+          enforceDateCompleteness(nullifyOpeningDatetimeForKnownSources(applyLocationFilter(groundedCandidates))),
         ),
       ),
     ),
+  );
+
+  return {
+    candidates: filteredCandidates,
     usage: {
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,

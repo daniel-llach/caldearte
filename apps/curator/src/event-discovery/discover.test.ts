@@ -7,6 +7,8 @@ import {
   currentMonthLabel,
   enforceDateCompleteness,
   enforceGroundedQuotes,
+  looksLikeConvocatoria,
+  rejectConvocatorias,
   enforceSourceUrlInvariant,
   filterImageCandidates,
   filterKnownExclusions,
@@ -227,6 +229,50 @@ test("enforceGroundedQuotes falls back to checking the whole block when a candid
     block,
   );
   assert.equal(filtered[0].status, "approved");
+});
+
+// Real production case: a prompt-only fix (adding this exact real post as
+// a negative example, PR #104) proved unreliable — the SAME post was
+// approved again on the very next run. This deterministic check exists
+// because a free-text example is a suggestion, not a hard rule.
+test("looksLikeConvocatoria detects a real convocatoria post", () => {
+  const text = "🎨 ¡Últimos días para postular a Confluencias! EXPOSICIÓN COLECTIVA 2026🖼️ Postular es fácil: completa el formulario, envía tu portafolio y participa con hasta 3 obras.";
+  assert.equal(looksLikeConvocatoria(text), true);
+});
+
+test("looksLikeConvocatoria does not flag a real exhibition that only mentions a PAST convocatoria retrospectively", () => {
+  const text = "Obra seleccionada en la convocatoria 2025 del Ministerio de las Culturas, ahora en exhibición hasta el 30 de julio.";
+  assert.equal(looksLikeConvocatoria(text), false);
+});
+
+test("looksLikeConvocatoria requires a companion term, not just the word 'postular' alone", () => {
+  assert.equal(looksLikeConvocatoria("Los artistas postularon el año pasado y hoy inauguran su muestra."), false);
+});
+
+test("rejectConvocatorias rejects an approved candidate whose own section contains convocatoria language", () => {
+  const block = [
+    "### Confluencias II\nhttps://www.instagram.com/reel/DYbCzycO4P4\n¡Últimos días para postular a Confluencias! Postular es fácil: completa el formulario, envía tu portafolio.",
+  ].join("\n\n");
+  const filtered = rejectConvocatorias(
+    [{ ...baseCandidate, sourceUrl: "https://www.instagram.com/reel/DYbCzycO4P4" }],
+    block,
+  );
+  assert.equal(filtered[0].status, "rejected");
+});
+
+test("rejectConvocatorias only checks a candidate's OWN section, same cross-contamination guard as enforceGroundedQuotes", () => {
+  const block = [
+    "### Confluencias II\nhttps://www.instagram.com/reel/DYbCzycO4P4\n¡Últimos días para postular a Confluencias! Postular es fácil: completa el formulario, envía tu portafolio.",
+    "### Otra exposición\nhttps://example.cl/otra-expo\nExposición inaugurada, visitas hasta el 30 de julio.",
+  ].join("\n\n");
+  const filtered = rejectConvocatorias([{ ...baseCandidate, sourceUrl: "https://example.cl/otra-expo" }], block);
+  assert.equal(filtered[0].status, "approved");
+});
+
+test("rejectConvocatorias leaves already-rejected candidates untouched", () => {
+  const block = "### X\nhttps://x.cl/y\nPostular es fácil: completa el formulario, envía tu portafolio.";
+  const filtered = rejectConvocatorias([{ ...baseCandidate, status: "rejected", sourceUrl: "https://x.cl/y" }], block);
+  assert.equal(filtered[0].status, "rejected");
 });
 
 test("nullifyAggregatorSourceUrls nulls sourceUrl when 2+ approved candidates share it (a listing page, not an event page), but leaves a uniquely-sourced one alone", () => {
