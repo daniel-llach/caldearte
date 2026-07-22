@@ -1059,6 +1059,28 @@ measure the real false-rejection rate from production runs first, same
 principle as everywhere else in this doc: ship the cheap deterministic
 version, build the expensive one only if data justifies it.
 
+**Cross-result contamination, found and fixed same day (2026-07-22),
+first production run after `enforceGroundedQuotes` shipped:** the initial
+version checked a candidate's quote against the WHOLE block sent to
+Haiku, not just the section for its own result — a unit's search
+routinely returns several results in one block, and Haiku could cite REAL
+text from a DIFFERENT result and misattribute it to an unrelated
+candidate. Two confirmed cases in the very first run: "Instalación País:
+Chile 2026" (a plain photography post, no date or venue mentioned at all)
+got approved with a fabricated Cerrillos, Santiago venue and a specific
+July 9 date/time — text that was real, but belonged to a different result
+in the same batch, not this one. "Expo Noah Bliazi" got approved citing
+`"La inauguración será este jueves a las 19:30 horas..."` as its
+`dateQuote` — a real quote, but from an unrelated Puente Alto post about
+164 free community workshops, nothing to do with "Noah Bliazi." Fixed by
+splitting `block` into per-result sections (mirroring `buildBlock`'s own
+`### title\nurl\ncontent` format) and checking each candidate's quotes
+only against its own `sourceUrl`'s section — falls back to the whole
+block only when a candidate's `sourceUrl` doesn't match any section header
+exactly (an aggregator/listing URL, or a URL Haiku composed slightly
+differently), so a lookup miss degrades to the previous coarser check
+rather than over-rejecting.
+
 **`null` location crashing whole units, found 2026-07-22 (predates the
 grounding fix above — confirmed present in the run before it too):** 6 of
 25 units in a production run failed with `Cannot read properties of null
