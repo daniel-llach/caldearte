@@ -5,6 +5,7 @@ import {
   applyLocationFilter,
   buildQueries,
   currentMonthLabel,
+  enforceGroundedQuotes,
   enforceSourceUrlInvariant,
   filterImageCandidates,
   filterKnownExclusions,
@@ -22,6 +23,11 @@ import {
 } from "./discover.js";
 import type { FetchLike } from "../lib/tavily.js";
 
+// Used as the `block` param for every curate(...) integration test below —
+// real content, not a placeholder, since enforceGroundedQuotes now checks
+// dateQuote/locationQuote against it.
+const TEST_BLOCK = "### Muestra X\nhttps://example.cl/expo\nInauguración: 26 de julio a las 12:30 en Providencia, Santiago, Chile.";
+
 const baseCandidate: EventCandidate = {
   title: "Muestra X",
   description: null,
@@ -38,6 +44,8 @@ const baseCandidate: EventCandidate = {
   location: "Providencia, Santiago, Chile",
   placeName: null,
   sourceUrl: "https://example.cl/expo",
+  dateQuote: null,
+  locationQuote: "Providencia, Santiago, Chile",
 };
 
 test("buildQueries produces the 3 validated templates with the month label, appending ', Chile' to disambiguate comuna-name collisions (e.g. La Reina / Reina Sofía)", () => {
@@ -94,6 +102,70 @@ test("applyLocationFilter does not false-positive on a Chilean place that contai
   const filtered = applyLocationFilter([
     { ...baseCandidate, location: "Concepción, Parque Ecuador" },
   ]);
+  assert.equal(filtered[0].status, "approved");
+});
+
+test("enforceGroundedQuotes keeps a candidate whose dateQuote and locationQuote both appear literally in the block", () => {
+  const block = "### Muestra X\nInauguración: 4 de junio, 19 hrs. Providencia, Santiago, Chile.";
+  const filtered = enforceGroundedQuotes(
+    [{ ...baseCandidate, openingDatetime: "2026-06-04T19:00:00.000Z", dateQuote: "4 de junio, 19 hrs" }],
+    block,
+  );
+  assert.equal(filtered[0].status, "approved");
+  assert.ok(filtered[0].openingDatetime);
+});
+
+// Reproduces the real case found 2026-07-22: "Inauguración de arte
+// visual" (Curacautín) was curated with "Inauguración: 09 de julio del
+// 2026 a las 19:00 horas" cited as confirmed — a phrase that never
+// appeared anywhere in the real source text, which was actually about a
+// different exhibition closing (not opening) in a different city.
+test("enforceGroundedQuotes nulls openingDatetime (keeps the candidate) when dateQuote doesn't appear in the block — fabricated date, real production case", () => {
+  const block = "### Muestra X\nLa exposición estará en Espacio Cultural La Merced hasta el tres de julio. Providencia, Santiago, Chile.";
+  const filtered = enforceGroundedQuotes(
+    [
+      {
+        ...baseCandidate,
+        openingDatetime: "2026-07-09T23:00:00.000Z",
+        dateQuote: "Inauguración: 09 de julio del 2026 a las 19:00 horas",
+      },
+    ],
+    block,
+  );
+  assert.equal(filtered[0].status, "approved", "rest of the candidate survives — it may still be a valid expo");
+  assert.equal(filtered[0].openingDatetime, null);
+  assert.equal(filtered[0].openingTimeConfirmed, false);
+});
+
+test("enforceGroundedQuotes nulls openingDatetime when dateQuote is missing entirely", () => {
+  const filtered = enforceGroundedQuotes([{ ...baseCandidate, openingDatetime: "2026-07-09T23:00:00.000Z", dateQuote: null }], TEST_BLOCK);
+  assert.equal(filtered[0].openingDatetime, null);
+});
+
+// Reproduces the real case found 2026-07-22: "Intervención artística de
+// Víctor García Cuevas" was curated with a Chilean comuna as its
+// location — the real post was about an exhibition in Jaén, Spain, which
+// the source text never disputes being outside Chile because it never
+// claims Chile at all.
+test("enforceGroundedQuotes rejects the whole candidate when locationQuote doesn't appear in the block — fabricated location, real production case", () => {
+  const block = "### Intervención\nEl próximo sábado vuelvo a habitar el refugio antiaéreo de la Guerra Civil de Jaén.";
+  const filtered = enforceGroundedQuotes([{ ...baseCandidate, location: "Corral, Los Ríos, Chile", locationQuote: "Corral, Los Ríos, Chile" }], block);
+  assert.equal(filtered[0].status, "rejected");
+});
+
+test("enforceGroundedQuotes rejects the whole candidate when locationQuote is missing entirely", () => {
+  const filtered = enforceGroundedQuotes([{ ...baseCandidate, locationQuote: null }], TEST_BLOCK);
+  assert.equal(filtered[0].status, "rejected");
+});
+
+test("enforceGroundedQuotes leaves already-rejected candidates untouched", () => {
+  const filtered = enforceGroundedQuotes([{ ...baseCandidate, status: "rejected", locationQuote: null }], TEST_BLOCK);
+  assert.equal(filtered[0].status, "rejected");
+});
+
+test("enforceGroundedQuotes normalizes whitespace/case — doesn't false-reject on trivial formatting differences", () => {
+  const block = "### Muestra X\n  Providencia,   SANTIAGO,\nChile  ";
+  const filtered = enforceGroundedQuotes([{ ...baseCandidate, locationQuote: "Providencia, Santiago, Chile" }], block);
   assert.equal(filtered[0].status, "approved");
 });
 
@@ -304,8 +376,8 @@ test("searchUnit filters by score and dedups by URL across the 3 queries", async
 
 test("curate parses the fenced JSON block and applies the location backstop", async () => {
   const candidates = [
-    { ...baseCandidate, location: "Valparaíso, Chile" },
-    { ...baseCandidate, title: "Foránea", location: "Madrid, España" },
+    { ...baseCandidate, location: "Valparaíso, Chile", locationQuote: "Valparaíso, Chile" },
+    { ...baseCandidate, title: "Foránea", location: "Madrid, España", locationQuote: "Madrid, España" },
   ];
   const client: MessagesClient = {
     messages: {
@@ -316,7 +388,7 @@ test("curate parses the fenced JSON block and applies the location backstop", as
     },
   };
 
-  const { candidates: parsed, usage } = await curate(client, "system", "block");
+  const { candidates: parsed, usage } = await curate(client, "system", "Evento en Valparaíso, Chile. Otro evento en Madrid, España.");
 
   assert.equal(parsed.length, 2);
   assert.equal(parsed[0].status, "approved");
@@ -326,7 +398,7 @@ test("curate parses the fenced JSON block and applies the location backstop", as
 });
 
 test("curate converts Haiku's plain Chile-local openingDatetime to a real UTC instant (real bug, found 2026-07-20: was written through unconverted)", async () => {
-  const candidates = [{ ...baseCandidate, openingDatetime: "2026-07-26T12:30" }];
+  const candidates = [{ ...baseCandidate, openingDatetime: "2026-07-26T12:30", dateQuote: "26 de julio a las 12:30" }];
   const client: MessagesClient = {
     messages: {
       create: async () => ({
@@ -336,14 +408,16 @@ test("curate converts Haiku's plain Chile-local openingDatetime to a real UTC in
     },
   };
 
-  const { candidates: parsed } = await curate(client, "system", "block");
+  const { candidates: parsed } = await curate(client, "system", TEST_BLOCK);
 
   // 12:30 Chile (winter, UTC-4) = 16:30 UTC.
   assert.equal(parsed[0].openingDatetime, "2026-07-26T16:30:00.000Z");
 });
 
 test("curate preserves openingTimeConfirmed: false from Haiku's own output (date confirmed, no hour) — real bug, found 2026-07-21: 7 production events with an inauguración confirmed in Haiku's own curationReasoning still lost the date entirely because only the hour was missing", async () => {
-  const candidates = [{ ...baseCandidate, openingDatetime: "2026-07-15T00:00", openingTimeConfirmed: false }];
+  const candidates = [
+    { ...baseCandidate, openingDatetime: "2026-07-15T00:00", openingTimeConfirmed: false, dateQuote: "el 15 de julio" },
+  ];
   const client: MessagesClient = {
     messages: {
       create: async () => ({
@@ -353,7 +427,11 @@ test("curate preserves openingTimeConfirmed: false from Haiku's own output (date
     },
   };
 
-  const { candidates: parsed } = await curate(client, "system", "block");
+  const { candidates: parsed } = await curate(
+    client,
+    "system",
+    "Inauguración confirmada el 15 de julio, sin hora precisada. Providencia, Santiago, Chile.",
+  );
 
   assert.ok(parsed[0].openingDatetime, "date is kept, not discarded, just because the hour is unconfirmed");
   assert.equal(parsed[0].openingTimeConfirmed, false);
@@ -361,7 +439,7 @@ test("curate preserves openingTimeConfirmed: false from Haiku's own output (date
 
 test("curate defaults openingTimeConfirmed to true when Haiku's output omits it or sends a non-boolean — malformed output degrades safely rather than throwing", async () => {
   const { openingTimeConfirmed: _omit, ...withoutField } = baseCandidate;
-  const candidates = [{ ...withoutField, openingDatetime: "2026-07-15T19:00" }];
+  const candidates = [{ ...withoutField, openingDatetime: "2026-07-15T19:00", dateQuote: "el 15 de julio a las 19:00" }];
   const client: MessagesClient = {
     messages: {
       create: async () => ({
@@ -371,7 +449,11 @@ test("curate defaults openingTimeConfirmed to true when Haiku's output omits it 
     },
   };
 
-  const { candidates: parsed } = await curate(client, "system", "block");
+  const { candidates: parsed } = await curate(
+    client,
+    "system",
+    "Inauguración el 15 de julio a las 19:00. Providencia, Santiago, Chile.",
+  );
 
   assert.equal(parsed[0].openingTimeConfirmed, true);
 });
@@ -387,7 +469,7 @@ test("curate nulls out a malformed openingDatetime rather than storing a wrong i
     },
   };
 
-  const { candidates: parsed } = await curate(client, "system", "block");
+  const { candidates: parsed } = await curate(client, "system", TEST_BLOCK);
 
   assert.equal(parsed[0].openingDatetime, null);
 });

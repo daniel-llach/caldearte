@@ -40,6 +40,18 @@ export interface EventCandidate {
   location: string;
   placeName: string | null; // recognizable venue/institution/landmark name, when the source states one
   sourceUrl: string | null;
+  // Verbatim quote grounding, added 2026-07-22 after a real production
+  // audit found Haiku fabricating whole events — specific dates/hours,
+  // venue names, even descriptions — with zero basis in the source text,
+  // while writing a confident-sounding curationReasoning. The existing
+  // "NUNCA inventes... cita la frase exacta" prompt instruction (added
+  // 2026-07-20) already asked for this and still failed, because a
+  // free-text instruction isn't a verifiable guardrail. These two fields
+  // make it one: enforceGroundedQuotes checks them against the actual
+  // block text in code, not on Haiku's word. null when there's nothing to
+  // ground (openingDatetime null) or when Haiku's output is malformed.
+  dateQuote: string | null; // exact substring from the source confirming openingDatetime
+  locationQuote: string | null; // exact substring from the source confirming location
 }
 
 export interface ImageCandidate {
@@ -241,8 +253,17 @@ Para cada evento real que encuentres, extrae:
 - \`sourceUrl\`: la URL de la fuente donde se puede ver más información del evento. Cada bloque de resultados trae su propia URL justo después del título, al inicio del bloque — si no encuentras una URL más específica para el evento individual, usa esa URL del bloque en vez de responder null. **INVARIANTE: si status es "approved", sourceUrl NUNCA puede ser null.** Si un bloque no tiene URL disponible, entonces el evento debe ser "rejected", no "approved".
 - \`location\`: la comuna/ciudad donde ocurre el evento, tal como aparece en la fuente (ej. "Las Condes, Santiago")
 - \`placeName\`: el nombre reconocible del lugar, cuando la fuente lo menciona — nombre de museo, galería, centro cultural, u otra institución (ej. "GAM", "Parque Cultural Valparaíso"); si no hay un nombre de institución pero sí una dirección o punto de referencia claro (ej. "Plaza Sotomayor", "Parque Forestal", una dirección de calle), usa eso. Si la fuente no da ninguno de los dos, usa null — no repitas la comuna/ciudad aquí, y no inventes un nombre que la fuente no menciona.
+- \`dateQuote\`: SOLO si \`openingDatetime\` no es null — copia LITERAL (textual, sin resumir ni traducir) de la frase exacta de la fuente que confirma esa fecha/hora. Si no puedes copiar una frase real que lo diga, \`openingDatetime\` y \`dateQuote\` van ambos null — esto se verifica en código contra el texto real, así que una cita inventada o parafraseada será detectada y el campo se anulará de todos modos.
+- \`locationQuote\`: copia LITERAL de la frase de la fuente que nombra la ubicación que reportaste en \`location\` (puede ser el nombre de la comuna/ciudad, o el nombre de la cuenta/medio que publica si el texto no nombra la ubicación explícitamente pero la cuenta la deja clara, ej. "@culturaquilpue" o "tvohiggins"). Si no hay ninguna evidencia textual de dónde ocurre el evento, el evento debe ser "rejected" — no inventes una ubicación basándote en la comuna que estás buscando.
 
 Regla general, para todos los campos: si un dato específico (fecha, hora, título, artista, lugar) no aparece literalmente en el texto de la fuente, ese campo va null — nunca lo completes con un valor "razonable", "típico", o inferido de otros eventos que estés viendo en el mismo lote. Un texto sobre un evento que ya ocurrió (ej. "Compartimos este registro de la inauguración...", en pasado) no es evidencia de un evento futuro, aunque la publicación misma sea reciente.
+
+**Grounding obligatorio, encontrado en producción 2026-07-22:** la instrucción de arriba ("nunca inventes... cita la frase exacta") ya existía y aun así Haiku inventó eventos completos — fecha, hora, nombre del lugar, e incluso la descripción — sin ninguna base real en el texto, mientras escribía un \`curationReasoning\` que sonaba seguro y específico. \`dateQuote\`/\`locationQuote\` existen para que esto se pueda verificar en código, no solo confiar en tu palabra. Casos reales encontrados ese día, todos con \`status: "approved"\` cuando debían ser "rejected" o con el campo en null:
+1. Un post cuyo texto real era solo "Columna de @rtorrescultura para ARTEPUERTO. Gracias Rafael..." (sin fecha, hora, ni descripción de ningún tipo) fue curado como "Exposición visual de arte plástico (grabadores y esculturas) con inauguración confirmada en fecha y hora específicas" — 100% inventado.
+2. Un post real de un museo (balance institucional genérico de 2025, publicado 5 meses antes del mes buscado) fue curado como "CineForo Mariposas Verdes: Cine, diversidad y convivencia... Día Internacional de Orgullo LGBTI2+" — evento completo inventado, cero mención de eso en el texto.
+3. Un artículo real sobre una expo que **cierra** el 3 de julio en Rancagua fue curado como "Inauguración: 09 de julio del 2026 a las 19:00 horas" en una comuna distinta (Curacautín) — fecha, hora Y ubicación inventadas.
+4. Un recorrido virtual real (nombre real "Archivo del relato persistente", publicado en marzo, cierra el 21 de marzo) fue curado con "inauguración confirmada jueves 16 de julio... Galería Central María Izquierdo" — ningún dato coincide con el texto real.
+5. Un post real sobre una exposición en Jaén, **España** (mención explícita de "la Guerra Civil de Jaén") fue curado con \`location\` asignado a una comuna chilena — nunca reportes una ubicación chilena si el texto no la nombra, aunque estés buscando esa comuna específica.
 
 ${ART_SCOPE_POLICY}
 
@@ -267,7 +288,7 @@ Etiqueta también: \`mediumType\` ("tradicional" o "intervencion_no_tradicional"
 \`status\` es binario: "approved" o "rejected" — no hay estado intermedio.
 
 Responde SOLO con un bloque de código \`\`\`json que contenga un array de objetos con esta forma exacta, nada más antes o después:
-[{ "title": string, "description": string | null, "artist": string | null, "runStartDate": string | null, "runEndDate": string | null, "openingDatetime": string | null, "openingTimeConfirmed": boolean, "mediumType": "tradicional" | "intervencion_no_tradicional", "sensitivityTags": string[], "curationReasoning": string, "imageUrl": string | null, "status": "approved" | "rejected", "location": string, "placeName": string | null, "sourceUrl": string | null }]
+[{ "title": string, "description": string | null, "artist": string | null, "runStartDate": string | null, "runEndDate": string | null, "openingDatetime": string | null, "openingTimeConfirmed": boolean, "dateQuote": string | null, "locationQuote": string | null, "mediumType": "tradicional" | "intervencion_no_tradicional", "sensitivityTags": string[], "curationReasoning": string, "imageUrl": string | null, "status": "approved" | "rejected", "location": string, "placeName": string | null, "sourceUrl": string | null }]
 
 Si no encuentras nada en scope, responde con un array vacío: \`\`\`json
 []
@@ -281,7 +302,11 @@ function parseCandidates(text: string): EventCandidate[] {
       `event-discovery: no fenced JSON block found in Haiku's response (likely truncated; tail: ${text.slice(-200)})`,
     );
   }
-  const parsed = JSON.parse(match[1]) as (EventCandidate & { openingTimeConfirmed?: unknown })[];
+  const parsed = JSON.parse(match[1]) as (EventCandidate & {
+    openingTimeConfirmed?: unknown;
+    dateQuote?: unknown;
+    locationQuote?: unknown;
+  })[];
   return parsed.map((c) => ({
     ...c,
     // Haiku reports openingDatetime as a plain Chile-local "YYYY-MM-DDTHH:mm"
@@ -298,6 +323,11 @@ function parseCandidates(text: string): EventCandidate[] {
     // (field missing or not a real boolean) — the safe assumption when
     // openingDatetime is set at all, and meaningless when it's null.
     openingTimeConfirmed: typeof c.openingTimeConfirmed === "boolean" ? c.openingTimeConfirmed : true,
+    // Same defensive posture — malformed/missing quote fields degrade to
+    // null (treated as "ungrounded" by enforceGroundedQuotes below), never
+    // thrown on.
+    dateQuote: typeof c.dateQuote === "string" ? c.dateQuote : null,
+    locationQuote: typeof c.locationQuote === "string" ? c.locationQuote : null,
   }));
 }
 
@@ -372,6 +402,61 @@ export function nullifyOpeningDatetimeForKnownSources(candidates: EventCandidate
       openingDatetime: null,
       curationReasoning: `${c.curationReasoning} [FILTRO DE CÓDIGO: fuente conocida sin fechas de inauguración confiables (MAVI/UC agenda); openingDatetime forzado a null]`,
     };
+  });
+}
+
+function normalizeForMatch(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// Verifies dateQuote/locationQuote (see buildSystemPrompt, EventCandidate's
+// own doc comment) actually appear in the real text Haiku was given — a
+// code-level guardrail, not a request for Haiku to police itself. Real bug
+// found in production (2026-07-22): the existing "cite the exact phrase"
+// prompt instruction alone didn't stop Haiku from fabricating whole events
+// (specific dates/hours, venue names, even descriptions) with zero basis
+// in the source text, while writing a confident-sounding curationReasoning
+// — 4 of 6 manually-checked candidates in one run had this exact problem,
+// plus 2 with a wrong-country location that had also passed a confident
+// curationReasoning. Deliberately fails closed: a quote that's missing OR
+// present-but-not-found (parsed as unverifiable either way — this version
+// doesn't try to distinguish "fabricated" from "legitimate paraphrase")
+// gets the same treatment. Measure real false-rejection rate before
+// building a second, more lenient verification pass for the ambiguous
+// case — see docs/region-discovery.md.
+//
+// location has no nullable fallback (every event needs one) — an
+// ungrounded location rejects the whole candidate, same severity as
+// enforceSourceUrlInvariant below. openingDatetime IS nullable — an
+// ungrounded date only nulls that field, since the rest of the candidate
+// (title, description, run dates) may still be perfectly real; this
+// mirrors nullifyOpeningDatetimeForKnownSources's existing "strip the
+// unreliable part, keep the rest" approach.
+export function enforceGroundedQuotes(candidates: EventCandidate[], block: string): EventCandidate[] {
+  const normalizedBlock = normalizeForMatch(block);
+  const isGrounded = (quote: string | null) => !!quote && normalizedBlock.includes(normalizeForMatch(quote));
+
+  return candidates.map((c) => {
+    if (c.status !== "approved") return c;
+
+    if (!isGrounded(c.locationQuote)) {
+      return {
+        ...c,
+        status: "rejected" as const,
+        curationReasoning: `${c.curationReasoning} [FILTRO DE CÓDIGO: ubicación sin cita textual verificable en la fuente; rechazado]`,
+      };
+    }
+
+    if (c.openingDatetime && !isGrounded(c.dateQuote)) {
+      return {
+        ...c,
+        openingDatetime: null,
+        openingTimeConfirmed: false,
+        curationReasoning: `${c.curationReasoning} [FILTRO DE CÓDIGO: fecha de inauguración sin cita textual verificable; openingDatetime forzado a null]`,
+      };
+    }
+
+    return c;
   });
 }
 
@@ -465,7 +550,9 @@ export async function curate(
     candidates: logBareDomainSourceUrls(
       enforceSourceUrlInvariant(
         applyKnownExclusionsFilter(
-          nullifyAggregatorSourceUrls(nullifyOpeningDatetimeForKnownSources(applyLocationFilter(parseCandidates(text)))),
+          nullifyAggregatorSourceUrls(
+            nullifyOpeningDatetimeForKnownSources(applyLocationFilter(enforceGroundedQuotes(parseCandidates(text), block))),
+          ),
         ),
       ),
     ),

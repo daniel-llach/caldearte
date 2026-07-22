@@ -997,6 +997,68 @@ start/end field — the same kind of parsing Haiku already does reliably
 for every other source. Dedup does NOT need Haiku at all — that's
 `insertCandidates`'s deterministic dedup, unchanged and reused as-is.
 
+## Manual review follow-up (2026-07-22) — verbatim-quote grounding for date/location
+
+A second round of manual review (after the 2026-07-20 one above) found
+that the "NUNCA inventes... cita la frase exacta" prompt instruction —
+already in place since 2026-07-20 — didn't stop the same underlying
+problem. The user hand-checked 6 real approved candidates from a manual
+Event Discovery run and found Haiku fabricating **whole events**, not
+just misreading ambiguous dates: specific dates/hours, venue names, even
+descriptions, with zero basis in the real source text, while writing a
+confident-sounding `curationReasoning`. Real cases, each confirmed by
+fetching the actual source directly:
+
+1. **"Columna de @rtorrescultura"**: real caption was only "Columna de
+   @rtorrescultura para ARTEPUERTO. Gracias Rafael..." — no date, hour, or
+   description of any kind. Curated as "Exposición visual de arte
+   plástico (grabadores y esculturas) con inauguración confirmada en
+   fecha y hora específicas" — entirely invented.
+2. **"CineForo Mariposas Verdes"**: real post was a generic 2025
+   year-in-review from a real museum (Museo Juan del Corral), published 5
+   months before the target month. Zero mention of "Mariposas Verdes" or
+   cinema. Whole event invented.
+3. **"Inauguración de arte visual" (Curacautín)**: real article was about
+   an exhibition **closing** July 3 in Rancagua — Haiku invented
+   "Inauguración: 09 de julio del 2026 a las 19:00 horas" and assigned it
+   to the wrong comuna entirely.
+4. **"Archivo... (exposición virtual)"**: real name "Archivo del relato
+   persistente," published in March, closed March 21 — 4 months before
+   the target month. Haiku invented a July inauguración with a specific
+   venue.
+5. **"Intervención artística de Víctor García Cuevas"**: real post was
+   about an exhibition in Jaén, **Spain** ("el refugio antiaéreo de la
+   Guerra Civil de Jaén") — Haiku assigned it a Chilean comuna anyway.
+
+A free-text instruction alone isn't a verifiable guardrail — Haiku can
+(and did) ignore it while sounding confident. Fixed by making it
+verifiable: `EventCandidate` gained `dateQuote`/`locationQuote` — Haiku
+must copy the literal source phrase backing `openingDatetime`/`location`,
+and a new deterministic filter, `enforceGroundedQuotes` (discover.ts,
+chained into `curate()` alongside `applyLocationFilter` and friends),
+checks that quote actually appears in the real `block` text Haiku was
+given (whitespace/case-normalized substring match — no new API call).
+`location` has no nullable fallback, so an ungrounded location rejects
+the whole candidate (same severity as `enforceSourceUrlInvariant`);
+`openingDatetime` is nullable, so an ungrounded date only nulls that
+field, keeping the rest of the candidate (mirrors
+`nullifyOpeningDatetimeForKnownSources`'s existing "strip the unreliable
+part" approach).
+
+**Deliberately fails closed for now**: a quote that's missing and a quote
+that's present-but-not-found get the exact same treatment — this version
+doesn't try to distinguish a genuine paraphrase from a fabrication, since
+that needs semantic judgment a substring check can't give. Two follow-up
+options were discussed and explicitly deferred pending real data: (a) a
+second, narrow Haiku call limited to the ambiguous "quote present but not
+verbatim" bucket, to rescue legitimate paraphrases without spending on
+every approved candidate; (b) reinstating a `pending_review` human
+escalation tier (previously decided against 2026-07-19 on "0 genuine
+escalations" evidence that predates this finding). Neither is built —
+measure the real false-rejection rate from production runs first, same
+principle as everywhere else in this doc: ship the cheap deterministic
+version, build the expensive one only if data justifies it.
+
 ## Ranking & expansion (superseded, kept for historical reference)
 
 The original design below — a precalculated global population/distance
