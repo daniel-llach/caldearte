@@ -647,14 +647,31 @@ enriching. A stale match sets `status: "rejected"` directly in code (same
 override above), so a stale candidate never reaches `insertCandidates`
 regardless of how confident Haiku's own `curationReasoning` was.
 
-**Explicitly out of scope, discussed and deferred (2026-07-21):** a
-generic (non-domain-specific) regex to recover a missing inauguración
-HOUR from any `sourceUrl`, not just the 2 known sources above. Sampled the
-same 15 URLs specifically for this: only 3 of 6 genuinely valid
-inauguraciones (50%) had any extractable hour in the source at all — a
-low enough hit rate, relative to the effort/false-positive risk of a
-general pattern, that it wasn't worth building yet. Revisit if a future
-sampling pass shows a meaningfully higher rate.
+**Generic hour recovery, `extractGenericInauguracionHour` (added
+2026-07-21):** initially deferred (only 3/6 genuinely valid inauguraciones
+in the 15-URL sample had an extractable hour, a 50% hit rate) but revisited
+same-day after the freshness backstop above shipped — it fetches the real
+page for EVERY approved candidate now regardless, so the network cost this
+feature would have added no longer exists, and the user considers a
+confirmed hour (not just a confirmed date) core to Caldearte's value.
+Zero added Anthropic/Tavily cost either way — purely regex over HTML
+already in memory, no extra API calls.
+
+Unlike the 2 known-source configs, this pattern isn't tied to any one
+domain's markup — matched against any fetched page — so it needs a safety
+net a domain-specific pattern doesn't: the page can mention a date/hour
+that has nothing to do with THIS event (a venue's regular opening hours,
+a different listed event on the same page). The fix: Haiku already told
+us the confirmed DAY and MONTH (just not the hour) — `extractGenericInauguracionHour`
+returns whatever day/month/hour it found, and `page-fetch.ts` only trusts
+the extracted hour if its day AND month match the date Haiku already
+confirmed (`utcIsoToSantiagoDateParts`, opening-time.ts's new inverse of
+`santiagoWallTimeToUtcIso`). A mismatch leaves the candidate exactly as it
+was — placeholder hour, `openingTimeConfirmed: false` — rather than
+attaching an unrelated time. Pattern shape, confirmed against the 2 real
+examples in the sample: `"Inauguración: [día,] D de MES[,] HH[:MM]
+h/hrs/horas"` (Michel Taverne: "Inauguración: 4 de junio, 19 hrs"; Centex:
+"Inauguración: sábado 11 de julio, 12:00 horas").
 
 **Haiku-set `openingDatetime` timezone bug (found and fixed 2026-07-20):**
 found via a user report — a card showed "08:30 hr" for an event whose own
