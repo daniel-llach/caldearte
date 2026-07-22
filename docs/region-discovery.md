@@ -1133,6 +1133,44 @@ grounding or date-completeness gap. Revisit with concrete negative
 examples from these real cases, same technique as the grounding section
 above, once there's a next round scheduled for it.
 
+**Scope-classification prompt tuning, added 2026-07-22 (same-day
+follow-up to the note above):** this can't be fixed with a deterministic
+code backstop the way grounding/freshness/completeness were — there's no
+verifiable fact to check, it's a judgment call about what kind of
+activity a post describes. Fixed the only way available: added the 4 real
+cases as concrete negative examples directly in `buildSystemPrompt`'s
+existing "Excluye también, explícitamente" section (`discover.ts`), next
+to where the convocatorias/talleres exclusions they violate already
+lived — same technique as every other "found a real case, cite it in the
+prompt" fix in this doc.
+
+- Convocatorias: "¡Últimos días para postular a Confluencias!...
+  completa el formulario, envía tu portafolio..." got approved as a
+  current exhibition despite being a literal call for submissions, even
+  though its own title said "exposición colectiva."
+- Talleres: a post about "164 talleres gratuitos" from a municipality got
+  approved as a specific exhibition's inauguración — the real content
+  never described any exhibition at all.
+- New category, not previously covered: recreational/commercial
+  activities using art-adjacent language that aren't visual art — "Brick
+  Fest 2026" (a Lego-brick building activity for winter vacation) got
+  approved as a visual-art exhibition.
+- School/institutional activities with an art-themed name that aren't
+  themselves a specific exhibition/intervention — a school's "semana de
+  las artes" got approved as an inauguración; it's a themed week of
+  activities, the same class of mistake `ART_SCOPE_POLICY`'s existing
+  "generic cultural/heritage days" clause already covers for
+  municipal-level events, just not yet illustrated for a school context.
+
+Deliberately did NOT touch `ART_SCOPE_POLICY`/`lib/curation-policy.ts` —
+those mirror `docs/overview.md` verbatim (per their own doc comments),
+and the convocatorias/talleres exclusions these new examples reinforce
+already live directly in `discover.ts`'s own prompt text, not in the
+shared policy constants — same split as before this change, not a new
+one. Left this PR unmerged for review (same as the grounding PR, #100)
+since it changes the curation prompt, even though it doesn't touch
+`docs/curation-policy.md` itself.
+
 ## Ranking & expansion (superseded, kept for historical reference)
 
 The original design below — a precalculated global population/distance
