@@ -21,12 +21,16 @@ export interface EventCandidate {
   runStartDate: string | null; // YYYY-MM-DD
   runEndDate: string | null; // YYYY-MM-DD
   openingDatetime: string | null; // ISO datetime, only when explicitly confirmed
-  // Always true for a Haiku-set value — its own prompt already requires an
-  // explicit hour before it ever sets openingDatetime at all (see
-  // buildSystemPrompt below). Only lib/opening-time.ts's deterministic
-  // post-curation regex enrichment can ever set this false, for a source
-  // that confirms a date but never an hour — see parseCandidates, where
-  // this field gets defaulted (Haiku's own JSON schema doesn't include it).
+  // false when the source confirms an inauguración DATE but never an hour
+  // — Haiku reports this itself now (see buildSystemPrompt's
+  // openingDatetime/openingTimeConfirmed instructions), same convention
+  // lib/opening-time.ts's deterministic regex path already used. Real bug
+  // found in production (2026-07-21): before Haiku could report this
+  // itself, its prompt required BOTH date and hour before setting
+  // openingDatetime at all — 7 events with an inauguración explicitly
+  // confirmed in Haiku's own curationReasoning still got openingDatetime
+  // null purely because the hour was missing, discarding a real confirmed
+  // date. Meaningless when openingDatetime is null.
   openingTimeConfirmed: boolean;
   mediumType: "tradicional" | "intervencion_no_tradicional";
   sensitivityTags: string[];
@@ -229,7 +233,10 @@ Para cada evento real que encuentres, extrae:
 - título, descripción, artista (si se nombra)
 - \`runStartDate\`: día en que comienza la exhibición/muestra (solo fecha, sin hora), si se menciona
 - \`runEndDate\`: día en que termina, si se menciona (null si no se sabe)
-- \`openingDatetime\`: fecha Y hora exacta de la inauguración, SOLO si la fuente menciona una apertura/inauguración específica con hora — null si no hay una inauguración confirmada (una muestra puede no tener inauguración pública). **NUNCA inventes ni completes esta fecha con un valor "razonable" o "probable" — si no puedes citar la frase exacta de la fuente que da esa fecha Y esa hora, usa null.** Dos señales de alarma específicas, encontradas en producción (2026-07-20): (1) una publicación de red social que es un *registro/recuerdo* de una inauguración YA REALIZADA ("Compartimos este registro de la inauguración...", en pasado) no tiene una inauguración futura que reportar — openingDatetime debe ser null, aunque la publicación sea reciente; (2) una fecha real pero de un evento ya terminado (ej. "del 23 de diciembre al 28 de enero", sin relación con el mes buscado) no se convierte en una fecha del mes actual solo porque no tienes otra — si la fecha real no encaja con ${monthLabel}, el candidato se rechaza o se le pone openingDatetime null, nunca se sustituye por una fecha inventada. **Formato obligatorio: "YYYY-MM-DDTHH:mm", SIEMPRE en hora LOCAL de Chile tal como la reporta la fuente — nunca agregues "Z" ni un offset de zona horaria, ni conviertas tú mismo a UTC** (ej. una fuente que dice "19:00 hrs" se reporta como "2026-07-15T19:00", nunca "2026-07-15T19:00:00Z" ni "...-04:00" ni "...-03:00" — el código se encarga de esa conversión).
+- \`openingDatetime\` + \`openingTimeConfirmed\`: fecha de la inauguración, SOLO si la fuente confirma que existe una apertura/inauguración específica — ambos campos van null/false si no hay una inauguración confirmada (una muestra puede no tener inauguración pública, o el texto solo da el rango de la muestra sin mencionar ninguna apertura). **NUNCA inventes ni completes esta fecha con un valor "razonable" o "probable" — si no puedes citar la frase exacta de la fuente que confirma esa fecha, usa null.** Dos señales de alarma específicas, encontradas en producción (2026-07-20): (1) una publicación de red social que es un *registro/recuerdo* de una inauguración YA REALIZADA ("Compartimos este registro de la inauguración...", en pasado) no tiene una inauguración futura que reportar — openingDatetime debe ser null, aunque la publicación sea reciente; (2) una fecha real pero de un evento ya terminado (ej. "del 23 de diciembre al 28 de enero", sin relación con el mes buscado) no se convierte en una fecha del mes actual solo porque no tienes otra — si la fecha real no encaja con ${monthLabel}, el candidato se rechaza o se le pone openingDatetime null, nunca se sustituye por una fecha inventada.
+  - Si la fuente confirma la fecha **y** la hora exacta de la inauguración: reporta ambas, con \`openingTimeConfirmed: true\`.
+  - Si la fuente confirma que hay una inauguración en una fecha específica pero **no da la hora**: reporta esa fecha con hora "00:00" (un valor placeholder — el código nunca la muestra como si fuera real) y \`openingTimeConfirmed: false\`. **NO uses null solo porque falta la hora** — la fecha confirmada por sí sola ya es información real y valiosa que no debe perderse. Bug real encontrado en producción (2026-07-21): 7 eventos con una inauguración explícitamente confirmada en el propio \`curationReasoning\` de la curación terminaron con \`openingDatetime\` null solo por faltar la hora exacta.
+  - **Formato obligatorio: "YYYY-MM-DDTHH:mm", SIEMPRE en hora LOCAL de Chile tal como la reporta la fuente (o "00:00" en el caso de hora no confirmada, arriba) — nunca agregues "Z" ni un offset de zona horaria, ni conviertas tú mismo a UTC** (ej. una fuente que dice "19:00 hrs" se reporta como "2026-07-15T19:00", nunca "2026-07-15T19:00:00Z" ni "...-04:00" ni "...-03:00" — el código se encarga de esa conversión).
 - \`imageUrl\`: elige, de las "imágenes candidatas" listadas bajo cada fuente, la que realmente muestre una obra, flyer o foto del evento — NO un logo, ícono, foto de perfil, o imagen decorativa del sitio. Usa la descripción de cada imagen (cuando exista) para decidir: una descripción como "profile picture" NUNCA es correcta; una descripción que menciona un cartel, afiche, o texto del evento SÍ suele serlo. Si ninguna imagen candidata parece ser realmente del evento, usa null — no inventes ni elijas al azar.
 - \`sourceUrl\`: la URL de la fuente donde se puede ver más información del evento. Cada bloque de resultados trae su propia URL justo después del título, al inicio del bloque — si no encuentras una URL más específica para el evento individual, usa esa URL del bloque en vez de responder null. **INVARIANTE: si status es "approved", sourceUrl NUNCA puede ser null.** Si un bloque no tiene URL disponible, entonces el evento debe ser "rejected", no "approved".
 - \`location\`: la comuna/ciudad donde ocurre el evento, tal como aparece en la fuente (ej. "Las Condes, Santiago")
@@ -260,7 +267,7 @@ Etiqueta también: \`mediumType\` ("tradicional" o "intervencion_no_tradicional"
 \`status\` es binario: "approved" o "rejected" — no hay estado intermedio.
 
 Responde SOLO con un bloque de código \`\`\`json que contenga un array de objetos con esta forma exacta, nada más antes o después:
-[{ "title": string, "description": string | null, "artist": string | null, "runStartDate": string | null, "runEndDate": string | null, "openingDatetime": string | null, "mediumType": "tradicional" | "intervencion_no_tradicional", "sensitivityTags": string[], "curationReasoning": string, "imageUrl": string | null, "status": "approved" | "rejected", "location": string, "placeName": string | null, "sourceUrl": string | null }]
+[{ "title": string, "description": string | null, "artist": string | null, "runStartDate": string | null, "runEndDate": string | null, "openingDatetime": string | null, "openingTimeConfirmed": boolean, "mediumType": "tradicional" | "intervencion_no_tradicional", "sensitivityTags": string[], "curationReasoning": string, "imageUrl": string | null, "status": "approved" | "rejected", "location": string, "placeName": string | null, "sourceUrl": string | null }]
 
 Si no encuentras nada en scope, responde con un array vacío: \`\`\`json
 []
@@ -274,7 +281,7 @@ function parseCandidates(text: string): EventCandidate[] {
       `event-discovery: no fenced JSON block found in Haiku's response (likely truncated; tail: ${text.slice(-200)})`,
     );
   }
-  const parsed = JSON.parse(match[1]) as Omit<EventCandidate, "openingTimeConfirmed">[];
+  const parsed = JSON.parse(match[1]) as (EventCandidate & { openingTimeConfirmed?: unknown })[];
   return parsed.map((c) => ({
     ...c,
     // Haiku reports openingDatetime as a plain Chile-local "YYYY-MM-DDTHH:mm"
@@ -285,10 +292,12 @@ function parseCandidates(text: string): EventCandidate[] {
     // rendered as "08:30" on the card (America/Santiago is UTC-4). Malformed
     // output degrades to null rather than a silently wrong instant.
     openingDatetime: c.openingDatetime ? parseLocalDatetimeToUtcIso(c.openingDatetime) : null,
-    // Not part of Haiku's own JSON schema (see buildSystemPrompt) — a
-    // Haiku-set openingDatetime is always time-confirmed by construction, so
-    // this defaults true here rather than asking Haiku to report it.
-    openingTimeConfirmed: true,
+    // Haiku now reports this itself (see buildSystemPrompt) — `false` means
+    // it confirmed a date but never an hour (reported as a "00:00"
+    // placeholder). Defaults to `true` only if Haiku's output is malformed
+    // (field missing or not a real boolean) — the safe assumption when
+    // openingDatetime is set at all, and meaningless when it's null.
+    openingTimeConfirmed: typeof c.openingTimeConfirmed === "boolean" ? c.openingTimeConfirmed : true,
   }));
 }
 

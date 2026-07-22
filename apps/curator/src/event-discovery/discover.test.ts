@@ -342,6 +342,40 @@ test("curate converts Haiku's plain Chile-local openingDatetime to a real UTC in
   assert.equal(parsed[0].openingDatetime, "2026-07-26T16:30:00.000Z");
 });
 
+test("curate preserves openingTimeConfirmed: false from Haiku's own output (date confirmed, no hour) — real bug, found 2026-07-21: 7 production events with an inauguración confirmed in Haiku's own curationReasoning still lost the date entirely because only the hour was missing", async () => {
+  const candidates = [{ ...baseCandidate, openingDatetime: "2026-07-15T00:00", openingTimeConfirmed: false }];
+  const client: MessagesClient = {
+    messages: {
+      create: async () => ({
+        content: [{ type: "text", text: "```json\n" + JSON.stringify(candidates) + "\n```" }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+    },
+  };
+
+  const { candidates: parsed } = await curate(client, "system", "block");
+
+  assert.ok(parsed[0].openingDatetime, "date is kept, not discarded, just because the hour is unconfirmed");
+  assert.equal(parsed[0].openingTimeConfirmed, false);
+});
+
+test("curate defaults openingTimeConfirmed to true when Haiku's output omits it or sends a non-boolean — malformed output degrades safely rather than throwing", async () => {
+  const { openingTimeConfirmed: _omit, ...withoutField } = baseCandidate;
+  const candidates = [{ ...withoutField, openingDatetime: "2026-07-15T19:00" }];
+  const client: MessagesClient = {
+    messages: {
+      create: async () => ({
+        content: [{ type: "text", text: "```json\n" + JSON.stringify(candidates) + "\n```" }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+    },
+  };
+
+  const { candidates: parsed } = await curate(client, "system", "block");
+
+  assert.equal(parsed[0].openingTimeConfirmed, true);
+});
+
 test("curate nulls out a malformed openingDatetime rather than storing a wrong instant", async () => {
   const candidates = [{ ...baseCandidate, openingDatetime: "26 de julio, 12:30" }];
   const client: MessagesClient = {
