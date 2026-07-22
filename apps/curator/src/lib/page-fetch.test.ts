@@ -123,7 +123,11 @@ function makeCandidate(
     imageUrl: null as string | null,
     sourceUrl: null as string | null,
     openingDatetime: null as string | null,
-    openingTimeConfirmed: true,
+    // Matches the real invariant (see discover.ts's buildSystemPrompt): no
+    // confirmed opening at all means both openingDatetime AND
+    // openingTimeConfirmed go together (null + false) — a bare
+    // `openingDatetime: null` is never paired with `true`.
+    openingTimeConfirmed: false,
     ...overrides,
   };
 }
@@ -213,6 +217,34 @@ test("enrichCandidates records a date-only opening time (openingTimeConfirmed: f
 
   assert.ok(candidate.openingDatetime, "date recorded, not dropped");
   assert.equal(candidate.openingTimeConfirmed, false);
+});
+
+// Regression, found 2026-07-21: PR #94 made Haiku itself report a
+// date-only opening (openingDatetime already set, openingTimeConfirmed:
+// false) instead of null — which silently disabled this re-fetch for known
+// sources, since it used to gate on `openingDatetime === null`. This
+// candidate arrives already carrying a confirmed date with an unconfirmed
+// hour (exactly what Haiku now produces for that case) and the real page
+// has the exact time arteinformado.com's regex expects — recovery must
+// still fire and overwrite the placeholder with the real hour.
+test("enrichCandidates still recovers the real hour when Haiku already confirmed the date but not the time", async () => {
+  const candidate = makeCandidate({
+    imageUrl: "https://x.cl/ya-tiene.jpg",
+    sourceUrl: "https://www.arteinformado.com/agenda/f/dejar-atras-245428",
+    openingDatetime: "2026-07-15T00:00:00.000Z",
+    openingTimeConfirmed: false,
+  });
+
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    text: async () =>
+      '<span class="text-uppercase">Inauguración</span>:<br/> 15 jul de 2026 / 19 a 21 h.',
+  });
+
+  await enrichCandidates([candidate], fetchImpl);
+
+  assert.equal(candidate.openingTimeConfirmed, true, "real hour recovered from the page, not left as unconfirmed");
 });
 
 test("enrichCandidates does not attempt opening-time recovery for a source with no openingTimeExtractor configured", async () => {

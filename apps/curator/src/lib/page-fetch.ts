@@ -141,7 +141,17 @@ const ENRICHMENT_CONCURRENCY = 4;
 async function processCandidate<T extends EnrichCandidateLike>(c: T, fetchImpl: FetchLike): Promise<void> {
   try {
     const needsImage = c.imageUrl === null;
-    const openingConfig = c.openingDatetime === null && c.sourceUrl ? findOpeningTimeConfig(c.sourceUrl) : null;
+    // `!c.openingTimeConfirmed` (not `c.openingDatetime === null`) covers
+    // both cases this re-fetch can help with: no confirmed inauguración at
+    // all (openingDatetime null, openingTimeConfirmed false together — see
+    // buildSystemPrompt), and — since PR #94 — a confirmed date with an
+    // unconfirmed hour (openingDatetime now non-null, a real date + "00:00"
+    // placeholder, openingTimeConfirmed false). Real regression found
+    // 2026-07-21: PR #94 changed Haiku's own output so the date-only case no
+    // longer sets openingDatetime to null, which silently disabled this
+    // re-fetch for known sources (arteinformado.com, uchile.cl) in exactly
+    // the case it exists for.
+    const openingConfig = !c.openingTimeConfirmed && c.sourceUrl ? findOpeningTimeConfig(c.sourceUrl) : null;
     if (!needsImage && !openingConfig) return;
 
     const html = await fetchDetailHtml(c.sourceUrl!, fetchImpl);
@@ -182,7 +192,7 @@ export async function enrichCandidates<T extends EnrichCandidateLike>(
     (c) =>
       c.status === "approved" &&
       c.sourceUrl &&
-      (c.imageUrl === null || (c.openingDatetime === null && findOpeningTimeConfig(c.sourceUrl) !== null)),
+      (c.imageUrl === null || (!c.openingTimeConfirmed && findOpeningTimeConfig(c.sourceUrl) !== null)),
   );
   for (let i = 0; i < eligible.length; i += ENRICHMENT_CONCURRENCY) {
     const batch = eligible.slice(i, i + ENRICHMENT_CONCURRENCY);
