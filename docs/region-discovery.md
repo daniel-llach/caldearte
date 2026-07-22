@@ -551,11 +551,35 @@ America/Santiago (a real instant, via the same `santiagoWallTimeToUtcIso`
 used for real hours) and `timeConfirmed` is `false`. The new
 `events.opening_time_confirmed` column (see data-model.md) persists this;
 `apps/web`'s `EventCardBase` reads it to show "consulta la hora con el
-lugar" instead of a fabricated hour. Haiku's own initial curation is
-unaffected — its prompt already requires an explicit hour before it ever
-sets `opening_datetime` at all, so every Haiku-set value defaults this
-column to `true` (see `discover.ts`'s `parseCandidates`) — only the
-deterministic post-curation regex enrichment can produce `false`.
+lugar" instead of a fabricated hour.
+
+**Update (found and fixed 2026-07-21): Haiku's own curation had the same
+bug, worse.** The note above ("Haiku's own initial curation is
+unaffected... its prompt already requires an explicit hour before it ever
+sets `opening_datetime` at all") described the bug, not a safe design —
+requiring date AND hour together meant a confirmed date with no reported
+hour was discarded entirely, not downgraded to `opening_time_confirmed:
+false`. Found via a user question ("si hay una inauguración por qué el
+discovery no puede conseguir la hora?"); confirmed via
+`curation_reasoning ILIKE` search in production, not assumed — 7 events
+whose own `curationReasoning` explicitly stated the inauguración date was
+confirmed (e.g. "Inauguración de ExpoArte.Co confirmada en reel de
+Instagram del 15 de julio 2026") still had `opening_datetime: null`,
+purely because Haiku's prompt gave it no way to report "date yes, hour
+no." Fixed by extending the same convention the regex path already used:
+`buildSystemPrompt` now tells Haiku to report `openingDatetime` +
+`openingTimeConfirmed` as two separate fields — date+hour confirmed →
+both real values and `openingTimeConfirmed: true`; date confirmed but no
+hour → the date with a "00:00" placeholder hour and
+`openingTimeConfirmed: false` (never null just for a missing hour, since
+the confirmed date alone is real, useful information); no confirmed
+inauguración at all → both null/false, unchanged. `parseCandidates`
+reads Haiku's `openingTimeConfirmed` directly now, defaulting to `true`
+only if Haiku's output omits it or sends a non-boolean (malformed-output
+fallback, not the normal path). The past-event/mismatched-month
+hallucination warnings already in the prompt (see above) are unchanged —
+this only affects the missing-hour case, not the "is this actually an
+inauguración" judgment call the user also asked about.
 
 **Haiku-set `openingDatetime` timezone bug (found and fixed 2026-07-20):**
 found via a user report — a card showed "08:30 hr" for an event whose own
