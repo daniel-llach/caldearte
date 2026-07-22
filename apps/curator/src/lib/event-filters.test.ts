@@ -15,6 +15,14 @@ test("normalizeLocation is accent/case-insensitive, same as normalizeTitle", () 
   assert.equal(normalizeLocation("COLBÚN"), normalizeLocation("colbun"));
 });
 
+// Real production bug, found 2026-07-22: insertCandidates computes this
+// for every candidate, not just approved ones — a rejected candidate can
+// legitimately have a null location, and this crashed the whole unit.
+test("normalizeLocation returns an empty string for null/undefined rather than crashing", () => {
+  assert.equal(normalizeLocation(null), "");
+  assert.equal(normalizeLocation(undefined), "");
+});
+
 test("isLikelySameTitle flags real near-duplicate wording — two sources naming the same exhibition differently", () => {
   assert.equal(isLikelySameTitle("Inauguración de la muestra 'Raíces del Sur'", "Raíces del Sur: exposición fotográfica"), true);
 });

@@ -1059,6 +1059,22 @@ measure the real false-rejection rate from production runs first, same
 principle as everywhere else in this doc: ship the cheap deterministic
 version, build the expensive one only if data justifies it.
 
+**`null` location crashing whole units, found 2026-07-22 (predates the
+grounding fix above — confirmed present in the run before it too):** 6 of
+25 units in a production run failed with `Cannot read properties of null
+(reading 'split')`. Root cause: `insertCandidates` (`run.ts`) computes a
+dedup key (`locationDateKey`/`normalizeLocation`, `lib/event-filters.ts`)
+and a region match (`matchRegionId`, `lib/locations.ts`) for **every**
+candidate in the batch, not just approved ones — a *rejected* candidate
+can legitimately have a null `location` (Haiku doesn't always bother
+filling it in for an event it's discarding), and neither function guarded
+against that, unlike `isChileanLocation` in the same file, which already
+had this exact fix from an earlier incident (2026-07-17). One bad
+candidate crashed the whole unit's try/catch in `run.ts`, same blast
+radius as the sourceUrl/date crashes documented elsewhere in this doc.
+Fixed by making both functions null-safe (`| null | undefined` in the
+signature, empty string / `null` fallback) — same pattern, not a new one.
+
 ## Ranking & expansion (superseded, kept for historical reference)
 
 The original design below — a precalculated global population/distance
