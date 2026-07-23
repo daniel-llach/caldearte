@@ -628,7 +628,11 @@ export async function run(deps: RunDeps = {}): Promise<void> {
         summary.candidates.insertedCount += inserted;
         console.log(`[event-discovery] bright source ${result.url}: ${inserted} new approved event(s)`);
       } catch (err) {
-        console.error(`[event-discovery] bright source ${result.url}: pass failed, skipping: ${(err as Error).message}`);
+        // Stack, not just message — a real production case (2026-07-23,
+        // arteinformado.com: "Cannot read properties of null (reading
+        // 'replace')") had no line number to go on afterward, since only
+        // .message was ever logged.
+        console.error(`[event-discovery] bright source ${result.url}: pass failed, skipping: ${(err as Error).stack ?? (err as Error).message}`);
       }
     }
     await recordBrightSourcesFetched(
