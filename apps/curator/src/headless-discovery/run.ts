@@ -6,7 +6,7 @@
 // region-discovery.md), and a headless browser launch + page render is
 // several seconds versus sub-second for a plain fetch() — mixing the two
 // risks that budget for a source most runs won't even need to re-fetch
-// (bright_source_fetch_state's existing 14-day per-source cadence, reused
+// (bright_source_fetch_state's existing 7-day per-source cadence, reused
 // as-is here). Isolating it in its own workflow also means a Playwright
 // failure (a new, more fragile dependency than anything else in this
 // pipeline) can never fail the main run.
@@ -88,7 +88,7 @@ export async function run(deps: HeadlessRunDeps = {}): Promise<void> {
   };
 
   if (!due) {
-    console.log(`[headless-discovery] ${MAVI_SOURCE_URL} not due yet (14-day cadence) — nothing to do`);
+    console.log(`[headless-discovery] ${MAVI_SOURCE_URL} not due yet (7-day cadence) — nothing to do`);
     await (deps.sendHeadlessRunSummaryEmailFn ?? sendHeadlessRunSummaryEmail)(summary);
     return;
   }

@@ -1535,6 +1535,51 @@ comuna loop exactly: each source gets the full `max_tokens` budget to
 itself, and a per-source `try/catch` means one truncated/oversized
 source only loses its own candidates, not every other due source's.
 
+## Dual cadence: comuna coverage monthly, bright sources weekly (2026-07-23)
+
+Strategy decision, after seeing bright sources deliver 9 clean, real
+events for $0.15 total in one run — a much better quality-to-cost ratio
+than the broad comuna sweep (Tavily search across social media, noisier,
+not necessarily official art venues). Deliberate rebalancing, not a cost
+cut: run comuna coverage at a slower, smaller pace, and lean harder on
+bright sources (curated, official-venue listings) for the bulk of new
+events.
+
+`event-discovery.yml`'s single cron became two, same workflow/job,
+distinguished at runtime via `github.event.schedule` (only populated on
+a `schedule`-triggered run, not `workflow_dispatch`):
+- **1st of the month, 06:00 UTC** — a normal full run. `weekly_batch_size`
+  (system_config, name kept as-is — renaming needs a migration, not
+  worth it for a label) is still 25; at a monthly cadence instead of
+  weekly, the full 346-comuna rotation now takes ~14 months instead of
+  ~14 weeks. That's the intended effect, not a side effect.
+- **Every Monday, 06:00 UTC** — `bright_sources_only: true`, comuna batch
+  skipped entirely. Each bright source's own fetch cadence
+  (`BRIGHT_SOURCE_INTERVAL_MS`, `run.ts`) dropped from 14 days to 7 to
+  match — halved, so this actually finds something new most weeks
+  instead of every other one. `headless-discovery`'s own weekly cron
+  (`headless-bright-sources.yml`) needed no change — already weekly, and
+  it reuses this same constant.
+
+### Debugging one named bright source: `brightSourceUrlFilter`
+
+Added the same day, prompted directly by wanting arteinformado.com and
+parquecultural.cl's real logs after they failed in a production run.
+Waiting for a source's own 7-day cadence, or clearing EVERY source's
+`bright_source_fetch_state` just to force the one you actually wanted,
+were the only options before this.
+
+`RunDeps.brightSourceUrlFilter` (`run.ts`): an array of substrings, each
+matched against a bright source's own `url`. When set, it REPLACES the
+`isSourceDue` check entirely for the matched set — a source runs
+regardless of its own cadence, freshly-fetched or not, and every
+unmatched source is skipped (not just deprioritized). Wired through
+`event-discovery.yml`'s `workflow_dispatch` as `bright_source_urls`
+(comma-separated, e.g. `arteinformado.com,parquecultural.cl`) ->
+`BRIGHT_SOURCE_URLS` env var (`index.ts`) -> `brightSourceUrlFilter`.
+Setting it also forces `brightSourcesOnly` — there's rarely a reason to
+also want the comuna batch while debugging one named source.
+
 ## Cost governance
 
 A self-tracked ledger keeps both processes bounded, without depending on

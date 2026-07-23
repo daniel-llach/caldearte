@@ -122,11 +122,17 @@ async function loadDetectedSources(): Promise<BrightSource[]> {
 
 // Per-source independent fetch cadence — until now, EVERY bright source got
 // fetched on EVERY run with no gating at all. Same "due" shape as regions'
-// isDueForRun/RUN_INTERVAL_MS, but 2 weeks (not a month) and keyed by the
-// source's own url (see the bright_source_fetch_state migration for why:
-// KNOWN_SOURCES is hand-curated in code, not a DB row, so url is the only
-// identity both hand-curated and auto-detected sources share).
-const BRIGHT_SOURCE_INTERVAL_MS = 14 * 24 * 60 * 60 * 1000;
+// isDueForRun/RUN_INTERVAL_MS, but keyed by the source's own url (see the
+// bright_source_fetch_state migration for why: KNOWN_SOURCES is
+// hand-curated in code, not a DB row, so url is the only identity both
+// hand-curated and auto-detected sources share).
+//
+// 14 days -> 7 (2026-07-23, dual-cadence strategy — see
+// event-discovery.yml's own doc comment): bright sources moved to their
+// own weekly cron, separate from the comuna batch's monthly one. A 14-day
+// per-source cadence against a 7-day cron would only find something new
+// every OTHER run — halved to match.
+const BRIGHT_SOURCE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function isSourceDue(lastFetchedAt: string | undefined, now: Date): boolean {
   if (!lastFetchedAt) return true;
@@ -152,7 +158,7 @@ export async function loadBrightSourceFetchState(): Promise<Map<string, string>>
 // it rather than throwing, so by the time this runs there's no per-source
 // success/failure signal left to key off. Retrying a broken source every
 // single run wastes just as much time as retrying a working one; the
-// 2-week backoff applies equally, same posture as regions' own due-check
+// 7-day backoff applies equally, same posture as regions' own due-check
 // (which doesn't distinguish a zero-yield run from a failed one either).
 export async function recordBrightSourcesFetched(urls: string[], now: Date): Promise<void> {
   const client = getSupabaseClient();
@@ -465,6 +471,19 @@ export interface RunDeps {
   // still only fetch if actually due (isSourceDue) — this doesn't force
   // them, it only removes the comuna batch as a side effect of checking.
   brightSourcesOnly?: boolean;
+  // Added 2026-07-23: debugging one misbehaving bright source (e.g.
+  // arteinformado.com's "Cannot read properties of null" failure) meant
+  // waiting for its own 7-day cadence, or clearing EVERY source's fetch
+  // state just to force the one you actually wanted logs for. A substring
+  // match against each source's own url (e.g. "arteinformado.com",
+  // "parquecultural.cl") — when set, this REPLACES the normal isSourceDue
+  // check entirely for that filtered set: a matched source runs
+  // regardless of its own cadence, and everything else is skipped, not
+  // just deprioritized. Implies brightSourcesOnly in spirit (there's
+  // rarely a reason to also want the comuna batch when debugging one
+  // named source) but doesn't force it — set both explicitly if that's
+  // not what you want.
+  brightSourceUrlFilter?: string[];
 }
 
 export async function run(deps: RunDeps = {}): Promise<void> {
@@ -498,7 +517,9 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   // exclude_domains isn't perfectly reliable on Tavily's side.
   const excludeDomains = [...brightSources.map((s) => knownSourceDomain(s.url)), ...KNOWN_LOW_QUALITY_SOURCE_DOMAINS];
   const fetchState = await loadBrightSourceFetchState();
-  const dueBrightSources = brightSources.filter((s) => isSourceDue(fetchState.get(s.url), now));
+  const dueBrightSources = deps.brightSourceUrlFilter?.length
+    ? brightSources.filter((s) => deps.brightSourceUrlFilter!.some((f) => s.url.includes(f)))
+    : brightSources.filter((s) => isSourceDue(fetchState.get(s.url), now));
   const seenKeys = await loadExistingKeys();
   const regions = await loadAllRegions();
   const allCandidates: EventCandidate[] = [];
@@ -600,7 +621,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   // Bright sources: fetched directly, curated ONE SOURCE AT A TIME — not
   // attached to each unit's prompt (real runs showed Haiku inconsistently
   // surfacing that content when attached per-unit). Only the ones due for
-  // their own 2-week cadence get fetched at all.
+  // their own 7-day cadence get fetched at all.
   //
   // Was ONE combined curate() call over every due source's content at
   // once — real production crash (2026-07-23): with enough sources due
