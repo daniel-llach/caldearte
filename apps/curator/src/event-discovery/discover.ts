@@ -691,7 +691,35 @@ export async function curate(
     .map((b) => b.text)
     .join("");
 
-  const groundedCandidates = rejectConvocatorias(enforceGroundedQuotes(parseCandidates(text), block), block);
+  const usage: DiscoverUsage = {
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+    cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? undefined,
+    cacheReadInputTokens: response.usage.cache_read_input_tokens ?? undefined,
+  };
+
+  // Real production crash (2026-07-23): the bright-sources pass (a single
+  // curate() call over ALL due sources combined, much larger than a single
+  // comuna's block) got a response truncated mid-JSON by Haiku's own
+  // max_tokens ceiling — parseCandidates' throw was never caught here,
+  // killing the entire GitHub Actions run AFTER the comuna batch had
+  // already succeeded and spent its own real cost, and losing this call's
+  // own real cost from api_usage_log too (recordUsage in run.ts only runs
+  // on curate()'s successful return, never reached). The per-unit comuna
+  // loop already isolates a bad unit (2026-07-17) — this is the same
+  // failure shape one level up, on the one call that combines every bright
+  // source into a single block. Degrades to zero candidates rather than
+  // throwing, but still returns the real usage — the API call happened and
+  // cost real money regardless of whether Haiku's output was usable.
+  let parsed: EventCandidate[];
+  try {
+    parsed = parseCandidates(text);
+  } catch (err) {
+    console.error(`[event-discovery] curate: ${(err as Error).message}`);
+    return { candidates: [], usage };
+  }
+
+  const groundedCandidates = rejectConvocatorias(enforceGroundedQuotes(parsed, block), block);
   const filteredCandidates = logBareDomainSourceUrls(
     enforceSourceUrlInvariant(
       applyKnownExclusionsFilter(
@@ -704,15 +732,7 @@ export async function curate(
     ),
   );
 
-  return {
-    candidates: filteredCandidates,
-    usage: {
-      inputTokens: response.usage.input_tokens,
-      outputTokens: response.usage.output_tokens,
-      cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? undefined,
-      cacheReadInputTokens: response.usage.cache_read_input_tokens ?? undefined,
-    },
-  };
+  return { candidates: filteredCandidates, usage };
 }
 
 // Day-level date backstop (tightened from month-level 2026-07-22 — see

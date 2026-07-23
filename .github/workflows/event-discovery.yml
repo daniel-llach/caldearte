@@ -15,8 +15,19 @@ name: Run Event Discovery
 # email just logs a warning and no-ops — the run itself still succeeds.
 # Independent from apps/web's Vercel env var of the same name (different
 # secret store) — see docs/region-discovery.md's cost-governance section.
+#
+# bright_sources_only (2026-07-23): tick this on a manual run to skip the
+# comuna batch entirely and only refresh due bright sources — a plain
+# manual run always processes the next weekly_batch_size due comunas too,
+# which is real, unwanted Tavily/Haiku spend if all you wanted was to
+# check/refresh bright sources.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      bright_sources_only:
+        description: "Skip the comuna batch, only refresh due bright sources"
+        type: boolean
+        default: false
   schedule:
     - cron: "0 6 * * 1" # every Monday, 06:00 UTC
 
@@ -44,3 +55,4 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          BRIGHT_SOURCES_ONLY: ${{ github.event.inputs.bright_sources_only }}

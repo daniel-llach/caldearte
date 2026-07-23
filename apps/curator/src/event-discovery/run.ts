@@ -457,6 +457,14 @@ export interface RunDeps {
   rehostImageFn?: RehostImageFn;
   sendRunSummaryEmailFn?: typeof sendRunSummaryEmail;
   now?: Date;
+  // Added 2026-07-23: a manual "just run bright sources" request kept
+  // triggering a full run, which also picked up the next `weekly_batch_size`
+  // due comunas — spending real Tavily/Haiku cost on a batch nobody asked
+  // for, just to test/refresh a handful of bright sources. Skips
+  // getUnitsDueForRun and the whole comuna loop entirely; bright sources
+  // still only fetch if actually due (isSourceDue) — this doesn't force
+  // them, it only removes the comuna batch as a side effect of checking.
+  brightSourcesOnly?: boolean;
 }
 
 export async function run(deps: RunDeps = {}): Promise<void> {
@@ -495,9 +503,11 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   const regions = await loadAllRegions();
   const allCandidates: EventCandidate[] = [];
 
-  const units = await getUnitsDueForRun(now);
+  const units = deps.brightSourcesOnly ? [] : await getUnitsDueForRun(now);
   console.log(
-    `[event-discovery] ${units.length} unit(s) due, ${dueBrightSources.length}/${brightSources.length} bright source(s) due`,
+    deps.brightSourcesOnly
+      ? `[event-discovery] bright-sources-only run: skipping comuna batch, ${dueBrightSources.length}/${brightSources.length} bright source(s) due`
+      : `[event-discovery] ${units.length} unit(s) due, ${dueBrightSources.length}/${brightSources.length} bright source(s) due`,
   );
 
   // Accumulated purely from data the run already computes (usage/credits
@@ -594,15 +604,29 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   if (dueBrightSources.length > 0) {
     const brightResults = await fetchBrightSourcesFn(dueBrightSources);
     if (brightResults.length > 0) {
-      const block = buildBlock("Fuentes brillantes (no específicas a ninguna comuna)", brightResults);
-      const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
-      await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
-      summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
-      await enrichCandidates(candidates, pageFetchFn, now);
-      allCandidates.push(...candidates);
-      const inserted = await insertCandidates(candidates, regions, seenKeys, now, rehostImageFn);
-      summary.candidates.insertedCount += inserted;
-      console.log(`[event-discovery] bright sources: ${inserted} new approved event(s)`);
+      // Real production crash (2026-07-23): this whole block used to run
+      // unguarded — a single curate() call over EVERY due bright source
+      // combined (much larger than any one comuna's block) hit a
+      // truncated/malformed Haiku response and threw, killing the entire
+      // run after the comuna batch had already succeeded and spent its
+      // own real cost. curate() itself now degrades gracefully on a parse
+      // failure rather than throwing (see its own doc comment) — this
+      // try/catch is defense-in-depth for anything else in the block
+      // (enrichCandidates, insertCandidates), matching the same
+      // isolation the per-unit comuna loop already has above.
+      try {
+        const block = buildBlock("Fuentes brillantes (no específicas a ninguna comuna)", brightResults);
+        const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
+        await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
+        summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
+        await enrichCandidates(candidates, pageFetchFn, now);
+        allCandidates.push(...candidates);
+        const inserted = await insertCandidates(candidates, regions, seenKeys, now, rehostImageFn);
+        summary.candidates.insertedCount += inserted;
+        console.log(`[event-discovery] bright sources: ${inserted} new approved event(s)`);
+      } catch (err) {
+        console.error(`[event-discovery] bright sources: pass failed, skipping this run's insert: ${(err as Error).message}`);
+      }
     }
     await recordBrightSourcesFetched(
       dueBrightSources.map((s) => s.url),

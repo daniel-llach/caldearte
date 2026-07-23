@@ -1460,6 +1460,66 @@ fail an otherwise-successful run, same posture as `pruneOldRawSearchResults`/
 
 ---
 
+## bright_sources_only manual mode (2026-07-23)
+
+A "just run bright sources" request kept triggering a full run anyway —
+`discover-events` has no way to opt out of the next `weekly_batch_size`
+due comunas, so a manual bright-sources check/refresh always spent real
+Tavily/Haiku cost on a comuna batch nobody asked for.
+
+Added `RunDeps.brightSourcesOnly` (`run.ts`): skips `getUnitsDueForRun`
+and the comuna loop entirely (`units = []`), leaving bright sources'
+own 14-day due-cadence (`isSourceDue`) completely untouched — it doesn't
+force bright sources to run, only removes the comuna batch as a side
+effect of checking. Wired through `index.ts` (`BRIGHT_SOURCES_ONLY` env
+var) and `event-discovery.yml`'s `workflow_dispatch` as a boolean input
+— tick it on a manual run to skip the comuna batch.
+
+To force-refresh bright sources regardless of their own cadence (e.g.
+right after adding a new one to `known-sources.ts`), still reset
+`bright_source_fetch_state` directly first, same as before — this mode
+only removes the comuna-batch side effect, it doesn't add a "force"
+knob for bright sources themselves.
+
+**Found along the way:** running this suite against local Supabase for
+real (previously silently skipped all session — no `SUPABASE_URL`/
+`SUPABASE_SERVICE_ROLE_KEY` set) surfaced that `event-discovery/
+run.test.ts` and `headless-discovery/run.test.ts`'s fixtures were never
+updated for the 2026-07-22/07-23 grounding fields (`dateQuote`/
+`locationQuote`/`runStartDateQuote`/`runEndDateQuote`), plus two
+fixtures asserting behavior a later policy change (`enforceDateCompleteness`,
+`prune_expired_events`'s approved-events carve-out) had already
+superseded — 5 failing tests total, none related to bright-sources-only
+itself, all now fixed. Full suite (213 tests) passes clean against real
+local Supabase for the first time this session.
+
+## Bright-sources pass crash isolation (2026-07-23)
+
+Real production crash, found testing the mode above with all 8 known
+bright sources forced due at once: the single `curate()` call over every
+due bright source combined (much larger than any one comuna's block) got
+a response truncated mid-JSON by Haiku's own `max_tokens` ceiling.
+`parseCandidates`'s throw was never caught — it killed the entire GitHub
+Actions run, *after* the comuna batch (25 units) had already succeeded
+and spent its own real cost (~$1.10 Anthropic + ~$1.20 Tavily,
+confirmed via `api_usage_log`). The bright-sources call's own real cost
+was lost too — `recordUsage` only runs on `curate()`'s successful
+return, never reached.
+
+The per-unit comuna loop already isolates a bad unit this same way
+(2026-07-17) — this was the identical failure shape one level up, on
+the one call that combines every bright source into a single block.
+
+Fixed at the root: `curate()` (`discover.ts`) now catches a
+`parseCandidates` failure and returns `{ candidates: [], usage }`
+instead of throwing — the real usage from the API response is captured
+before the parse attempt, so a truncated/malformed response still gets
+its cost recorded, it just contributes zero candidates. Also wrapped
+the bright-sources block in `run.ts` in the same try/catch the per-unit
+loop already has, as defense-in-depth for anything else in that block
+(`enrichCandidates`, `insertCandidates`) — not just the parse failure
+`curate()` itself now handles.
+
 ## Cost governance
 
 A self-tracked ledger keeps both processes bounded, without depending on
