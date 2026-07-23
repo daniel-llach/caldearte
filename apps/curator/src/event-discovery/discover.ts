@@ -52,6 +52,17 @@ export interface EventCandidate {
   // ground (openingDatetime null) or when Haiku's output is malformed.
   dateQuote: string | null; // exact substring from the source confirming openingDatetime
   locationQuote: string | null; // exact substring from the source confirming location
+  // Same grounding treatment as dateQuote, added 2026-07-23 after a real
+  // production audit found the exact fabrication failure mode from
+  // 2026-07-22 still happening — just on runStartDate/runEndDate instead
+  // of openingDatetime, which the original dateQuote/locationQuote fix
+  // never covered. Real cases: an exhibition that actually closed 2026-05-22
+  // stored with runEndDate 2026-07-24 (fabricated); a post with no end
+  // date at all stored with a specific runEndDate; a real start date of
+  // 2026-05-07 stored as 2026-07-01. null when the corresponding date is
+  // null, or when Haiku's output is malformed.
+  runStartDateQuote: string | null; // exact substring from the source confirming runStartDate
+  runEndDateQuote: string | null; // exact substring from the source confirming runEndDate
 }
 
 export interface ImageCandidate {
@@ -245,6 +256,7 @@ Para cada evento real que encuentres, extrae:
 - título, descripción, artista (si se nombra)
 - \`runStartDate\`: día en que comienza la exhibición/muestra (solo fecha, sin hora), si se menciona
 - \`runEndDate\`: día en que termina, si se menciona (null si no se sabe)
+- \`runStartDateQuote\`/\`runEndDateQuote\`: SOLO si el campo correspondiente (\`runStartDate\`/\`runEndDate\`) no es null — copia LITERAL de la frase exacta que confirma esa fecha. Igual que con \`dateQuote\` más abajo, esto se verifica en código: si no puedes citar una frase real, el campo de fecha correspondiente se anula. **Caso real (2026-07-23):** una exposición que en realidad ya había cerrado el 22 de mayo fue guardada con fecha de término 24 de julio (inventada); otra sin ninguna fecha de término en el texto fue guardada con una fecha de término específica igual; otra reportó el 1 de julio como inicio cuando la fuente real decía 7 de mayo. Ninguna de las tres tenía una cita real que respaldara la fecha de rango — solo la fecha de inauguración (\`dateQuote\`) tenía este control hasta ahora.
 - \`openingDatetime\` + \`openingTimeConfirmed\`: fecha de la inauguración, SOLO si la fuente confirma que existe una apertura/inauguración específica — ambos campos van null/false si no hay una inauguración confirmada (una muestra puede no tener inauguración pública, o el texto solo da el rango de la muestra sin mencionar ninguna apertura). **NUNCA inventes ni completes esta fecha con un valor "razonable" o "probable" — si no puedes citar la frase exacta de la fuente que confirma esa fecha, usa null.** Dos señales de alarma específicas, encontradas en producción (2026-07-20): (1) una publicación de red social que es un *registro/recuerdo* de una inauguración YA REALIZADA ("Compartimos este registro de la inauguración...", en pasado) no tiene una inauguración futura que reportar — openingDatetime debe ser null, aunque la publicación sea reciente; (2) una fecha real pero de un evento ya terminado (ej. "del 23 de diciembre al 28 de enero", sin relación con el mes buscado) no se convierte en una fecha del mes actual solo porque no tienes otra — si la fecha real no encaja con ${monthLabel}, el candidato se rechaza o se le pone openingDatetime null, nunca se sustituye por una fecha inventada.
   - Si la fuente confirma la fecha **y** la hora exacta de la inauguración: reporta ambas, con \`openingTimeConfirmed: true\`.
   - Si la fuente confirma que hay una inauguración en una fecha específica pero **no da la hora**: reporta esa fecha con hora "00:00" (un valor placeholder — el código nunca la muestra como si fuera real) y \`openingTimeConfirmed: false\`. **NO uses null solo porque falta la hora** — la fecha confirmada por sí sola ya es información real y valiosa que no debe perderse. Bug real encontrado en producción (2026-07-21): 7 eventos con una inauguración explícitamente confirmada en el propio \`curationReasoning\` de la curación terminaron con \`openingDatetime\` null solo por faltar la hora exacta.
@@ -285,7 +297,7 @@ Etiqueta también: \`mediumType\` ("tradicional" o "intervencion_no_tradicional"
 \`status\` es binario: "approved" o "rejected" — no hay estado intermedio.
 
 Responde SOLO con un bloque de código \`\`\`json que contenga un array de objetos con esta forma exacta, nada más antes o después:
-[{ "title": string, "description": string | null, "artist": string | null, "runStartDate": string | null, "runEndDate": string | null, "openingDatetime": string | null, "openingTimeConfirmed": boolean, "dateQuote": string | null, "locationQuote": string | null, "mediumType": "tradicional" | "intervencion_no_tradicional", "sensitivityTags": string[], "curationReasoning": string, "imageUrl": string | null, "status": "approved" | "rejected", "location": string, "placeName": string | null, "sourceUrl": string | null }]
+[{ "title": string, "description": string | null, "artist": string | null, "runStartDate": string | null, "runEndDate": string | null, "runStartDateQuote": string | null, "runEndDateQuote": string | null, "openingDatetime": string | null, "openingTimeConfirmed": boolean, "dateQuote": string | null, "locationQuote": string | null, "mediumType": "tradicional" | "intervencion_no_tradicional", "sensitivityTags": string[], "curationReasoning": string, "imageUrl": string | null, "status": "approved" | "rejected", "location": string, "placeName": string | null, "sourceUrl": string | null }]
 
 Si no encuentras nada en scope, responde con un array vacío: \`\`\`json
 []
@@ -303,6 +315,8 @@ function parseCandidates(text: string): EventCandidate[] {
     openingTimeConfirmed?: unknown;
     dateQuote?: unknown;
     locationQuote?: unknown;
+    runStartDateQuote?: unknown;
+    runEndDateQuote?: unknown;
   })[];
   return parsed.map((c) => ({
     ...c,
@@ -325,6 +339,8 @@ function parseCandidates(text: string): EventCandidate[] {
     // thrown on.
     dateQuote: typeof c.dateQuote === "string" ? c.dateQuote : null,
     locationQuote: typeof c.locationQuote === "string" ? c.locationQuote : null,
+    runStartDateQuote: typeof c.runStartDateQuote === "string" ? c.runStartDateQuote : null,
+    runEndDateQuote: typeof c.runEndDateQuote === "string" ? c.runEndDateQuote : null,
   }));
 }
 
@@ -482,7 +498,31 @@ export function enforceGroundedQuotes(candidates: EventCandidate[], block: strin
       };
     }
 
-    return c;
+    // Same nullable-field treatment as openingDatetime/dateQuote above,
+    // extended 2026-07-23 after a real production audit found the exact
+    // same fabrication pattern on run dates specifically — dateQuote never
+    // covered these two fields, and 3 of 4 manually-checked candidates in
+    // one run had a fabricated runStartDate or runEndDate (one stored an
+    // exhibition as running through July when the real source said it had
+    // already closed in May). Each date is nulled independently — an
+    // ungrounded runEndDate doesn't invalidate a grounded runStartDate.
+    let next = c;
+    if (next.runStartDate && !isGrounded(next.runStartDateQuote)) {
+      next = {
+        ...next,
+        runStartDate: null,
+        curationReasoning: `${next.curationReasoning} [FILTRO DE CÓDIGO: fecha de inicio de exhibición sin cita textual verificable; runStartDate forzado a null]`,
+      };
+    }
+    if (next.runEndDate && !isGrounded(next.runEndDateQuote)) {
+      next = {
+        ...next,
+        runEndDate: null,
+        curationReasoning: `${next.curationReasoning} [FILTRO DE CÓDIGO: fecha de término de exhibición sin cita textual verificable; runEndDate forzado a null]`,
+      };
+    }
+
+    return next;
   });
 }
 
