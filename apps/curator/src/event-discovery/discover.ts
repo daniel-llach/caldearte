@@ -7,7 +7,7 @@
 // source of truth.
 import { ART_SCOPE_POLICY, TEXT_CURATION_POLICY, INSTITUTIONAL_EXCLUSION_POLICY } from "../lib/curation-policy.js";
 import { tavilySearch, type FetchLike, type TavilyImage } from "../lib/tavily.js";
-import { isChileanLocation } from "../lib/locations.js";
+import { isChileanLocation, stripAccents } from "../lib/locations.js";
 import { matchesKnownExclusion, matchesKnownLowQualityDomain } from "../lib/known-exclusions.js";
 import { normalizeTitle } from "../lib/event-filters.js";
 import { parseLocalDatetimeToUtcIso } from "../lib/opening-time.js";
@@ -272,7 +272,7 @@ ${TEXT_CURATION_POLICY}
 
 ${INSTITUTIONAL_EXCLUSION_POLICY}
 
-Importante sobre ubicación: no descartes un candidato solo porque la ubicación real mencionada en el contenido es distinta a la comuna/ciudad que buscamos — reporta la ubicación real tal como aparece en la fuente (ej. "Las Condes, Santiago" aunque la búsqueda haya sido por otra comuna). Descarta cuando la fuente sea de otro país (no de Chile) — esto es una regla dura, no una sugerencia: cualquier evento fuera de Chile debe ir "rejected".
+Importante sobre ubicación: no descartes un candidato solo porque la ubicación real mencionada en el contenido es distinta a la comuna/ciudad que buscamos — reporta la ubicación real tal como aparece en la fuente (ej. "Las Condes, Santiago" aunque la búsqueda haya sido por otra comuna). Descarta cuando la fuente sea de otro país (no de Chile) — esto es una regla dura, no una sugerencia: cualquier evento fuera de Chile debe ir "rejected". **Nunca uses la comuna que estás buscando como valor por defecto de \`location\`** — si el texto solo nombra un lugar/institución sin decir en qué comuna está, y ni el nombre de la cuenta que publica lo deja claro, \`location\` no puede ser esa comuna solo porque es la que buscabas: repórtala igual (no inventes otra), pero \`locationQuote\` debe respaldarla explícitamente, nunca ser una cita que solo prueba el nombre del lugar. **Caso real (2026-07-23):** el mismo evento (una cuenta llamada "Casa Cultural Yanulaque", real de Arica) fue encontrado en las búsquedas de dos comunas distintas en la misma corrida — en una, \`location\` se reportó correctamente como ambigua/rechazada por falta de comuna explícita; en la otra, se reportó como la comuna que se estaba buscando (Antofagasta), sin ninguna cita que lo respaldara. Esto se verifica en código: si la comuna que pones en \`location\` no aparece dentro de tu propia \`locationQuote\`, el candidato se rechaza.
 
 Importante sobre fechas: la búsqueda no filtra perfectamente por fecha aunque se le haya pedido un mes específico. La regla es a nivel de MES, no de día exacto: descarta un candidato solo si su \`runEndDate\` (o, si no hay \`runEndDate\`, su \`runStartDate\`) corresponde a un mes ANTERIOR a ${monthLabel}, sin indicación de que siga vigente. No lo descartes solo porque su fecha específica dentro de ${monthLabel} ya pasó respecto al día de hoy, ni porque su apertura caiga en un mes posterior (un evento futuro encontrado de casualidad sigue siendo válido).
 
@@ -545,6 +545,39 @@ export function applyLocationFilter(candidates: EventCandidate[]): EventCandidat
   );
 }
 
+// enforceGroundedQuotes only checks that locationQuote's own text appears
+// somewhere in the source — it never checks that the quote actually
+// supports the specific comuna named in `location`. Real production bug
+// (2026-07-23): buildSystemPrompt's locationQuote instructions explicitly
+// allow citing just a venue name or publishing account when the source
+// doesn't spell out a comuna (e.g. "@culturaquilpue") — legitimate when
+// the account name itself embeds the comuna, but Haiku also used this
+// allowance to cite an unrelated venue name (grounded, but comuna-silent)
+// while writing `location` as whatever comuna was being SEARCHED at the
+// time, never itself grounded in anything. The same real event, searched
+// under two different comunas in the same run, got two different (and
+// mutually exclusive) `location` values — only one of which matched a
+// citable comuna. Requires the comuna text in `location` to be a
+// substring of its own locationQuote (case/accent/whitespace-insensitive)
+// — still passes the legitimate account-name case, since a comuna-named
+// account (e.g. "culturaquilpue") already contains the comuna string.
+export function enforceLocationMatchesQuote(candidates: EventCandidate[]): EventCandidate[] {
+  return candidates.map((c) => {
+    if (c.status !== "approved") return c;
+    const quote = stripAccents(normalizeForMatch(c.locationQuote ?? ""));
+    const segments = stripAccents(normalizeForMatch(c.location))
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (segments.some((segment) => quote.includes(segment))) return c;
+    return {
+      ...c,
+      status: "rejected" as const,
+      curationReasoning: `${c.curationReasoning} [FILTRO DE CÓDIGO: la comuna afirmada en location no aparece en locationQuote; rechazado]`,
+    };
+  });
+}
+
 // Enforce the sourceUrl invariant: approved events MUST have a sourceUrl
 // (either a specific per-event URL or at minimum the block's URL). If Haiku
 // violated this, force to rejected — a wrong link is worse than no link, but
@@ -623,7 +656,9 @@ export async function curate(
     enforceSourceUrlInvariant(
       applyKnownExclusionsFilter(
         nullifyAggregatorSourceUrls(
-          enforceDateCompleteness(nullifyOpeningDatetimeForKnownSources(applyLocationFilter(groundedCandidates))),
+          enforceDateCompleteness(
+            nullifyOpeningDatetimeForKnownSources(applyLocationFilter(enforceLocationMatchesQuote(groundedCandidates))),
+          ),
         ),
       ),
     ),

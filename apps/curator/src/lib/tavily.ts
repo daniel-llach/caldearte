@@ -53,7 +53,15 @@ export async function tavilySearch(
       search_depth: "advanced",
       max_results: 20,
       start_date: opts.startDate,
-      chunks_per_source: 1,
+      // 1 -> 2 (2026-07-23): a real production run truncated a long
+      // Instagram caption before it reached the sentence that would've
+      // triggered rejectConvocatorias (discover.ts) — chunks_per_source
+      // doesn't change Tavily's credit cost (confirmed against Tavily's
+      // own docs: cost is determined solely by search_depth), only the
+      // amount of content per source, so this is free to try. The
+      // tradeoff is more input tokens sent to Haiku per unit — measure
+      // the real delta on the next run rather than guessing further.
+      chunks_per_source: 2,
       country: "chile",
       exclude_domains: opts.excludeDomains,
       include_images: true,

@@ -7,6 +7,7 @@ import {
   currentMonthLabel,
   enforceDateCompleteness,
   enforceGroundedQuotes,
+  enforceLocationMatchesQuote,
   looksLikeConvocatoria,
   rejectConvocatorias,
   enforceSourceUrlInvariant,
@@ -228,6 +229,48 @@ test("enforceGroundedQuotes falls back to checking the whole block when a candid
     [{ ...baseCandidate, sourceUrl: "https://agenda.cl/listado-general", locationQuote: "Providencia, Santiago, Chile" }],
     block,
   );
+  assert.equal(filtered[0].status, "approved");
+});
+
+// Real production case (2026-07-23): the same event (a "Casa Cultural
+// Yanulaque" post, real venue in Arica) surfaced under two different
+// comuna searches in one run. enforceGroundedQuotes alone let it through
+// both times — locationQuote can legitimately cite just a venue/account
+// name (see buildSystemPrompt), so a candidate can pass grounding while
+// `location` still claims a comuna that quote never actually supports.
+test("enforceLocationMatchesQuote keeps a candidate whose location text appears in its own locationQuote", () => {
+  const filtered = enforceLocationMatchesQuote([
+    { ...baseCandidate, location: "Providencia, Santiago, Chile", locationQuote: "el evento se realiza en Providencia" },
+  ]);
+  assert.equal(filtered[0].status, "approved");
+});
+
+test("enforceLocationMatchesQuote rejects when the comuna in location never appears in locationQuote — real production case", () => {
+  const filtered = enforceLocationMatchesQuote([
+    { ...baseCandidate, location: "Antofagasta", locationQuote: "Casa Cultural Yanulaque presenta Confluencias" },
+  ]);
+  assert.equal(filtered[0].status, "rejected");
+  assert.match(filtered[0].curationReasoning, /FILTRO DE CÓDIGO/);
+});
+
+test("enforceLocationMatchesQuote allows a comuna grounded only via an account/venue name that embeds it, per the prompt's own allowance", () => {
+  const filtered = enforceLocationMatchesQuote([
+    { ...baseCandidate, location: "Quilpué", locationQuote: "@culturaquilpue" },
+  ]);
+  assert.equal(filtered[0].status, "approved");
+});
+
+test("enforceLocationMatchesQuote leaves already-rejected candidates untouched", () => {
+  const filtered = enforceLocationMatchesQuote([
+    { ...baseCandidate, status: "rejected", location: "Antofagasta", locationQuote: null },
+  ]);
+  assert.equal(filtered[0].status, "rejected");
+});
+
+test("enforceLocationMatchesQuote is accent/case/whitespace-insensitive", () => {
+  const filtered = enforceLocationMatchesQuote([
+    { ...baseCandidate, location: "Ñuñoa, Santiago", locationQuote: "el mural está en   NUNOA,   junto a la plaza" },
+  ]);
   assert.equal(filtered[0].status, "approved");
 });
 

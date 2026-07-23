@@ -1275,6 +1275,85 @@ says:
 Left unmerged for review, same as every other prompt-text change this
 session (#100, #104) — even a pure trim changes what Haiku actually sees.
 
+## Manual audit follow-up (2026-07-23) — comuna grounding + Tavily chunk size
+
+First production run after emptying `events` and resetting the weekly
+batch (25 comunas, $2.53 total: $1.33 Anthropic + $1.20 Tavily; prompt
+caching engaged for real this time — 100k cache-read tokens out of
+~1.03M input). Manual audit of all 13 approved events found:
+
+- **Confluencias: El Arte de Crear y Ser Visibles** — the exact event
+  that motivated the original convocatoria fix (#104/#105) got approved
+  again, with two separate real bugs:
+  - **Convocatoria language never reached Haiku or the code filter.**
+    `rejectConvocatorias` runs on the same `block` text Haiku sees — it
+    can't reject a sentence that was never in its input. Root cause:
+    Tavily was configured with `chunks_per_source: 1`, returning only
+    one text chunk per source; a long Instagram caption's "La
+    convocatoria estará abierta hasta el..." sentence likely fell
+    outside that chunk. Confirmed against Tavily's own docs that credit
+    cost is determined solely by `search_depth`, not `chunks_per_source`
+    or `max_results` — raising it is free in Tavily credits, the only
+    real cost is more input tokens sent to Haiku. Bumped
+    `chunks_per_source: 1 → 2` in `lib/tavily.ts`; measuring the actual
+    Haiku token delta on the next real run rather than guessing further.
+  - **Wrong comuna (Antofagasta instead of the real Arica).** The same
+    event surfaced under two different comuna searches in one run — in
+    one, Haiku correctly hedged that the source ("Casa Cultural
+    Yanulaque") was from Arica-associated accounts and it was rejected;
+    in the other, `location` was just set to whatever comuna was being
+    searched (Antofagasta), with no citation supporting it.
+    `enforceGroundedQuotes` didn't catch this because
+    `buildSystemPrompt`'s own `locationQuote` instructions allow citing
+    just a venue/account name when the source doesn't spell out a comuna
+    explicitly — that citation was real and grounded, but the comuna
+    Haiku then wrote into `location` was never itself part of it. A
+    second, less severe repro of the same bug: "Exposición DESOLACIÓN"
+    tagged as Valdivia when the source was really Puerto Montt. 3 of 13
+    approved events (~23%) had this exact failure mode.
+
+    Fixed with a new deterministic filter, `enforceLocationMatchesQuote`
+    (`discover.ts`), chained right after `applyLocationFilter`: the
+    comuna text in `location` must itself be a substring of the
+    candidate's own `locationQuote` (accent/case/whitespace-insensitive)
+    — otherwise the candidate is rejected. Still allows the legitimate
+    account-name case the prompt permits (an account like
+    "culturaquilpue" already contains the comuna's own text), it only
+    catches a comuna asserted with zero textual support at all. Also
+    reinforced `buildSystemPrompt` itself with an explicit instruction
+    not to default `location` to the searched comuna, plus this real
+    case as a named example — same "prompt AND code, not prompt alone"
+    treatment as every other grounding fix this session.
+
+- **Two IG-sourced approved events had `image_url: null`** (previously
+  captured successfully for similar posts) — consistent with Instagram's
+  already-documented fetch flakiness (see the 2026-07-20/07-22 image-fix
+  entries above), not an obviously new regression: 3 of 4 IG-sourced
+  approved events this run had no image, 1 succeeded, same intermittent
+  pattern as before. Not fixed here.
+
+- **Duplicate-looking title, not an actual duplicate.** "Exposición
+  Colectiva SalaFEM2026" appeared rejected under several different
+  comuna searches (Renca, Villa Alemana, Vitacura, Viña del Mar, Arauco)
+  in the run's logs before being correctly approved once, from San
+  Felipe's own search — deduplication worked as intended; the repeated
+  title in the logs is expected, not a bug.
+
+- **Open design question, not acted on:** several approved events have
+  both a confirmed inauguración (date/hour) and a separate expo
+  date range that don't always end up captured together cleanly (e.g.
+  "ECO PRIMORDIAL" — inauguración date/hour was correctly extracted, but
+  the expo's own end date wasn't). Worth a closer look at whether
+  `openingDatetime` and `runStartDate`/`runEndDate` extraction should be
+  made more explicitly independent of each other in the prompt, but
+  flagged for later rather than acted on this session.
+
+- Real Anthropic cost for this run reportedly came in ~$1 higher than
+  this doc's own `estimateCostUsd`-based estimate ($1.33) — worth
+  reconciling against the Anthropic console's real invoice next time it's
+  convenient; not re-derived here since only the user has access to the
+  actual billing dashboard.
+
 ## Event Crawler (retired)
 
 An earlier pipeline walked a known `venues` table with Claude Haiku, looking
