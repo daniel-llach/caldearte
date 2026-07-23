@@ -961,6 +961,78 @@ test(
         await client.from("bright_source_fetch_state").delete().neq("url", "");
         await client.from("api_usage_log").delete().eq("input_tokens", 200).eq("output_tokens", 16000);
       });
+
+      // 2026-07-23, same day as the crash fix above: curate() is now called
+      // ONE SOURCE AT A TIME instead of once over every due source combined
+      // — this is what actually isolates a single oversized/truncated
+      // source from every OTHER due source, which the try/catch alone
+      // doesn't provide (that only stops the crash, not the data loss of
+      // every other source sharing the same call).
+      await t.test("one bright source's malformed response doesn't lose another bright source's real candidate — per-source isolation", async () => {
+        await client.from("bright_source_fetch_state").delete().neq("url", "");
+
+        const buenoCandidate = {
+          title: "__test__ Brillante Bueno",
+          description: null,
+          artist: null,
+          runStartDate: "2027-07-10",
+          runEndDate: "2027-08-20",
+          openingDatetime: null,
+          openingTimeConfirmed: true,
+          dateQuote: null,
+          locationQuote: "GAM, Santiago",
+          runStartDateQuote: "10 de julio",
+          runEndDateQuote: "20 de agosto",
+          mediumType: "tradicional",
+          sensitivityTags: [],
+          curationReasoning: "ok",
+          imageUrl: null,
+          status: "approved",
+          location: "GAM, Santiago",
+          placeName: null,
+          sourceUrl: "https://bueno.cl/expo",
+        };
+        const perSourceMessagesClient = {
+          messages: {
+            create: async (params: Record<string, unknown>) => {
+              const userContent = (params.messages as Array<{ content: string }>)[0].content;
+              if (userContent.includes("malo.cl")) {
+                return {
+                  content: [{ type: "text", text: "not json, simulating a truncated response" }],
+                  usage: { input_tokens: 50, output_tokens: 16000 },
+                };
+              }
+              return {
+                content: [{ type: "text", text: fencedJson([buenoCandidate]) }],
+                usage: { input_tokens: 100, output_tokens: 50 },
+              };
+            },
+          },
+        };
+
+        await run({
+          messagesClient: perSourceMessagesClient,
+          searchUnitFn: async () => ({ results: [], credits: 0 }),
+          fetchBrightSourcesFn: async () => [
+            { title: "malo", url: "https://malo.cl", content: "contenido irrelevante", score: 1, images: [] },
+            {
+              title: "bueno",
+              url: "https://bueno.cl",
+              content: "Muestra en GAM, Santiago desde el 10 de julio hasta el 20 de agosto.",
+              score: 1,
+              images: [],
+            },
+          ],
+          now: new Date(2027, 6, 1), // Jul 1, 2027 — after the previous test's Jun 21, 2027
+        });
+
+        const { data: bueno } = await client.from("events").select("id").eq("title", "__test__ Brillante Bueno");
+        assert.equal(bueno?.length, 1, "bueno.cl's real candidate still inserted despite malo.cl's response being malformed");
+
+        await client.from("events").delete().eq("title", "__test__ Brillante Bueno");
+        await client.from("bright_source_fetch_state").delete().neq("url", "");
+        await client.from("api_usage_log").delete().eq("input_tokens", 50).eq("output_tokens", 16000);
+      });
     } finally {
       await client.from("events").delete().like("title", "__test__%");
       await client.from("detected_sources").delete().like("url", "%nuevositio.cl%");
