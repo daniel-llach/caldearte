@@ -1251,6 +1251,30 @@ claimed quotes are literally present in what `searchUnitFn` returns, not
 just a placeholder `content: "c"` — flagged as a separate follow-up, not
 done as a tangent to today's other changes.
 
+## System prompt trimmed for token cost (2026-07-23)
+
+Measured the prompt directly rather than estimating: **~4,194 → ~3,877
+tokens**. After a day of adding real production negative examples
+(grounding, convocatorias, scope classification — see the sections
+above), the prompt grew large enough to actually cross Haiku's
+2048-token minimum cacheable-prefix threshold, which had been a
+documented no-op until now. Reviewed each addition for whether it still
+needed to be prose Haiku has to be convinced by, versus something a
+deterministic code filter already verifies regardless of what the prompt
+says:
+- The 5 narrated grounding case studies collapsed into one short
+  paragraph — `enforceGroundedQuotes` verifies every `dateQuote`/
+  `locationQuote` in code now, so the prompt doesn't need to work as hard
+  to "convince" Haiku case-by-case; it just needs the rule stated once.
+- The convocatoria exclusion's inline example (Confluencias) shortened
+  the same way, since `rejectConvocatorias` now backstops it in code too.
+- Left the talleres/Brick-Fest/"semana de las artes" examples untouched
+  — those 3 categories have **no** code backstop yet, so the prompt is
+  still the only defense for them.
+
+Left unmerged for review, same as every other prompt-text change this
+session (#100, #104) — even a pure trim changes what Haiku actually sees.
+
 ## Event Crawler (retired)
 
 An earlier pipeline walked a known `venues` table with Claude Haiku, looking
