@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase-client";
 import { fetchApprovedEvents, truncateDescription } from "@/lib/events";
 import { extractDomain, resolveCardImage } from "@/lib/image-source";
+import { dateOnlyFromIso, todayInSantiago } from "@/lib/date";
 import { esCL } from "@/i18n/es-CL";
 import InauguracionCard from "@/components/InauguracionCard";
 import ExpoCard from "@/components/ExpoCard";
@@ -74,8 +75,19 @@ export default async function EventPage({ params }: { params: Promise<PageParams
         ← {esCL.appName}
       </Link>
 
+      {/* Real bug, found 2026-07-23: this used to check only whether
+          openingDatetime was set at all, regardless of whether it had
+          already passed — a past-but-still-running exhibition (e.g. an
+          opening from two months ago that's still on display) rendered as
+          an Inauguración card here, which only ever shows the single
+          opening date/hour, hiding the exhibition's actual run range
+          entirely. The homepage grid already gets this right
+          (splitInauguracionesYExpos, lib/events.ts) by only highlighting an
+          opening within the current window — mirror that same "hasn't
+          happened yet" condition here instead of the page's own, simpler,
+          inconsistent rule. */}
       <div className="mt-6">
-        {event.openingDatetime ? (
+        {event.openingDatetime && dateOnlyFromIso(event.openingDatetime) >= todayInSantiago() ? (
           <InauguracionCard event={event} standalone />
         ) : (
           <ExpoCard event={event} standalone />
