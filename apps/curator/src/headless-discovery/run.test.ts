@@ -71,7 +71,7 @@ test(
 
       const activity: MaviActivity = {
         title: "__test_mavi_headless_expo__",
-        content: "Desde el 1 de agosto de 2026 hasta el 30 de septiembre de 2026, sala principal.",
+        content: "Desde el 1 de agosto de 2026 hasta el 30 de septiembre de 2026, sala principal, Santiago.",
         detailUrl: "https://www.uc.cl/agenda/actividad/__test_mavi_headless_expo__",
         imageUrl: "https://agendauc-prod.s3.amazonaws.com/test-image.jpg",
         placeName: "Museo de Artes Visuales MAVI UC",
@@ -83,6 +83,10 @@ test(
         runStartDate: "2026-08-01",
         runEndDate: "2026-09-30",
         openingDatetime: null,
+        dateQuote: null,
+        locationQuote: "Santiago",
+        runStartDateQuote: "1 de agosto de 2026",
+        runEndDateQuote: "30 de septiembre de 2026",
         mediumType: "tradicional",
         sensitivityTags: [],
         curationReasoning: "test",

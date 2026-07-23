@@ -457,6 +457,14 @@ export interface RunDeps {
   rehostImageFn?: RehostImageFn;
   sendRunSummaryEmailFn?: typeof sendRunSummaryEmail;
   now?: Date;
+  // Added 2026-07-23: a manual "just run bright sources" request kept
+  // triggering a full run, which also picked up the next `weekly_batch_size`
+  // due comunas — spending real Tavily/Haiku cost on a batch nobody asked
+  // for, just to test/refresh a handful of bright sources. Skips
+  // getUnitsDueForRun and the whole comuna loop entirely; bright sources
+  // still only fetch if actually due (isSourceDue) — this doesn't force
+  // them, it only removes the comuna batch as a side effect of checking.
+  brightSourcesOnly?: boolean;
 }
 
 export async function run(deps: RunDeps = {}): Promise<void> {
@@ -495,9 +503,11 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   const regions = await loadAllRegions();
   const allCandidates: EventCandidate[] = [];
 
-  const units = await getUnitsDueForRun(now);
+  const units = deps.brightSourcesOnly ? [] : await getUnitsDueForRun(now);
   console.log(
-    `[event-discovery] ${units.length} unit(s) due, ${dueBrightSources.length}/${brightSources.length} bright source(s) due`,
+    deps.brightSourcesOnly
+      ? `[event-discovery] bright-sources-only run: skipping comuna batch, ${dueBrightSources.length}/${brightSources.length} bright source(s) due`
+      : `[event-discovery] ${units.length} unit(s) due, ${dueBrightSources.length}/${brightSources.length} bright source(s) due`,
   );
 
   // Accumulated purely from data the run already computes (usage/credits

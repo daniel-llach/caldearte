@@ -61,6 +61,15 @@ async function excludeRealRegionsForTest(
   };
 }
 
+// Real content the stubbed searchUnitFn/fetchBrightSourcesFn return below
+// (SEARCH_CONTENT/BRIGHT_CONTENT) — grounding fields on every fixture
+// candidate must be literal substrings of one of those, mirroring what
+// discover.ts's own enforceGroundedQuotes/enforceLocationMatchesQuote now
+// enforce against curate()'s real block. A pre-existing gap, found
+// 2026-07-23: these fixtures used `content: "c"` (literally the letter
+// "c") and no quote fields at all — silently never caught because this
+// whole suite requires local Supabase and had never actually been run
+// in this session until bright-sources-only support needed it verified.
 const unitCandidates = [
   {
     title: "__test__ Muestra vigente",
@@ -70,6 +79,10 @@ const unitCandidates = [
     runEndDate: "2026-09-30",
     openingDatetime: "2026-07-05T19:00:00-04:00",
     openingTimeConfirmed: true,
+    dateQuote: "5 de julio a las 19:00",
+    locationQuote: "GAM, Santiago",
+    runStartDateQuote: "5 de julio",
+    runEndDateQuote: "30 de septiembre",
     mediumType: "tradicional",
     sensitivityTags: [],
     curationReasoning: "ok",
@@ -87,6 +100,10 @@ const unitCandidates = [
     runEndDate: "2026-06-20",
     openingDatetime: null,
     openingTimeConfirmed: true,
+    dateQuote: null,
+    locationQuote: "Santiago, Chile",
+    runStartDateQuote: "1 de mayo",
+    runEndDateQuote: "20 de junio",
     mediumType: "tradicional",
     sensitivityTags: [],
     curationReasoning: "ok",
@@ -104,6 +121,10 @@ const unitCandidates = [
     runEndDate: null,
     openingDatetime: null,
     openingTimeConfirmed: true,
+    dateQuote: null,
+    locationQuote: "Centro Cultural Recoleta, Buenos Aires, Argentina",
+    runStartDateQuote: "10 de julio",
+    runEndDateQuote: null,
     mediumType: "tradicional",
     sensitivityTags: [],
     curationReasoning: "expo real",
@@ -125,6 +146,10 @@ const unitCandidates = [
     runEndDate: "2026-08-15",
     openingDatetime: null,
     openingTimeConfirmed: true,
+    dateQuote: null,
+    locationQuote: "Concepción, Chile",
+    runStartDateQuote: null,
+    runEndDateQuote: "15 de agosto",
     mediumType: "tradicional",
     sensitivityTags: [],
     curationReasoning: "solo fecha de termino",
@@ -136,6 +161,17 @@ const unitCandidates = [
   },
 ];
 
+// Content for the shared `searchUnitFn` stub below — must ground every
+// quote field above, plus "summary distinguishes..."'s own mixedCandidates
+// further down (same shared stub, different Haiku-stub payload per test).
+const SEARCH_CONTENT =
+  "Inauguración el 5 de julio a las 19:00 en GAM, Santiago. En exhibición desde el 5 de julio hasta el 30 de septiembre. " +
+  "Muestra en Santiago, Chile desde el 1 de mayo hasta el 20 de junio. " +
+  "Evento en Centro Cultural Recoleta, Buenos Aires, Argentina desde el 10 de julio. " +
+  "En Concepción, Chile hasta el 15 de agosto. " +
+  "Otra muestra en GAM, Santiago desde el 25 de diciembre hasta el 31 de diciembre. " +
+  "Registro en GAM, Santiago desde el 1 de mayo hasta el 15 de mayo.";
+
 const brightCandidates = [
   {
     title: "__test__ Brillante uno",
@@ -145,6 +181,10 @@ const brightCandidates = [
     runEndDate: "2026-08-30",
     openingDatetime: null,
     openingTimeConfirmed: true,
+    dateQuote: null,
+    locationQuote: "Plaza Sotomayor, Valparaíso",
+    runStartDateQuote: "8 de julio",
+    runEndDateQuote: "30 de agosto",
     mediumType: "tradicional",
     sensitivityTags: [],
     curationReasoning: "ok",
@@ -162,6 +202,10 @@ const brightCandidates = [
     runEndDate: "2026-08-30",
     openingDatetime: null,
     openingTimeConfirmed: true,
+    dateQuote: null,
+    locationQuote: "Barrio Inventado, Chile",
+    runStartDateQuote: "9 de julio",
+    runEndDateQuote: "30 de agosto",
     mediumType: "tradicional",
     sensitivityTags: [],
     curationReasoning: "ok",
@@ -178,6 +222,11 @@ const brightCandidates = [
     sourceUrl: "https://nuevositio.cl/expo-2",
   },
 ];
+
+// Content for the fetchBrightSourcesFn stub occurrences below.
+const BRIGHT_CONTENT =
+  "Exposición en Plaza Sotomayor, Valparaíso desde el 8 de julio hasta el 30 de agosto. " +
+  "Otra muestra en Barrio Inventado, Chile desde el 9 de julio hasta el 30 de agosto.";
 
 function fencedJson(payload: unknown): string {
   return "```json\n" + JSON.stringify(payload) + "\n```";
@@ -211,7 +260,7 @@ test(
     const searchUnitFn = async (_key: string, unitName: string) =>
       unitName === TEST_UNIT
         ? {
-            results: [{ title: "r", url: "https://x.cl", content: "c", score: 0.9, images: [] }],
+            results: [{ title: "r", url: "https://x.cl", content: SEARCH_CONTENT, score: 0.9, images: [] }],
             credits: 6,
           }
         : { results: [], credits: 0 };
@@ -264,17 +313,17 @@ test(
         // run's own console log.
         assert.equal(byTitle.has("__test__ Foránea"), false, "foreign event rejected, no longer stored");
 
-        const soloFin = byTitle.get("__test__ Piedras Raras");
-        assert.ok(soloFin, "event with only run_end_date inserts successfully (real production bug, fixed)");
-        assert.equal(soloFin.run_start_date, null);
-        assert.equal(soloFin.run_end_date, "2026-08-15");
-
-        const concepcionRegion = await client.from("regions").select("id").eq("name", "Concepción").single();
-        assert.equal(
-          soloFin.region_id,
-          concepcionRegion.data?.id,
-          "'Concepción, Chile' matches via the leading segment, not just a trailing one",
-        );
+        // Originally asserted this DID insert (the DB's own
+        // events_has_some_date CHECK constraint alone allows run_end_date
+        // with no run_start_date) — outdated since discover.ts's
+        // enforceDateCompleteness (added after this test was first
+        // written) requires a COMPLETE run_start_date+run_end_date pair OR
+        // a confirmed openingDatetime, stricter than the DB constraint.
+        // The DB-constraint tolerance itself is no longer reachable
+        // end-to-end and isn't worth its own coverage here;
+        // enforceDateCompleteness's rejection is already unit-tested
+        // directly in discover.test.ts.
+        assert.equal(byTitle.has("__test__ Piedras Raras"), false, "run_end_date alone, no opening — rejected by enforceDateCompleteness");
       });
 
       await t.test("logs the raw search result for the unit's own domain", async () => {
@@ -421,7 +470,7 @@ test(
           messagesClient,
           searchUnitFn: async () => ({ results: [], credits: 0 }), // units yield nothing this time
           fetchBrightSourcesFn: async () => [
-            { title: "fuente", url: "https://agenda.cl", content: "c", score: 1, images: [] },
+            { title: "fuente", url: "https://agenda.cl", content: BRIGHT_CONTENT, score: 1, images: [] },
           ],
           now: new Date(2026, 8, 20), // Sep 20 — but candidates dated July...
         });
@@ -445,7 +494,7 @@ test(
           messagesClient,
           searchUnitFn: async () => ({ results: [], credits: 0 }),
           fetchBrightSourcesFn: async () => [
-            { title: "fuente", url: "https://agenda.cl", content: "c", score: 1, images: [] },
+            { title: "fuente", url: "https://agenda.cl", content: BRIGHT_CONTENT, score: 1, images: [] },
           ],
           now: new Date(2026, 6, 13), // July 13
         });
@@ -474,7 +523,7 @@ test(
         let fetchCallCount = 0;
         const fetchBrightSourcesFn = async () => {
           fetchCallCount += 1;
-          return [{ title: "fuente", url: "https://agenda.cl", content: "c", score: 1, images: [] }];
+          return [{ title: "fuente", url: "https://agenda.cl", content: BRIGHT_CONTENT, score: 1, images: [] }];
         };
 
         // First run: nothing fetched yet -> due -> fetch happens, state recorded.
@@ -533,16 +582,36 @@ test(
         assert.equal(stillThere?.length, 0, "row older than 7 days got pruned");
       });
 
-      await t.test("prunes events more than a year past their run_end_date, keeps recent ones", async () => {
+      await t.test("prunes non-approved events past retention, but never an approved one (2026-07-19 policy: approved events archive permanently)", async () => {
         await client.from("events").insert([
+          // Originally asserted an APPROVED-but-expired row got pruned —
+          // outdated since prune_expired_events (the DB RPC itself,
+          // 20260719060000_prune_expired_events_excludes_approved.sql) was
+          // deliberately changed to carve out `curation_status = 'approved'`
+          // once every approved event started landing on a permanent
+          // "Expos anteriores" archive page — pruning must never delete one
+          // out from under its own archive URL.
           {
-            title: "__test__ Evento expirado",
+            title: "__test__ Evento aprobado expirado",
             freeform_location: "GAM, Santiago",
             opening_datetime: "2024-01-01T22:00:00+00:00",
             run_start_date: "2024-01-01",
             run_end_date: "2024-06-01", // well over a year before NOW (2026-07-12)
             source: "discovered",
             curation_status: "approved",
+          },
+          // A non-approved row (this shape can only exist from data seeded
+          // directly, like this test — insertCandidates no longer writes
+          // rejected candidates at all, see PR #106) past retention still
+          // gets pruned same as always.
+          {
+            title: "__test__ Evento rechazado expirado",
+            freeform_location: "GAM, Santiago",
+            opening_datetime: "2024-01-01T22:00:00+00:00",
+            run_start_date: "2024-01-01",
+            run_end_date: "2024-06-01",
+            source: "discovered",
+            curation_status: "rejected",
           },
           {
             title: "__test__ Evento reciente",
@@ -567,7 +636,8 @@ test(
           .select("title")
           .like("title", "__test__ Evento%");
         const titles = (remaining ?? []).map((e) => e.title);
-        assert.ok(!titles.includes("__test__ Evento expirado"), "event past 1-year retention got pruned");
+        assert.ok(titles.includes("__test__ Evento aprobado expirado"), "approved event kept regardless of age — archives permanently");
+        assert.ok(!titles.includes("__test__ Evento rechazado expirado"), "non-approved event past 1-year retention got pruned");
         assert.ok(titles.includes("__test__ Evento reciente"), "recent event was kept");
       });
 
@@ -617,9 +687,18 @@ test(
             description: null,
             artist: null,
             runStartDate: "2026-12-25", // same month as this test's "now" (Dec 20) — current
-            runEndDate: null,
+            // A complete pair, not null — enforceDateCompleteness (added
+            // after this test was first written) rejects a candidate with
+            // no openingDatetime AND an incomplete run-date pair, which
+            // would otherwise reject this one before isCurrentOrUpcoming
+            // (the thing this test actually wants to exercise) ever runs.
+            runEndDate: "2026-12-31",
             openingDatetime: null,
-    openingTimeConfirmed: true,
+            openingTimeConfirmed: true,
+            dateQuote: null,
+            locationQuote: "GAM, Santiago",
+            runStartDateQuote: "25 de diciembre",
+            runEndDateQuote: "31 de diciembre",
             mediumType: "tradicional",
             sensitivityTags: [],
             curationReasoning: "ok",
@@ -636,7 +715,11 @@ test(
             runStartDate: "2026-05-01",
             runEndDate: "2026-05-15", // months before Nov 25 — stale
             openingDatetime: null,
-    openingTimeConfirmed: true,
+            openingTimeConfirmed: true,
+            dateQuote: null,
+            locationQuote: "GAM, Santiago",
+            runStartDateQuote: "1 de mayo",
+            runEndDateQuote: "15 de mayo",
             mediumType: "tradicional",
             sensitivityTags: [],
             curationReasoning: "ok",
@@ -748,6 +831,77 @@ test(
           capturedExcludeDomains.includes("infobae.com"),
           "the known-low-quality domain is passed to Tavily's exclude_domains, not just filtered post-hoc",
         );
+      });
+
+      await t.test("brightSourcesOnly skips the comuna batch entirely, but still processes due bright sources", async () => {
+        let searchUnitFnCalled = false;
+        const failIfCalledSearchUnitFn = async () => {
+          searchUnitFnCalled = true;
+          return { results: [], credits: 0 };
+        };
+
+        // Own candidate + content, dated for THIS test's May 2027 "now" —
+        // the shared brightCandidates/BRIGHT_CONTENT are fixed to July/
+        // August 2026, which would already read as stale by 2027 for
+        // reasons unrelated to what this test actually verifies.
+        const mayCandidate = {
+          title: "__test__ Brillante Mayo",
+          description: null,
+          artist: null,
+          runStartDate: "2027-05-10",
+          runEndDate: "2027-06-30",
+          openingDatetime: null,
+          openingTimeConfirmed: true,
+          dateQuote: null,
+          locationQuote: "GAM, Santiago",
+          runStartDateQuote: "10 de mayo",
+          runEndDateQuote: "30 de junio",
+          mediumType: "tradicional",
+          sensitivityTags: [],
+          curationReasoning: "ok",
+          imageUrl: null,
+          status: "approved",
+          location: "GAM, Santiago",
+          placeName: null,
+          sourceUrl: "https://mayo.cl/expo",
+        };
+        const mayMessagesClient = {
+          messages: {
+            create: async () => ({
+              content: [{ type: "text", text: fencedJson([mayCandidate]) }],
+              usage: { input_tokens: 100, output_tokens: 50 },
+            }),
+          },
+        };
+
+        await run({
+          messagesClient: mayMessagesClient,
+          searchUnitFn: failIfCalledSearchUnitFn,
+          fetchBrightSourcesFn: async () => [
+            {
+              title: "fuente",
+              url: "https://agenda.cl",
+              content: "Muestra en GAM, Santiago desde el 10 de mayo hasta el 30 de junio.",
+              score: 1,
+              images: [],
+            },
+          ],
+          brightSourcesOnly: true,
+          // May 20, 2027 — 32 days after the previous test's Apr 18, 2027,
+          // safely past both the comuna's 28-day and bright sources' 14-day
+          // cadence, so both WOULD be due without brightSourcesOnly — this
+          // is what makes the searchUnitFnCalled assertion below meaningful
+          // (proving the skip, not just an unrelated not-due state).
+          now: new Date(2027, 4, 20),
+        });
+
+        assert.equal(searchUnitFnCalled, false, "searchUnitFn never called — the comuna batch was skipped entirely");
+
+        const { data: bright } = await client.from("events").select("id").eq("title", "__test__ Brillante Mayo");
+        assert.equal(bright?.length, 1, "bright source still processed and inserted despite brightSourcesOnly");
+
+        await client.from("events").delete().eq("title", "__test__ Brillante Mayo");
+        await client.from("bright_source_fetch_state").delete().neq("url", "");
       });
     } finally {
       await client.from("events").delete().like("title", "__test__%");

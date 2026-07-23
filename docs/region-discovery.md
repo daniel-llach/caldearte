@@ -1460,6 +1460,39 @@ fail an otherwise-successful run, same posture as `pruneOldRawSearchResults`/
 
 ---
 
+## bright_sources_only manual mode (2026-07-23)
+
+A "just run bright sources" request kept triggering a full run anyway —
+`discover-events` has no way to opt out of the next `weekly_batch_size`
+due comunas, so a manual bright-sources check/refresh always spent real
+Tavily/Haiku cost on a comuna batch nobody asked for.
+
+Added `RunDeps.brightSourcesOnly` (`run.ts`): skips `getUnitsDueForRun`
+and the comuna loop entirely (`units = []`), leaving bright sources'
+own 14-day due-cadence (`isSourceDue`) completely untouched — it doesn't
+force bright sources to run, only removes the comuna batch as a side
+effect of checking. Wired through `index.ts` (`BRIGHT_SOURCES_ONLY` env
+var) and `event-discovery.yml`'s `workflow_dispatch` as a boolean input
+— tick it on a manual run to skip the comuna batch.
+
+To force-refresh bright sources regardless of their own cadence (e.g.
+right after adding a new one to `known-sources.ts`), still reset
+`bright_source_fetch_state` directly first, same as before — this mode
+only removes the comuna-batch side effect, it doesn't add a "force"
+knob for bright sources themselves.
+
+**Found along the way:** running this suite against local Supabase for
+real (previously silently skipped all session — no `SUPABASE_URL`/
+`SUPABASE_SERVICE_ROLE_KEY` set) surfaced that `event-discovery/
+run.test.ts` and `headless-discovery/run.test.ts`'s fixtures were never
+updated for the 2026-07-22/07-23 grounding fields (`dateQuote`/
+`locationQuote`/`runStartDateQuote`/`runEndDateQuote`), plus two
+fixtures asserting behavior a later policy change (`enforceDateCompleteness`,
+`prune_expired_events`'s approved-events carve-out) had already
+superseded — 5 failing tests total, none related to bright-sources-only
+itself, all now fixed. Full suite (213 tests) passes clean against real
+local Supabase for the first time this session.
+
 ## Cost governance
 
 A self-tracked ledger keeps both processes bounded, without depending on
