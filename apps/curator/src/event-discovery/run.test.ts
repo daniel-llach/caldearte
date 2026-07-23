@@ -232,7 +232,7 @@ test(
     };
 
     try {
-      await t.test("first run inserts current events, drops stale, stores foreign as rejected", async () => {
+      await t.test("first run inserts current events, drops stale and rejected candidates", async () => {
         await run({
           messagesClient,
           searchUnitFn,
@@ -257,12 +257,12 @@ test(
 
         assert.equal(byTitle.has("__test__ Ya terminó"), false, "stale event dropped");
 
-        const foranea = byTitle.get("__test__ Foránea");
-        assert.ok(foranea, "foreign event stored for audit");
-        assert.equal(foranea.curation_status, "rejected");
-        assert.match(foranea.curation_reasoning, /FILTRO DE CÓDIGO/);
-        assert.equal(foranea.place_name, "Centro Cultural Recoleta");
-        assert.equal(foranea.region_id, null, "no seeded region named 'Argentina' — unmatched, not the unit searched");
+        // Rejected candidates are no longer stored at all (2026-07-23) — was
+        // "stored for audit," but that never got used in practice and was
+        // the direct cause of a real crash (see run.ts's insertCandidates
+        // doc comment). A rejected candidate now only shows up in the
+        // run's own console log.
+        assert.equal(byTitle.has("__test__ Foránea"), false, "foreign event rejected, no longer stored");
 
         const soloFin = byTitle.get("__test__ Piedras Raras");
         assert.ok(soloFin, "event with only run_end_date inserts successfully (real production bug, fixed)");

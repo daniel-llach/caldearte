@@ -269,6 +269,21 @@ export async function insertCandidates(
   let inserted = 0;
 
   for (const c of candidates) {
+    // Rejected candidates are no longer stored — was originally kept for
+    // audit (spotting false negatives, a real event wrongly rejected), but
+    // that auditing never actually happened in practice, while storing
+    // rejected rows was the direct cause of a real crash (2026-07-22, see
+    // lib/event-filters.ts/lib/locations.ts's null-safety fixes):
+    // processing every candidate, not just approved ones, through the
+    // dedup/region-match code let a rejected candidate's null `location`
+    // reach a code path that assumed it was always a string. A log line is
+    // enough for now — full curationReasoning stays visible in the run's
+    // own logs without the DB write or the crash surface that came with it.
+    if (c.status !== "approved") {
+      console.log(`[event-discovery] rejected: "${c.title}" — ${c.curationReasoning}`);
+      continue;
+    }
+
     if (!isCurrentOrUpcoming(c, now)) continue;
 
     const titleKey = normalizeTitle(c.title);
@@ -293,13 +308,14 @@ export async function insertCandidates(
     }
 
     // Instagram/Facebook's own imageUrl is a signed CDN link that rots
-    // within hours-to-days (confirmed against real production samples) — a
-    // rejected/pending candidate is never displayed, so only re-host for one
-    // that's actually about to be inserted as approved. On failure this
-    // resolves to null rather than storing a link already known to rot; see
-    // image-rehost.ts's own doc comment.
+    // within hours-to-days (confirmed against real production samples) —
+    // only ever re-hosted for a candidate that's actually about to be
+    // inserted (approved, guaranteed by the status check at the top of
+    // this loop now). On failure this resolves to null rather than
+    // storing a link already known to rot; see image-rehost.ts's own doc
+    // comment.
     let imageUrl = c.imageUrl;
-    if (c.status === "approved" && imageUrl && c.sourceUrl && isSocialMediaUrl(c.sourceUrl)) {
+    if (imageUrl && c.sourceUrl && isSocialMediaUrl(c.sourceUrl)) {
       imageUrl = await rehostImageFn(imageUrl, client);
     }
 
@@ -339,7 +355,7 @@ export async function insertCandidates(
     const bucket = seen.titlesByLocationDateOnly.get(locDateOnlyKey);
     if (bucket) bucket.push(c.title);
     else seen.titlesByLocationDateOnly.set(locDateOnlyKey, [c.title]);
-    if (c.status === "approved") inserted += 1;
+    inserted += 1;
   }
 
   return inserted;
