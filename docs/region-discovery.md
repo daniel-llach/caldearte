@@ -1520,6 +1520,21 @@ loop already has, as defense-in-depth for anything else in that block
 (`enrichCandidates`, `insertCandidates`) — not just the parse failure
 `curate()` itself now handles.
 
+**Follow-up, same day:** verified the fix in production (`workflow_dispatch`
+with `bright_sources_only: true`, all 7 due sources at once) — the run
+completed successfully instead of crashing, confirming the isolation
+worked. But it also showed the underlying data-loss problem was still
+there: the SAME combined block truncated again (arteinformado.com's own
+multi-page content alone is sizeable), and because it was still one
+`curate()` call over every due source, the truncation lost every due
+source's candidates for that run, not just the oversized one's — 0
+events inserted despite spending real cost ($0.10, `output_tokens:
+16000` hitting the ceiling exactly). Fixed by splitting into one
+`curate()` call per bright source (`run.ts`), mirroring the per-unit
+comuna loop exactly: each source gets the full `max_tokens` budget to
+itself, and a per-source `try/catch` means one truncated/oversized
+source only loses its own candidates, not every other due source's.
+
 ## Cost governance
 
 A self-tracked ledger keeps both processes bounded, without depending on

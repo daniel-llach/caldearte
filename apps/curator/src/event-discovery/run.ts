@@ -597,25 +597,28 @@ export async function run(deps: RunDeps = {}): Promise<void> {
     }
   }
 
-  // Bright sources: fetched directly and curated ONCE per run, in their own
-  // call — not attached to each unit's prompt (real runs showed Haiku
-  // inconsistently surfacing that content when attached per-unit). Only
-  // the ones due for their own 2-week cadence get fetched at all.
+  // Bright sources: fetched directly, curated ONE SOURCE AT A TIME — not
+  // attached to each unit's prompt (real runs showed Haiku inconsistently
+  // surfacing that content when attached per-unit). Only the ones due for
+  // their own 2-week cadence get fetched at all.
+  //
+  // Was ONE combined curate() call over every due source's content at
+  // once — real production crash (2026-07-23): with enough sources due
+  // together (arteinformado.com's own multi-page content alone is
+  // sizeable), Haiku's response hit its max_tokens ceiling mid-JSON and
+  // curate() choked, losing EVERY source's candidates for that run, not
+  // just the oversized one. curate() itself was also hardened the same
+  // day to degrade to zero candidates (keeping the real usage) instead of
+  // throwing on a parse failure — but that alone doesn't fix a single
+  // source alone being enough to blow the budget. Splitting into
+  // one-call-per-source, same isolation as the per-unit comuna loop
+  // above, means a single oversized/truncated source only loses ITS OWN
+  // candidates, not every other due source's.
   if (dueBrightSources.length > 0) {
     const brightResults = await fetchBrightSourcesFn(dueBrightSources);
-    if (brightResults.length > 0) {
-      // Real production crash (2026-07-23): this whole block used to run
-      // unguarded — a single curate() call over EVERY due bright source
-      // combined (much larger than any one comuna's block) hit a
-      // truncated/malformed Haiku response and threw, killing the entire
-      // run after the comuna batch had already succeeded and spent its
-      // own real cost. curate() itself now degrades gracefully on a parse
-      // failure rather than throwing (see its own doc comment) — this
-      // try/catch is defense-in-depth for anything else in the block
-      // (enrichCandidates, insertCandidates), matching the same
-      // isolation the per-unit comuna loop already has above.
+    for (const result of brightResults) {
       try {
-        const block = buildBlock("Fuentes brillantes (no específicas a ninguna comuna)", brightResults);
+        const block = buildBlock("Fuentes brillantes (no específicas a ninguna comuna)", [result]);
         const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
         await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
         summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
@@ -623,9 +626,9 @@ export async function run(deps: RunDeps = {}): Promise<void> {
         allCandidates.push(...candidates);
         const inserted = await insertCandidates(candidates, regions, seenKeys, now, rehostImageFn);
         summary.candidates.insertedCount += inserted;
-        console.log(`[event-discovery] bright sources: ${inserted} new approved event(s)`);
+        console.log(`[event-discovery] bright source ${result.url}: ${inserted} new approved event(s)`);
       } catch (err) {
-        console.error(`[event-discovery] bright sources: pass failed, skipping this run's insert: ${(err as Error).message}`);
+        console.error(`[event-discovery] bright source ${result.url}: pass failed, skipping: ${(err as Error).message}`);
       }
     }
     await recordBrightSourcesFetched(
