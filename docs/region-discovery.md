@@ -1219,6 +1219,38 @@ Chinese-language sources, national firewalls) — not a decision that needs
 making until they'd actually come up in a real expansion, which isn't
 planned right now anyway.
 
+## Audit-trail simplification: rejected candidates no longer stored (2026-07-23)
+
+**`insertCandidates` now only processes approved candidates —
+rejected candidates are no longer written to `events` at all.**
+Storing rejected candidates "for audit" was the original intent, but
+that auditing never actually happened in the 3+ days of production runs
+this session covered (every real audit found this session focused on
+approved-but-wrong candidates, never on rejected-but-actually-valid
+ones) — and it was the direct cause of the `location: null` crash fixed
+earlier today (PR #101): `insertCandidates` ran dedup/region-match code
+against every candidate regardless of status, and a rejected candidate
+can legitimately have a null `location` Haiku never bothered filling in.
+A rejected candidate now just gets a `console.log` line (title +
+`curationReasoning`) — visible in the run's own GitHub Actions logs, zero
+additional cost (log output isn't separately billed; well within
+GitHub's default retention). Consequence: full-run audits of rejected
+candidates (like this session's several manual reviews) now need to
+happen from the workflow's own logs, not a SQL query — logs are pruned by
+GitHub's own retention window, not this project's ~1-year event
+retention.
+
+**Known, not fixed here:** `run.test.ts`'s integration fixtures
+(`unitCandidates`/`brightCandidates`) were never updated for the
+`dateQuote`/`locationQuote` grounding fields added earlier today
+(PR #100) — they'd fail grounding if actually run against local Supabase
+(this file requires `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`, so it's
+been silently skipped all session, not actually exercised). Fixing it
+properly needs the stubbed search content reworked so each fixture's
+claimed quotes are literally present in what `searchUnitFn` returns, not
+just a placeholder `content: "c"` — flagged as a separate follow-up, not
+done as a tangent to today's other changes.
+
 ## Event Crawler (retired)
 
 An earlier pipeline walked a known `venues` table with Claude Haiku, looking
