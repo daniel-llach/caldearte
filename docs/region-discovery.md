@@ -1339,20 +1339,74 @@ caching engaged for real this time — 100k cache-read tokens out of
   Felipe's own search — deduplication worked as intended; the repeated
   title in the logs is expected, not a bug.
 
-- **Open design question, not acted on:** several approved events have
-  both a confirmed inauguración (date/hour) and a separate expo
-  date range that don't always end up captured together cleanly (e.g.
-  "ECO PRIMORDIAL" — inauguración date/hour was correctly extracted, but
-  the expo's own end date wasn't). Worth a closer look at whether
-  `openingDatetime` and `runStartDate`/`runEndDate` extraction should be
-  made more explicitly independent of each other in the prompt, but
-  flagged for later rather than acted on this session.
-
 - Real Anthropic cost for this run reportedly came in ~$1 higher than
   this doc's own `estimateCostUsd`-based estimate ($1.33) — worth
   reconciling against the Anthropic console's real invoice next time it's
   convenient; not re-derived here since only the user has access to the
   actual billing dashboard.
+
+## Test run on the fix branch + runStartDate/runEndDate grounding (2026-07-23)
+
+Ran Event Discovery again directly on the `fix-comuna-grounding` branch
+(via `workflow_dispatch --ref`, without merging) to validate the fixes
+above before merging. Real cost: **$2.39** ($1.19 Anthropic + $1.20
+Tavily, 24 units) — in line with the previous run, not the blowup a
+naive doubling of `chunks_per_source` might suggest. Not a clean
+before/after comparison though — the weekly batch rotated to a different
+25 comunas with less available content overall (954 Tavily results vs.
+1,025), so the two variables (chunks_per_source, comuna set) are
+confounded. `enforceLocationMatchesQuote` fired 13 times in this run,
+confirming it catches the real pattern (e.g. "Limache y Los Andes
+unidos por el arte" recurring with `location` set to Cerrillos — the
+comuna being searched, not Limache, the real one — same failure shape
+as Confluencias).
+
+Manual audit of this run's 4 newly-approved events found the exact same
+fabrication problem as the 2026-07-22 grounding fix, just on a pair of
+fields that fix never covered:
+
+- **"Pinacoteca Municipal - Exposición"** — the real source said the
+  exhibition closed 2026-05-22; stored with `runEndDate: 2026-07-24`,
+  making an already-closed exhibition look currently open.
+- **"El Despertar de los Sentidos"** — the real source gives no end date
+  at all; stored with a specific `runEndDate` anyway.
+- **"Río Simpson Tejido"** — real start date 2026-05-07; stored as
+  `runStartDate: 2026-07-01`.
+- **"Expo Julio 2026"** — dates the user couldn't find in the post text;
+  plausibly grounded in an image description instead (see below), not
+  confirmed either way since raw search content isn't persisted.
+
+3 of 4 (75%) had a fabricated run-date field. Root cause: `dateQuote`
+(2026-07-22) only ever covered `openingDatetime` — `runStartDate`/
+`runEndDate` had zero grounding check, so this was the same failure
+mode the original fix addressed, just on fields it never touched.
+
+Fixed by extending the same pattern: two new fields,
+`runStartDateQuote`/`runEndDateQuote` (`EventCandidate`, `discover.ts`),
+with `buildSystemPrompt` instructed to cite them the same way as
+`dateQuote`. `enforceGroundedQuotes` now nulls `runStartDate`/
+`runEndDate` independently (each only nulled if ITS OWN quote fails
+grounding — an ungrounded end date doesn't discard a grounded start
+date), same "keep the rest of the candidate, drop only the unverifiable
+part" treatment `dateQuote` already used for `openingDatetime`. Composes
+for free with the existing `enforceDateCompleteness` filter downstream:
+a candidate that loses both run dates and has no confirmed
+`openingDatetime` either now gets rejected there, same as if Haiku had
+reported no dates at all.
+
+Confirmed along the way (answering a user question): `buildBlock`
+appends each candidate image's Tavily-generated description to the
+block Haiku sees (`formatImages`, `discover.ts`) — a real, legitimate
+route for a flyer's on-image date text to reach Haiku even when it's
+absent from the post's own caption, which a human skimming just the
+caption wouldn't see. Not something the new quote fields distinguish
+from a fabrication — a fabricated date could equally cite fake "image
+description" text — but it does mean "the user can't find the date in
+the text" isn't proof of fabrication on its own.
+
+System prompt now measures **~4,334 tokens** (up from ~4,117 after the
+comuna-grounding reinforcement, ~3,877 after the #107 trim) — still well
+above the 2048-token cache threshold.
 
 ## Event Crawler (retired)
 

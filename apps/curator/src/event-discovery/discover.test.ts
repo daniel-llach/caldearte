@@ -29,8 +29,9 @@ import type { FetchLike } from "../lib/tavily.js";
 
 // Used as the `block` param for every curate(...) integration test below —
 // real content, not a placeholder, since enforceGroundedQuotes now checks
-// dateQuote/locationQuote against it.
-const TEST_BLOCK = "### Muestra X\nhttps://example.cl/expo\nInauguración: 26 de julio a las 12:30 en Providencia, Santiago, Chile.";
+// dateQuote/locationQuote/runStartDateQuote/runEndDateQuote against it.
+const TEST_BLOCK =
+  "### Muestra X\nhttps://example.cl/expo\nInauguración: 26 de julio a las 12:30 en Providencia, Santiago, Chile. Abierta desde el 5 de julio hasta el 31 de julio.";
 
 const baseCandidate: EventCandidate = {
   title: "Muestra X",
@@ -50,6 +51,8 @@ const baseCandidate: EventCandidate = {
   sourceUrl: "https://example.cl/expo",
   dateQuote: null,
   locationQuote: "Providencia, Santiago, Chile",
+  runStartDateQuote: "5 de julio", // grounded in TEST_BLOCK — see comment above
+  runEndDateQuote: "31 de julio",
 };
 
 test("buildQueries produces the 3 validated templates with the month label, appending ', Chile' to disambiguate comuna-name collisions (e.g. La Reina / Reina Sofía)", () => {
@@ -144,6 +147,55 @@ test("enforceGroundedQuotes nulls openingDatetime (keeps the candidate) when dat
 test("enforceGroundedQuotes nulls openingDatetime when dateQuote is missing entirely", () => {
   const filtered = enforceGroundedQuotes([{ ...baseCandidate, openingDatetime: "2026-07-09T23:00:00.000Z", dateQuote: null }], TEST_BLOCK);
   assert.equal(filtered[0].openingDatetime, null);
+});
+
+// Real production case (2026-07-23): an exhibition that had actually
+// already closed on 2026-05-22 was stored with runEndDate 2026-07-24 —
+// dateQuote/enforceGroundedQuotes only ever covered openingDatetime, so a
+// fabricated run-date range slipped through with no grounding check at
+// all until now.
+test("enforceGroundedQuotes nulls runEndDate (keeps the candidate) when runEndDateQuote doesn't appear in the block — fabricated end date, real production case", () => {
+  const block = "### Muestra X\nLa muestra está abierta desde el 5 de julio. Providencia, Santiago, Chile.";
+  const filtered = enforceGroundedQuotes(
+    [{ ...baseCandidate, runStartDateQuote: "5 de julio", runEndDateQuote: "24 de julio" }],
+    block,
+  );
+  assert.equal(filtered[0].status, "approved", "rest of the candidate survives — a real exhibition without a known end date");
+  assert.equal(filtered[0].runStartDate, "2026-07-05");
+  assert.equal(filtered[0].runEndDate, null);
+});
+
+// Real production case (2026-07-23): a real start date of 2026-05-07 was
+// stored as 2026-07-01 — the reverse of the runEndDate case above, same
+// missing guardrail.
+test("enforceGroundedQuotes nulls runStartDate when runStartDateQuote doesn't appear in the block, independently of runEndDate", () => {
+  const block = "### Muestra X\nLa muestra cierra el 31 de julio. Providencia, Santiago, Chile.";
+  const filtered = enforceGroundedQuotes(
+    [{ ...baseCandidate, runStartDateQuote: "12 de julio", runEndDateQuote: "31 de julio" }],
+    block,
+  );
+  assert.equal(filtered[0].status, "approved");
+  assert.equal(filtered[0].runStartDate, null);
+  assert.equal(filtered[0].runEndDate, "2026-07-31");
+});
+
+test("enforceGroundedQuotes nulls both run dates when both quotes are missing, but leaves an already-confirmed openingDatetime untouched", () => {
+  const filtered = enforceGroundedQuotes(
+    [
+      {
+        ...baseCandidate,
+        openingDatetime: "2026-07-26T16:30:00.000Z",
+        dateQuote: "26 de julio a las 12:30",
+        runStartDateQuote: null,
+        runEndDateQuote: null,
+      },
+    ],
+    TEST_BLOCK,
+  );
+  assert.equal(filtered[0].status, "approved");
+  assert.equal(filtered[0].runStartDate, null);
+  assert.equal(filtered[0].runEndDate, null);
+  assert.ok(filtered[0].openingDatetime, "openingDatetime is grounded independently and survives");
 });
 
 // Reproduces the real case found 2026-07-22: "Intervención artística de
@@ -578,7 +630,11 @@ test("curate parses the fenced JSON block and applies the location backstop", as
     },
   };
 
-  const { candidates: parsed, usage } = await curate(client, "system", "Evento en Valparaíso, Chile. Otro evento en Madrid, España.");
+  const { candidates: parsed, usage } = await curate(
+    client,
+    "system",
+    "Evento en Valparaíso, Chile, del 5 de julio al 31 de julio. Otro evento en Madrid, España, del 5 de julio al 31 de julio.",
+  );
 
   assert.equal(parsed.length, 2);
   assert.equal(parsed[0].status, "approved");
