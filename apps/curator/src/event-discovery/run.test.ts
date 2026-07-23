@@ -903,6 +903,64 @@ test(
         await client.from("events").delete().eq("title", "__test__ Brillante Mayo");
         await client.from("bright_source_fetch_state").delete().neq("url", "");
       });
+
+      // Real production crash (2026-07-23): a truncated Haiku response for
+      // the bright-sources block killed the ENTIRE run — after the comuna
+      // batch had already succeeded and spent its own real cost. Reproduces
+      // that shape directly: a malformed (no fenced JSON) response for the
+      // bright-sources pass specifically, while the comuna's own unit still
+      // succeeds normally.
+      await t.test("a malformed bright-sources response doesn't crash the run — the comuna batch still completes normally", async () => {
+        await client.from("bright_source_fetch_state").delete().neq("url", "");
+
+        const malformedMessagesClient = {
+          messages: {
+            create: async (params: Record<string, unknown>) => {
+              const userContent = (params.messages as Array<{ content: string }>)[0].content;
+              if (userContent.includes("Fuentes brillantes")) {
+                return {
+                  content: [{ type: "text", text: "not json, simulating a truncated response" }],
+                  usage: { input_tokens: 200, output_tokens: 16000 },
+                };
+              }
+              return {
+                content: [{ type: "text", text: fencedJson(unitCandidates) }],
+                usage: { input_tokens: 100, output_tokens: 50 },
+              };
+            },
+          },
+        };
+
+        // Must not throw — this IS the assertion.
+        await run({
+          messagesClient: malformedMessagesClient,
+          searchUnitFn,
+          fetchBrightSourcesFn: async () => [
+            { title: "fuente", url: "https://agenda.cl", content: BRIGHT_CONTENT, score: 1, images: [] },
+          ],
+          now: new Date(2027, 5, 21), // Jun 21, 2027 — after every previous test's "now" in this suite
+        });
+
+        const vigente = await client.from("events").select("id").eq("title", "__test__ Muestra vigente").maybeSingle();
+        assert.ok(vigente.data, "the comuna's own candidate still inserted normally despite the bright-sources pass failing");
+
+        const { data: bright } = await client.from("events").select("id").like("title", "__test__ Brillante%");
+        assert.equal(bright?.length ?? 0, 0, "nothing inserted from the malformed bright-sources response, but nothing crashed either");
+
+        // The malformed call's own real usage is still recorded — the API
+        // call happened and cost real money regardless of parseability.
+        const { data: usageRow } = await client
+          .from("api_usage_log")
+          .select("id")
+          .eq("input_tokens", 200)
+          .eq("output_tokens", 16000)
+          .limit(1);
+        assert.equal(usageRow?.length, 1, "usage for the failed call was still recorded, not lost");
+
+        await client.from("events").delete().eq("title", "__test__ Muestra vigente");
+        await client.from("bright_source_fetch_state").delete().neq("url", "");
+        await client.from("api_usage_log").delete().eq("input_tokens", 200).eq("output_tokens", 16000);
+      });
     } finally {
       await client.from("events").delete().like("title", "__test__%");
       await client.from("detected_sources").delete().like("url", "%nuevositio.cl%");

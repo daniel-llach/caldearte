@@ -1493,6 +1493,33 @@ superseded — 5 failing tests total, none related to bright-sources-only
 itself, all now fixed. Full suite (213 tests) passes clean against real
 local Supabase for the first time this session.
 
+## Bright-sources pass crash isolation (2026-07-23)
+
+Real production crash, found testing the mode above with all 8 known
+bright sources forced due at once: the single `curate()` call over every
+due bright source combined (much larger than any one comuna's block) got
+a response truncated mid-JSON by Haiku's own `max_tokens` ceiling.
+`parseCandidates`'s throw was never caught — it killed the entire GitHub
+Actions run, *after* the comuna batch (25 units) had already succeeded
+and spent its own real cost (~$1.10 Anthropic + ~$1.20 Tavily,
+confirmed via `api_usage_log`). The bright-sources call's own real cost
+was lost too — `recordUsage` only runs on `curate()`'s successful
+return, never reached.
+
+The per-unit comuna loop already isolates a bad unit this same way
+(2026-07-17) — this was the identical failure shape one level up, on
+the one call that combines every bright source into a single block.
+
+Fixed at the root: `curate()` (`discover.ts`) now catches a
+`parseCandidates` failure and returns `{ candidates: [], usage }`
+instead of throwing — the real usage from the API response is captured
+before the parse attempt, so a truncated/malformed response still gets
+its cost recorded, it just contributes zero candidates. Also wrapped
+the bright-sources block in `run.ts` in the same try/catch the per-unit
+loop already has, as defense-in-depth for anything else in that block
+(`enrichCandidates`, `insertCandidates`) — not just the parse failure
+`curate()` itself now handles.
+
 ## Cost governance
 
 A self-tracked ledger keeps both processes bounded, without depending on

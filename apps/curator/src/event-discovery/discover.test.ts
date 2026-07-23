@@ -720,15 +720,25 @@ test("curate nulls out a malformed openingDatetime rather than storing a wrong i
   assert.equal(parsed[0].openingDatetime, null);
 });
 
-test("curate throws a descriptive error when no JSON block is present", async () => {
+// Real production crash (2026-07-23): a truncated/malformed Haiku
+// response used to throw uncaught out of curate() — fine for a single
+// comuna (the per-unit loop already isolates that), but fatal for the
+// bright-sources pass, which has no such wrapper and combines every due
+// source into one call. Degrades to zero candidates instead, but still
+// returns the real usage — the API call happened and cost real money
+// regardless of whether the output was usable.
+test("curate degrades to zero candidates (not a throw) when no JSON block is present, but still returns real usage", async () => {
   const client: MessagesClient = {
     messages: {
       create: async () => ({
         content: [{ type: "text", text: "no json here" }],
-        usage: { input_tokens: 1, output_tokens: 1 },
+        usage: { input_tokens: 123, output_tokens: 45 },
       }),
     },
   };
 
-  await assert.rejects(() => curate(client, "s", "b"), /no fenced JSON block/);
+  const { candidates, usage } = await curate(client, "s", "b");
+  assert.deepEqual(candidates, []);
+  assert.equal(usage.inputTokens, 123);
+  assert.equal(usage.outputTokens, 45);
 });
