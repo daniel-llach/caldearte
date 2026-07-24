@@ -326,6 +326,20 @@ test("enforceLocationMatchesQuote is accent/case/whitespace-insensitive", () => 
   assert.equal(filtered[0].status, "approved");
 });
 
+// Real production crash (2026-07-23, arteinformado.com): `location` is
+// typed as always-a-string, but Haiku violated that at runtime — same
+// class of bug as the 2026-07-22 location:null crash this filter chains
+// after (applyLocationFilter/isChileanLocation already guard against it;
+// this newer filter, added the same day as that fix, didn't). Crashed the
+// entire bright-sources pass with "Cannot read properties of null
+// (reading 'replace')" rather than rejecting the one bad candidate.
+test("enforceLocationMatchesQuote rejects rather than throws when location itself is null, despite the declared type", () => {
+  const filtered = enforceLocationMatchesQuote([
+    { ...baseCandidate, location: null as unknown as string, locationQuote: "algo" },
+  ]);
+  assert.equal(filtered[0].status, "rejected");
+});
+
 // Real production case: a prompt-only fix (adding this exact real post as
 // a negative example, PR #104) proved unreliable — the SAME post was
 // approved again on the very next run. This deterministic check exists
