@@ -1731,6 +1731,39 @@ no config yet still fall back to the old `curate()`/`isBrightSource`
 path unchanged, same posture `sources.ts`'s `fetchHtmlPageFallback`
 always had).
 
+### Real event descriptions, recovered deterministically too (2026-07-24, same day)
+
+Follow-up gap found once event detail pages needed a real description to
+show: `extractArticleList` never captured one at all — 5 of the 7 known
+sources' LISTING pages simply don't carry prose per event, only title/
+dates/place (confirmed by fetching all 5 live pages). Only
+molinomachmar.cl's listing page has real description text already
+sitting in the block; the other 4 (artes.uchile.cl, uchile.cl root,
+mnba.gob.cl, arteinformado.com) do have one, but only on each event's own
+DETAIL page — confirmed by fetching real detail pages for each:
+
+- artes.uchile.cl / uchile.cl (same CMS): `<div class="content__description" itemprop="description">`
+- mnba.gob.cl: `<div class="text-long">` inside `<div class="body_event">`
+- arteinformado.com: `<span class="event-text">`, labeled "Descripción de la Exposición"
+
+Two mechanisms, matching where the text actually lives:
+
+- `ArticleListConfig` (`extractors.ts`) gained an optional
+  `descriptionRegex`, set only for molinomachmar.cl — captured directly
+  at listing-parse time, no extra fetch.
+- A new `lib/description-extract.ts` (`DescriptionConfig`/
+  `extractDescription`, mirrors `opening-time.ts`'s pattern — matched
+  against RAW html, not pre-collapsed text, since the regex needs the tag
+  boundaries intact to find the right chunk before stripping them) plus a
+  new `KnownSource.descriptionExtractor` field, set on the other 4
+  sources. `page-fetch.ts`'s `enrichCandidates` recovers it during the
+  SAME detail-page fetch already done for image/opening-time recovery —
+  no new network request, just one more thing read out of a page already
+  being fetched.
+
+`wordpressRestApi` (parquecultural.cl) and MAVI already had a real
+description from their own structured data — untouched by this.
+
 ## Cost governance
 
 A self-tracked ledger keeps both processes bounded, without depending on

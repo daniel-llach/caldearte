@@ -107,6 +107,39 @@ test("extractArticleList falls back to placeholder date text when days/place are
   assert.equal(items[0].locationHint, null);
 });
 
+// 2026-07-24: unlike every other articleList source, molinomachmar.cl's
+// LISTING page already carries real description prose per event —
+// captured via the optional descriptionRegex, no separate detail-page
+// fetch needed (unlike the other 4 sources, which use
+// known-sources.ts's descriptionExtractor + page-fetch.ts instead).
+test("extractArticleList captures description directly from the listing page when descriptionRegex is configured (molinomachmar.cl-style)", () => {
+  const configWithDescription: ArticleListConfig = {
+    ...UCHILE_CONFIG,
+    descriptionRegex: /<p class="desc">([\s\S]*?)<\/p>/,
+  };
+  const html = `
+    <article class="mod-cal-result__item">
+      <h4 class="mod__item-title"><a href="/agenda/evento-uno">Muestra Uno</a></h4>
+      <p class="desc">Una muestra real con <strong>texto</strong> descriptivo.</p>
+    </article>
+  `;
+
+  const items = extractArticleList(html, "https://artes.uchile.cl/agenda/30dias/6", configWithDescription);
+  assert.ok(items);
+  assert.equal(items[0].description, "Una muestra real con texto descriptivo.");
+});
+
+test("extractArticleList leaves description null when descriptionRegex is not configured (the common case)", () => {
+  const html = `
+    <article class="mod-cal-result__item">
+      <h4 class="mod__item-title"><a href="/agenda/evento-uno">Muestra Uno</a></h4>
+    </article>
+  `;
+  const items = extractArticleList(html, "https://artes.uchile.cl/agenda/30dias/6", UCHILE_CONFIG);
+  assert.ok(items);
+  assert.equal(items[0].description, null);
+});
+
 test("extractArticleList returns null when the page has no matching blocks (fallback signal)", () => {
   assert.equal(extractArticleList("<div>algo distinto</div>", "https://otra.cl", UCHILE_CONFIG), null);
 });

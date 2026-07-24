@@ -122,6 +122,13 @@ export interface ArticleListConfig {
   titleLinkRegex: RegExp; // within a block: captures [href, title]
   daysRegex?: RegExp; // within a block: captures the date-range text
   placeRegex?: RegExp; // within a block: captures the place text
+  // Optional — most articleList sources' LISTING page has no prose at all
+  // (only title/dates/place), in which case description recovery happens
+  // separately, per-event, from the detail page (see lib/known-sources.ts's
+  // descriptionExtractor + lib/page-fetch.ts). A source whose listing page
+  // DOES carry real prose per event (confirmed 2026-07-24: molinomachmar.cl)
+  // captures it here instead — no extra fetch needed.
+  descriptionRegex?: RegExp;
 }
 
 // matchAll requires a global regex — a config author forgetting the "g"
@@ -143,6 +150,7 @@ export function extractArticleList(html: string, pageUrl: string, config: Articl
 
     const days = config.daysRegex ? collapseWhitespace(block.match(config.daysRegex)?.[1] ?? "") : "";
     const place = config.placeRegex ? collapseWhitespace(block.match(config.placeRegex)?.[1] ?? "") : "";
+    const descriptionMatch = config.descriptionRegex ? collapseWhitespace(block.match(config.descriptionRegex)?.[1] ?? "") : "";
 
     let individualUrl: string;
     try {
@@ -157,7 +165,7 @@ export function extractArticleList(html: string, pageUrl: string, config: Articl
       title,
       sourceUrl: individualUrl,
       imageUrl: firstImage?.url ?? null,
-      description: null, // articleList sources never have separate prose — only a title + date/place fragment
+      description: descriptionMatch || null,
       locationHint: place || null,
       rawDateText: days || "fecha no indicada",
       structuredStartDate: null,

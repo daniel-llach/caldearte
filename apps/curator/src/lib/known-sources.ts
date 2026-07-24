@@ -24,6 +24,7 @@
 // owned by the extraction registry, not worth duplicating here.
 import type { ExtractorConfig } from "../event-discovery/extractors.js";
 import type { OpeningTimeConfig } from "./opening-time.js";
+import type { DescriptionConfig } from "./description-extract.js";
 
 export interface KnownSource {
   url: string;
@@ -48,6 +49,13 @@ export interface KnownSource {
   // resolving "MAC Quinta Normal" -> "Santiago" needs real-world venue
   // knowledge a regex can't have, so those sources keep asking Haiku.
   fixedLocation?: { location: string; placeName: string };
+  // Sibling to openingTimeExtractor, same reasoning: a real description
+  // only exists on the event's own detail page for these sources (their
+  // LISTING page never carries prose, confirmed 2026-07-24 by fetching
+  // real pages — see docs/region-discovery.md) — recovered by
+  // page-fetch.ts's enrichCandidates during the SAME detail-page fetch
+  // already done for opening-time/image recovery, not a separate request.
+  descriptionExtractor?: DescriptionConfig;
 }
 
 export const KNOWN_SOURCES: KnownSource[] = [
@@ -63,6 +71,13 @@ export const KNOWN_SOURCES: KnownSource[] = [
       // "item-placer" — match both rather than assuming the source will fix it.
       daysRegex: /class="mod-cal-result__item-days"[^>]*>([\s\S]*?)<\/p>/,
       placeRegex: /class="mod-cal-result__item-place[a-z]*"[^>]*>([\s\S]*?)<\/p>/,
+    },
+    // Real markup, confirmed 2026-07-24 against a live detail page — the
+    // listing page itself never carries description prose (only title/
+    // days/place), so this needs its own detail-page fetch, same as
+    // openingTimeExtractor below (same CMS/template as uchile.cl root).
+    descriptionExtractor: {
+      pattern: /<div class="content__description"[^>]*>([\s\S]*?)<\/div>\s*<!--\/ description -->/,
     },
   },
   {
@@ -90,6 +105,11 @@ export const KNOWN_SOURCES: KnownSource[] = [
     openingTimeExtractor: {
       pattern:
         /esperamos\s+este\s+\S+\s+(?<day>\d{1,2})\s+de\s+(?<month>[a-zé]{3})[a-zé]*\s+a\s+las\s+(?<hour>\d{1,2})[.:](?<minute>\d{2})\s*h?/i,
+    },
+    // Same CMS/template as artes.uchile.cl, confirmed 2026-07-24 against a
+    // real detail page on this root domain too.
+    descriptionExtractor: {
+      pattern: /<div class="content__description"[^>]*>([\s\S]*?)<\/div>\s*<!--\/ description -->/,
     },
   },
   {
@@ -122,6 +142,11 @@ export const KNOWN_SOURCES: KnownSource[] = [
       placeRegex: /field--name-institucion"><a[^>]*>([^<]*)<\/a>/,
     },
     fixedLocation: { location: "Santiago", placeName: "Museo Nacional de Bellas Artes" },
+    // Real markup, confirmed 2026-07-24 against a live detail page —
+    // listing page has no prose, only a topic/type tag and an address.
+    descriptionExtractor: {
+      pattern: /<div class="text-long">([\s\S]*?)<\/div>/,
+    },
   },
   {
     url: "https://www.molinomachmar.cl/cartelera/",
@@ -132,6 +157,10 @@ export const KNOWN_SOURCES: KnownSource[] = [
       blockRegex: /<article class="page-evento[^"]*">([\s\S]*?)<\/article>/g,
       titleLinkRegex: /<a href="([^"]+)" title="Leer: ([^"]*)" class="page-evento__enlace/,
       daysRegex: /class="evento-fecha[^"]*"[^>]*>([\s\S]*?class="evento-ano[^"]*"[^>]*>[\s\S]*?)<\/p>/,
+      // Unlike every other articleList source, this LISTING page already
+      // carries real description prose per event (confirmed 2026-07-24) —
+      // captured directly here, no separate detail-page fetch needed.
+      descriptionRegex: /class="ff-secondary fz-medium lh-high text-uppercase mb-0-last rmb-32">([\s\S]*?)<\/div>\s*<div class="page-evento__entradas">/,
     },
     fixedLocation: { location: "Frutillar", placeName: "Centro de Arte Molino Machmar" },
   },
@@ -182,6 +211,12 @@ export const KNOWN_SOURCES: KnownSource[] = [
       pattern:
         /Inauguraci[oó]n\s*:?\s*(?<day>\d{1,2})\s+(?<month>[a-zé]{3})\.?\s+de\s+(?<year>\d{4})(?:\s*\/\s*(?<hour>\d{1,2})(?::(?<minute>\d{2}))?(?:\s*h(?:rs?)?\.?)?(?:\s*a\s*\d{1,2}\s*h(?:rs?)?\.?)?)?/i,
     },
+    // Real markup, confirmed 2026-07-24 against a live detail page —
+    // labeled "Descripción de la Exposición" right before it, plain text
+    // (no nested tags) inside the span itself.
+    descriptionExtractor: {
+      pattern: /<span class="event-text">([\s\S]*?)<\/span>/,
+    },
   },
 ];
 
@@ -199,4 +234,16 @@ export function findOpeningTimeConfig(sourceUrl: string): OpeningTimeConfig | nu
     return null; // unparseable URL — not our problem here
   }
   return KNOWN_SOURCES.find((s) => s.openingTimeExtractor && knownSourceDomain(s.url) === domain)?.openingTimeExtractor ?? null;
+}
+
+// Used by lib/page-fetch.ts's enrichCandidates to decide, per candidate,
+// whether its sourceUrl's domain is opted in to description recovery.
+export function findDescriptionConfig(sourceUrl: string): DescriptionConfig | null {
+  let domain: string;
+  try {
+    domain = knownSourceDomain(sourceUrl);
+  } catch {
+    return null;
+  }
+  return KNOWN_SOURCES.find((s) => s.descriptionExtractor && knownSourceDomain(s.url) === domain)?.descriptionExtractor ?? null;
 }
