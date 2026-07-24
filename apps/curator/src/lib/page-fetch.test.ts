@@ -137,6 +137,7 @@ function makeCandidate(
     openingDatetime: string | null;
     openingTimeConfirmed: boolean;
     description: string | null;
+    location: string;
   }>,
 ) {
   return {
@@ -150,6 +151,7 @@ function makeCandidate(
     // `openingDatetime: null` is never paired with `true`.
     openingTimeConfirmed: false,
     description: null as string | null,
+    location: "",
     ...overrides,
   };
 }
@@ -380,6 +382,68 @@ test("enrichCandidates does not attempt description recovery for a source with n
   await enrichCandidates([candidate], fetchImpl);
 
   assert.equal(candidate.description, null);
+});
+
+// 2026-07-24: a real aggregator (arteinformado.com, uchile.cl,
+// artes.uchile.cl) has events spread across many comunas, so there's no
+// single fixedLocation constant — but the comuna doesn't need Haiku to
+// infer it either, since the event's own detail page states its real
+// address. This exercises the actual arteinformado.com config (real
+// JSON-LD "addressLocality" field), not a synthetic one — same pattern
+// as the description tests above using the real mnba.gob.cl config.
+test("enrichCandidates recovers and overrides location from the detail page for a source with locationExtractor configured, using the real comuna name from `regions`", async () => {
+  const candidate = makeCandidate({
+    sourceUrl: "https://www.arteinformado.com/agenda/f/alguna-expo-123456",
+    location: "lo que Haiku hubiera inferido antes",
+  });
+  const regions = [
+    { id: "r1", name: "Santiago" },
+    { id: "r2", name: "Valparaíso" },
+  ];
+
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    text: async () =>
+      '<script type="application/ld+json">{"@context":"https://schema.org","address":{"@type":"PostalAddress","addressLocality":"Santiago","streetAddress":"Ismael Valdés Vergara 506"}}</script>',
+  });
+
+  await enrichCandidates([candidate], fetchImpl, new Date(), regions);
+
+  assert.equal(candidate.location, "Santiago", "overrides whatever location was there before with the deterministic comuna");
+});
+
+test("enrichCandidates leaves location untouched when locationExtractor is configured but the captured address doesn't match any real region", async () => {
+  const candidate = makeCandidate({
+    sourceUrl: "https://www.arteinformado.com/agenda/f/alguna-expo-123456",
+    location: "valor original",
+  });
+  const regions = [{ id: "r1", name: "Santiago" }];
+
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    text: async () => '<script type="application/ld+json">{"address":{"addressLocality":"Un Lugar Que No Es Una Comuna Real"}}</script>',
+  });
+
+  await enrichCandidates([candidate], fetchImpl, new Date(), regions);
+
+  assert.equal(candidate.location, "valor original");
+});
+
+test("enrichCandidates does not attempt location recovery for a source with no locationExtractor configured (e.g. a fixedLocation source)", async () => {
+  const candidate = makeCandidate({ sourceUrl: "https://portaldisc.com/expo-1", location: "valor original" });
+  const regions = [{ id: "r1", name: "Santiago" }];
+
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    text: async () => '<script type="application/ld+json">{"address":{"addressLocality":"Santiago"}}</script>',
+  });
+
+  await enrichCandidates([candidate], fetchImpl, new Date(), regions);
+
+  assert.equal(candidate.location, "valor original", "no locationExtractor configured for this domain — never touched");
 });
 
 // Real production case, found via manual sampling 2026-07-21 (see

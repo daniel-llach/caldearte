@@ -163,13 +163,34 @@ export interface RegionLike {
 // runtime despite the declared type (see normalizeLocation's doc comment,
 // lib/event-filters.ts, for the real 2026-07-22 crash this class of bug
 // caused).
-export function matchRegionId(location: string | null | undefined, regions: RegionLike[]): string | null {
+// Shared by matchRegionId (returns the id, for the events.region_id FK)
+// and extractComunaName below (returns the canonical name, for a clean
+// display string) — same segment-by-segment matching either way.
+function findMatchingRegion(location: string | null | undefined, regions: RegionLike[]): RegionLike | null {
   if (!location) return null;
   const normalized = stripAccents(location.toLowerCase());
   const segments = normalized.split(",").map((s) => s.trim());
   for (const segment of segments) {
     const match = regions.find((r) => stripAccents(r.name.toLowerCase()) === segment);
-    if (match) return match.id;
+    if (match) return match;
   }
   return null;
+}
+
+export function matchRegionId(location: string | null | undefined, regions: RegionLike[]): string | null {
+  return findMatchingRegion(location, regions)?.id ?? null;
+}
+
+// Pulls just the real comuna name out of a longer, messier address blob —
+// e.g. a bright source's detail-page address ("Parque Forestal s/n frente
+// calle Mosqueto, Metro estación Bellas Artes, Santiago, Chile") resolves
+// to the clean "Santiago", not the whole street-address text. Used so a
+// bright-source aggregator's location can be set deterministically from
+// its own detail page (2026-07-24 — see docs/region-discovery.md) instead
+// of asking Haiku to infer it, while still matching this app's existing
+// short "Comuna" / "Venue, Comuna" display convention rather than a full
+// address. Returns the canonical `regions.name` spelling (accents intact,
+// as stored), not whatever casing/accents the source's own text used.
+export function extractComunaName(text: string | null | undefined, regions: RegionLike[]): string | null {
+  return findMatchingRegion(text, regions)?.name ?? null;
 }

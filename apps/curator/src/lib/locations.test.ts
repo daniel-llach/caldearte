@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isChileanLocation, matchRegionId } from "./locations.js";
+import { extractComunaName, isChileanLocation, matchRegionId } from "./locations.js";
 import { CHILE_COMUNAS_SNAPSHOT } from "./chile-comunas-snapshot.js";
 
 const REGIONS = [
@@ -53,6 +53,31 @@ test("matchRegionId ignores which search unit produced the candidate — matches
   // Condes (docs/region-discovery.md's own documented case) — the match
   // must come from the location text, never a passed-in search-unit id.
   assert.equal(matchRegionId("Centro Cultural Recoleta, Buenos Aires, Argentina", REGIONS), null);
+});
+
+// --- extractComunaName: pulls a clean comuna name out of a longer,
+// messier address blob (2026-07-24, see page-fetch.ts's locationExtractor
+// — a real aggregator bright source's detail page states its own address,
+// but as a full street address, not a bare comuna). Same underlying
+// segment-matching as matchRegionId, just returning the canonical
+// `regions.name` string instead of the id.
+
+test("extractComunaName pulls the comuna out of a real full street address (artes.uchile.cl detail-page format)", () => {
+  const addr = "Parque Forestal s/n frente calle Mosqueto, Metro estación Bellas Artes, Santiago, Chile";
+  assert.equal(extractComunaName(addr, REGIONS), "Santiago");
+});
+
+test("extractComunaName returns the canonical regions.name spelling, not whatever accents/casing the source text used", () => {
+  assert.equal(extractComunaName("Ismael Valdés Vergara 506, valparaiso", REGIONS), "Valparaíso");
+});
+
+test("extractComunaName returns null when no segment matches a real region — never fabricates one from a street address alone", () => {
+  assert.equal(extractComunaName("Calle Falsa 123, Un Lugar Inventado", REGIONS), null);
+});
+
+test("extractComunaName returns null for null/undefined rather than crashing", () => {
+  assert.equal(extractComunaName(null, REGIONS), null);
+  assert.equal(extractComunaName(undefined, REGIONS), null);
 });
 
 test("isChileanLocation recognizes Frutillar (real production bug: a legitimate art expo there was code-rejected as 'not Chilean' because CHILE_MARKERS didn't include it, even though Puerto Varas/Osorno/Valdivia — its neighbors — already did)", () => {

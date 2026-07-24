@@ -56,6 +56,19 @@ export interface KnownSource {
   // page-fetch.ts's enrichCandidates during the SAME detail-page fetch
   // already done for opening-time/image recovery, not a separate request.
   descriptionExtractor?: DescriptionConfig;
+  // Same mechanism as descriptionExtractor (reuses DescriptionConfig — the
+  // extraction shape is identical: capture raw text off the detail page,
+  // strip tags, decode entities) but for a real aggregator's per-event
+  // comuna, recovered deterministically instead of asked of Haiku
+  // (2026-07-24). Captures whatever address/location text the detail page
+  // states — often a full street address, not just a bare comuna name —
+  // page-fetch.ts's enrichCandidates runs that through
+  // lib/locations.ts's extractComunaName to pull out just the real,
+  // canonical comuna for `location`, same short "Comuna" display
+  // convention every other candidate already uses (not the full address).
+  // Absent on a `fixedLocation` source — there's nothing to look up,
+  // the comuna is already a constant.
+  locationExtractor?: DescriptionConfig;
 }
 
 export const KNOWN_SOURCES: KnownSource[] = [
@@ -98,6 +111,17 @@ export const KNOWN_SOURCES: KnownSource[] = [
     descriptionExtractor: {
       pattern: /<div class="content__description"[^>]*>([\s\S]*?)<\/div>\s*<!--\/ description -->/,
     },
+    // Real markup, confirmed 2026-07-24: the detail page's own address
+    // microdata (<address itemprop="address">...comuna appears at the
+    // end, e.g. "..., Santiago, Chile"...</address>) — fed through
+    // lib/locations.ts's extractComunaName to pull out just "Santiago",
+    // not the whole address text. A real aggregator (this source spans
+    // many different comunas), so unlike fixedLocation sources this
+    // still needs a per-event lookup — just no longer one Haiku has to
+    // infer from general knowledge of where a venue is.
+    locationExtractor: {
+      pattern: /itemprop="address">\(?([\s\S]*?)\)?<\/address>/,
+    },
   },
   {
     url: "https://uchile.cl/agenda/30dias/1",
@@ -137,6 +161,10 @@ export const KNOWN_SOURCES: KnownSource[] = [
     // real detail page on this root domain too.
     descriptionExtractor: {
       pattern: /<div class="content__description"[^>]*>([\s\S]*?)<\/div>\s*<!--\/ description -->/,
+    },
+    // Same CMS/template as artes.uchile.cl — see its own locationExtractor comment.
+    locationExtractor: {
+      pattern: /itemprop="address">\(?([\s\S]*?)\)?<\/address>/,
     },
   },
   {
@@ -274,6 +302,16 @@ export const KNOWN_SOURCES: KnownSource[] = [
     descriptionExtractor: {
       pattern: /<span class="event-text">([\s\S]*?)<\/span>/,
     },
+    // Real markup, confirmed 2026-07-24: the detail page carries a real
+    // JSON-LD Event block with a proper schema.org PostalAddress —
+    // "addressLocality" is already the exact comuna name, cleaner than
+    // any of the other sources' free-text addresses (no streetAddress or
+    // "Chile" suffix to strip via extractComunaName, though running it
+    // through that function anyway is harmless and keeps this source
+    // consistent with the other two).
+    locationExtractor: {
+      pattern: /"addressLocality":"([^"]+)"/,
+    },
   },
 ];
 
@@ -303,4 +341,18 @@ export function findDescriptionConfig(sourceUrl: string): DescriptionConfig | nu
     return null;
   }
   return KNOWN_SOURCES.find((s) => s.descriptionExtractor && knownSourceDomain(s.url) === domain)?.descriptionExtractor ?? null;
+}
+
+// Used by lib/page-fetch.ts's enrichCandidates to decide, per candidate,
+// whether its sourceUrl's domain is opted in to deterministic comuna
+// recovery (real aggregator sources only — see locationExtractor's own
+// doc comment on KnownSource).
+export function findLocationConfig(sourceUrl: string): DescriptionConfig | null {
+  let domain: string;
+  try {
+    domain = knownSourceDomain(sourceUrl);
+  } catch {
+    return null;
+  }
+  return KNOWN_SOURCES.find((s) => s.locationExtractor && knownSourceDomain(s.url) === domain)?.locationExtractor ?? null;
 }

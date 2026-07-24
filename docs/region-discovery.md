@@ -1831,11 +1831,19 @@ answer into the config, not into a comment to revisit later:
 4. **Location**: is this a single fixed venue (one comuna, always) or a
    real aggregator (events span multiple comunas/venues)? Fixed venue ->
    `fixedLocation` on the `KnownSource`, zero Haiku involvement.
-   Aggregator -> no `fixedLocation`, Haiku infers per item from a
-   `locationHint` (venue/place text the block gives, when it does) — this
-   is the one case where trusting Haiku is still correct, since resolving
-   a venue name to a real comuna needs actual knowledge a regex doesn't
-   have.
+   Aggregator -> **still don't ask Haiku first** — check the event's own
+   DETAIL page for a real address (a schema.org `PostalAddress`/JSON-LD
+   `addressLocality` field, an `itemprop="address"` microdata tag, a
+   plain "Dirección:" line — confirmed present on every aggregator found
+   so far). `locationExtractor` on the `KnownSource` + `lib/locations.ts`'s
+   `extractComunaName` pulls out just the real, canonical comuna from
+   whatever address text that is (a full street address is fine — it
+   matches the same way `matchRegionId` already does, segment by
+   segment). Recovered by `page-fetch.ts`'s `enrichCandidates` in the same
+   detail-page fetch as description/opening-time, always overriding
+   whatever Haiku said. Only fall back to Haiku's own venue-name inference
+   (still in the prompt as a safety net) if a source genuinely has no
+   parseable address anywhere on its detail page.
 5. **Description**: does the LISTING page carry real prose per event
    (rare — only molinomachmar.cl so far), or only the detail page (the
    common case)? Listing prose -> `descriptionRegex` on the
@@ -1853,8 +1861,52 @@ bright source is judge whether the content is real, in-scope art** —
 title, link, image, dates, and location are all deterministic whenever
 the source's own markup/API gives them in ANY parseable form, however
 irregular. If a future source turns out to need Haiku for something in
-this list beyond location-on-an-aggregator, that's a signal the
-extractor config is incomplete, not that the field belongs to Haiku.
+this list, that's a signal the extractor config is incomplete, not that
+the field belongs to Haiku.
+
+### Location goes deterministic for aggregators too (2026-07-24, same day)
+
+The user pushed back on the one remaining "Haiku infers this" case
+(location on a real aggregator, e.g. arteinformado.com): if the source's
+listing/detail markup can be regex'd reliably enough to build an
+extractor at all, resolving location shouldn't need Haiku's general
+knowledge either. Checked the 3 aggregators' real DETAIL pages (not the
+listing — the listing only gives a venue NAME, e.g. "MAC - Espacio Quinta
+Normal", never a comuna) and found a real, standardized address on every
+one:
+
+- **arteinformado.com**: a genuine schema.org JSON-LD `Event` block —
+  `"address":{"@type":"PostalAddress","addressLocality":"Santiago",...}`
+  — `addressLocality` is already the exact comuna, no parsing needed
+  beyond reading the JSON field.
+- **artes.uchile.cl / uchile.cl**: `<address itemprop="address">(...full
+  street address ending in ", Santiago, Chile")</address>` — same CMS,
+  same microdata tag on both.
+
+New `KnownSource.locationExtractor` (reuses `DescriptionConfig`'s exact
+shape — the extraction mechanics are identical: capture raw text off the
+detail page, strip tags, decode entities) + a new `lib/locations.ts`
+export, `extractComunaName(text, regions)`: refactored out of
+`matchRegionId`'s existing segment-by-segment matching (same function
+internally, `findMatchingRegion`) to return the region's canonical
+`name` instead of its `id` — so a full messy street address resolves to
+just "Santiago", not the whole address string, matching this app's
+existing short "Comuna"/"Venue, Comuna" display convention rather than
+showing a street address on an event card. `page-fetch.ts`'s
+`enrichCandidates` recovers it during the same detail-page fetch already
+used for description/opening-time, and — unlike those two, which only
+fill in a field that's null — **always overrides** whatever
+`curateBrightSourceItems` put in `location`, since Haiku's guess was
+always meant as a fallback for a source with no working extractor, never
+something to trust over the source's own stated address once one exists.
+`enrichCandidates` gained a `regions: RegionLike[]` parameter for this
+(both `run.ts` call sites already had `regions` loaded before calling
+it; `headless-discovery/run.ts` needed its own `loadAllRegions()` call
+moved earlier to make it available too).
+
+With this, the only remaining Haiku-derived field for a bright source
+with a real extractor is `openingDatetime` — which no source has ever
+given structured, on any page, listing or detail.
 
 ## Cost governance
 

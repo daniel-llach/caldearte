@@ -618,7 +618,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
           usage,
         });
         summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
-        await enrichCandidates(candidates, pageFetchFn, now);
+        await enrichCandidates(candidates, pageFetchFn, now, regions);
         allCandidates.push(...candidates);
         inserted = await insertCandidates(candidates, regions, seenKeys, now, rehostImageFn);
         summary.candidates.insertedCount += inserted;
@@ -684,7 +684,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
         }
         await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
         summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
-        await enrichCandidates(candidates, pageFetchFn, now);
+        await enrichCandidates(candidates, pageFetchFn, now, regions);
         allCandidates.push(...candidates);
         const inserted = await insertCandidates(candidates, regions, seenKeys, now, rehostImageFn);
         summary.candidates.insertedCount += inserted;
