@@ -108,9 +108,9 @@ export async function run(deps: HeadlessRunDeps = {}): Promise<void> {
     summary.cost.anthropicUsd = estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
     summary.cost.totalUsd = summary.cost.anthropicUsd;
 
-    await enrichCandidates(candidates, pageFetchFn, now);
-
     const regions = await loadAllRegions();
+    await enrichCandidates(candidates, pageFetchFn, now, regions);
+
     const seenKeys = await loadExistingKeys();
     const inserted = await insertCandidates(candidates, regions, seenKeys, now);
 

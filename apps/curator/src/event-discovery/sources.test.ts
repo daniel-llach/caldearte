@@ -238,7 +238,7 @@ test("fetchBrightSources against the real KNOWN_SOURCES config for uchile.cl par
 });
 
 test("fetchBrightSources against the real KNOWN_SOURCES config for uchile.cl (root domain, cross-faculty) resolves relative hrefs against its own domain, not artes.uchile.cl (regression check against production config, real bug found 2026-07-20)", async () => {
-  const uchile = KNOWN_SOURCES.find((s) => s.url === "https://uchile.cl/agenda/30dias/6");
+  const uchile = KNOWN_SOURCES.find((s) => s.url === "https://uchile.cl/agenda/30dias/1");
   assert.ok(uchile?.extractor?.kind === "articleList");
   const config = uchile.extractor as ArticleListConfig;
 

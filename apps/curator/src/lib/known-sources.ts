@@ -56,13 +56,40 @@ export interface KnownSource {
   // page-fetch.ts's enrichCandidates during the SAME detail-page fetch
   // already done for opening-time/image recovery, not a separate request.
   descriptionExtractor?: DescriptionConfig;
+  // Same mechanism as descriptionExtractor (reuses DescriptionConfig — the
+  // extraction shape is identical: capture raw text off the detail page,
+  // strip tags, decode entities) but for a real aggregator's per-event
+  // comuna, recovered deterministically instead of asked of Haiku
+  // (2026-07-24). Captures whatever address/location text the detail page
+  // states — often a full street address, not just a bare comuna name —
+  // page-fetch.ts's enrichCandidates runs that through
+  // lib/locations.ts's extractComunaName to pull out just the real,
+  // canonical comuna for `location`, same short "Comuna" display
+  // convention every other candidate already uses (not the full address).
+  // Absent on a `fixedLocation` source — there's nothing to look up,
+  // the comuna is already a constant.
+  locationExtractor?: DescriptionConfig;
 }
 
 export const KNOWN_SOURCES: KnownSource[] = [
   {
-    url: "https://artes.uchile.cl/agenda/30dias/6",
+    url: "https://artes.uchile.cl/agenda/30dias/1",
     note: "Rolling 30-day agenda, Universidad de Chile — lists multiple real exhibitions per entry, updates dynamically.",
-    lastReviewedAt: "2026-07-12",
+    lastReviewedAt: "2026-07-24",
+    // Real bug, found 2026-07-24 (user caught it from a screenshot): the
+    // trailing number is real pagination (confirmed live — links up to
+    // page 30+), not an arbitrary suffix. This was "/6" — no page 1, no
+    // justification for 6 anywhere in history — likely a leftover from
+    // whatever page a manual test happened to load originally. Each real
+    // exhibition repeats across many pages (the agenda lists every open
+    // day within the 30-day window as its own entry), so "/6" alone
+    // wasn't silently broken (it still had ~14/15 real exhibitions), but
+    // "/1" is the correct, current, non-arbitrary starting page. Even so,
+    // page 1 alone was still missing 1 real exhibition ("Materia
+    // sensible") that only showed on later pages — additionalPages: page
+    // 2 closes that gap (page 1 + page 2 together had all 15/15 real
+    // exhibitions in the live check), same pattern as arteinformado.com.
+    additionalPages: ["https://artes.uchile.cl/agenda/30dias/2"],
     extractor: {
       kind: "articleList",
       blockRegex: /<article class="mod-cal-result__item">([\s\S]*?)<\/article>/g,
@@ -84,11 +111,26 @@ export const KNOWN_SOURCES: KnownSource[] = [
     descriptionExtractor: {
       pattern: /<div class="content__description"[^>]*>([\s\S]*?)<\/div>\s*<!--\/ description -->/,
     },
+    // Real markup, confirmed 2026-07-24: the detail page's own address
+    // microdata (<address itemprop="address">...comuna appears at the
+    // end, e.g. "..., Santiago, Chile"...</address>) — fed through
+    // lib/locations.ts's extractComunaName to pull out just "Santiago",
+    // not the whole address text. A real aggregator (this source spans
+    // many different comunas), so unlike fixedLocation sources this
+    // still needs a per-event lookup — just no longer one Haiku has to
+    // infer from general knowledge of where a venue is.
+    locationExtractor: {
+      pattern: /itemprop="address">\(?([\s\S]*?)\)?<\/address>/,
+    },
   },
   {
-    url: "https://uchile.cl/agenda/30dias/6",
+    url: "https://uchile.cl/agenda/30dias/1",
     note: 'Rolling 30-day agenda, Universidad de Chile\'s ROOT domain (not artes.uchile.cl — same underlying CMS/template, confirmed identical markup, but this feed aggregates exhibitions across faculties, e.g. Arquitectura y Urbanismo\'s Galería Micromedios, which artes.uchile.cl (Facultad de Artes only) never surfaces). Real production bug (found 2026-07-20): "Exhibición \'Alzar curva la mirada\'..." (Galería Micromedios, FAU) had sourceUrl=https://uchile.cl/agenda/exposiciones/10 — a listing page, not its own detail page — because this root domain had no dedicated entry yet, so it came in via regular per-comuna Tavily search instead of a direct fetch, and Tavily\'s plain-text extraction of a listing page drops per-event hrefs (same root cause as the arteinformado.com bug above). A dedicated extractor here fixes it the same way: each block\'s own <h4 class="mod__item-title"><a href="..."> is the correct per-event detail page, resolved against this page\'s own URL since the hrefs are relative (e.g. "/agenda/241838/exhibicion-alzar-curva-la-mirada-del-artista-francisco-belarmino").',
-    lastReviewedAt: "2026-07-20",
+    lastReviewedAt: "2026-07-24",
+    // Real bug, found 2026-07-24 — see artes.uchile.cl's own comment above
+    // (identical issue, same CMS): "/6" was an arbitrary, undocumented
+    // page number, not page 1. Fixed to "/1" + additionalPages page 2.
+    additionalPages: ["https://uchile.cl/agenda/30dias/2"],
     extractor: {
       kind: "articleList",
       blockRegex: /<article class="mod-cal-result__item">([\s\S]*?)<\/article>/g,
@@ -119,6 +161,10 @@ export const KNOWN_SOURCES: KnownSource[] = [
     // real detail page on this root domain too.
     descriptionExtractor: {
       pattern: /<div class="content__description"[^>]*>([\s\S]*?)<\/div>\s*<!--\/ description -->/,
+    },
+    // Same CMS/template as artes.uchile.cl — see its own locationExtractor comment.
+    locationExtractor: {
+      pattern: /itemprop="address">\(?([\s\S]*?)\)?<\/address>/,
     },
   },
   {
@@ -256,6 +302,16 @@ export const KNOWN_SOURCES: KnownSource[] = [
     descriptionExtractor: {
       pattern: /<span class="event-text">([\s\S]*?)<\/span>/,
     },
+    // Real markup, confirmed 2026-07-24: the detail page carries a real
+    // JSON-LD Event block with a proper schema.org PostalAddress —
+    // "addressLocality" is already the exact comuna name, cleaner than
+    // any of the other sources' free-text addresses (no streetAddress or
+    // "Chile" suffix to strip via extractComunaName, though running it
+    // through that function anyway is harmless and keeps this source
+    // consistent with the other two).
+    locationExtractor: {
+      pattern: /"addressLocality":"([^"]+)"/,
+    },
   },
 ];
 
@@ -285,4 +341,18 @@ export function findDescriptionConfig(sourceUrl: string): DescriptionConfig | nu
     return null;
   }
   return KNOWN_SOURCES.find((s) => s.descriptionExtractor && knownSourceDomain(s.url) === domain)?.descriptionExtractor ?? null;
+}
+
+// Used by lib/page-fetch.ts's enrichCandidates to decide, per candidate,
+// whether its sourceUrl's domain is opted in to deterministic comuna
+// recovery (real aggregator sources only — see locationExtractor's own
+// doc comment on KnownSource).
+export function findLocationConfig(sourceUrl: string): DescriptionConfig | null {
+  let domain: string;
+  try {
+    domain = knownSourceDomain(sourceUrl);
+  } catch {
+    return null;
+  }
+  return KNOWN_SOURCES.find((s) => s.locationExtractor && knownSourceDomain(s.url) === domain)?.locationExtractor ?? null;
 }

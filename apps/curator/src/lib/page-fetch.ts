@@ -19,8 +19,9 @@
 // detection; isSocialMediaUrl stays exported for image-rehost.ts, which
 // still needs to know when a recovered image is one of these signed,
 // short-lived CDN links that must be re-hosted before it rots.
-import { findDescriptionConfig, findOpeningTimeConfig } from "./known-sources.js";
+import { findDescriptionConfig, findLocationConfig, findOpeningTimeConfig } from "./known-sources.js";
 import { extractDescription } from "./description-extract.js";
+import { extractComunaName, type RegionLike } from "./locations.js";
 import {
   extractGenericInauguracionHour,
   extractOpeningDatetime,
@@ -160,6 +161,7 @@ interface EnrichCandidateLike {
   openingDatetime: string | null;
   openingTimeConfirmed: boolean;
   description: string | null;
+  location: string;
 }
 
 // Deliberately conservative: unknown per-request latency to arbitrary
@@ -169,7 +171,12 @@ interface EnrichCandidateLike {
 // posture as this file's other tunables.
 const ENRICHMENT_CONCURRENCY = 4;
 
-async function processCandidate<T extends EnrichCandidateLike>(c: T, fetchImpl: FetchLike, referenceDate: Date): Promise<void> {
+async function processCandidate<T extends EnrichCandidateLike>(
+  c: T,
+  fetchImpl: FetchLike,
+  referenceDate: Date,
+  regions: RegionLike[],
+): Promise<void> {
   try {
     const html = await fetchDetailHtml(c.sourceUrl!, fetchImpl);
     if (!html) return;
@@ -236,6 +243,31 @@ async function processCandidate<T extends EnrichCandidateLike>(c: T, fetchImpl: 
       }
     }
 
+    // Location recovery (2026-07-24) — a real aggregator (arteinformado.com,
+    // uchile.cl, artes.uchile.cl) has events spread across many different
+    // comunas, so unlike a fixedLocation source there's no single constant
+    // to attach — but the comuna doesn't need Haiku to infer it from venue
+    // knowledge either: the event's own detail page already states its
+    // real address (sometimes as clean structured JSON-LD, e.g.
+    // arteinformado.com's "addressLocality"), always ending in a real,
+    // matchable comuna name. Always overrides whatever curateBrightSourceItems
+    // put in `location` when a locationExtractor is configured for this
+    // domain — Haiku's own location guess for these sources was always
+    // just a fallback for a source with no working extractor yet, never
+    // meant to be trusted over the source's own stated address once one
+    // exists.
+    if (c.sourceUrl) {
+      const locationConfig = findLocationConfig(c.sourceUrl);
+      if (locationConfig) {
+        const addressText = extractDescription(html, locationConfig);
+        const comuna = extractComunaName(addressText, regions);
+        if (comuna) {
+          console.log(`[page-fetch] recovered comuna "${comuna}" from ${c.sourceUrl}`);
+          c.location = comuna;
+        }
+      }
+    }
+
     // Deterministic freshness backstop (see post-freshness.ts) — runs for
     // every approved candidate, independent of whether image/opening-time
     // enrichment was needed, since a stale post can arrive with a
@@ -264,10 +296,11 @@ export async function enrichCandidates<T extends EnrichCandidateLike>(
   candidates: T[],
   fetchImpl: FetchLike = fetch,
   referenceDate: Date = new Date(),
+  regions: RegionLike[] = [],
 ): Promise<void> {
   const eligible = candidates.filter((c) => c.status === "approved" && c.sourceUrl);
   for (let i = 0; i < eligible.length; i += ENRICHMENT_CONCURRENCY) {
     const batch = eligible.slice(i, i + ENRICHMENT_CONCURRENCY);
-    await Promise.all(batch.map((c) => processCandidate(c, fetchImpl, referenceDate)));
+    await Promise.all(batch.map((c) => processCandidate(c, fetchImpl, referenceDate, regions)));
   }
 }
