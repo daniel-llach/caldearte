@@ -136,6 +136,7 @@ function makeCandidate(
     sourceUrl: string | null;
     openingDatetime: string | null;
     openingTimeConfirmed: boolean;
+    description: string | null;
   }>,
 ) {
   return {
@@ -148,6 +149,7 @@ function makeCandidate(
     // openingTimeConfirmed go together (null + false) — a bare
     // `openingDatetime: null` is never paired with `true`.
     openingTimeConfirmed: false,
+    description: null as string | null,
     ...overrides,
   };
 }
@@ -324,6 +326,60 @@ test("enrichCandidates does not attempt opening-time recovery for a source with 
 
   await enrichCandidates([candidate], fetchImpl);
   assert.equal(candidate.openingDatetime, null);
+});
+
+// 2026-07-24: most articleList bright sources' LISTING page never carries
+// description prose at all (only title/dates/place) — the real
+// description, when there is one, lives on the event's own detail page.
+// mnba.gob.cl is one of the 4 sources with a real descriptionExtractor
+// configured (known-sources.ts); this exercises the actual config, not a
+// synthetic one, against its real detail-page markup shape.
+test("enrichCandidates recovers description from the detail page for a source with descriptionExtractor configured", async () => {
+  const candidate = makeCandidate({
+    imageUrl: "https://x.cl/ya-tiene.jpg",
+    sourceUrl: "https://www.mnba.gob.cl/cartelera/roberto-matta-abrir-la-mirada",
+  });
+
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    text: async () => '<div class="text-long"><p>Matta expuso hace más de 70 años en el MNBA.</p></div>',
+  });
+
+  await enrichCandidates([candidate], fetchImpl);
+
+  assert.equal(candidate.description, "Matta expuso hace más de 70 años en el MNBA.");
+});
+
+test("enrichCandidates does not overwrite a description the candidate already has", async () => {
+  const candidate = makeCandidate({
+    sourceUrl: "https://www.mnba.gob.cl/cartelera/roberto-matta-abrir-la-mirada",
+    description: "Descripción real ya presente.",
+  });
+
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    text: async () => '<div class="text-long"><p>Otro texto que no debería usarse.</p></div>',
+  });
+
+  await enrichCandidates([candidate], fetchImpl);
+
+  assert.equal(candidate.description, "Descripción real ya presente.");
+});
+
+test("enrichCandidates does not attempt description recovery for a source with no descriptionExtractor configured", async () => {
+  const candidate = makeCandidate({ sourceUrl: "https://portaldisc.com/expo-1" });
+
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    text: async () => '<div class="text-long"><p>No debería importar, no hay config para este dominio.</p></div>',
+  });
+
+  await enrichCandidates([candidate], fetchImpl);
+
+  assert.equal(candidate.description, null);
 });
 
 // Real production case, found via manual sampling 2026-07-21 (see

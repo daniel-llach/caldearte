@@ -11,6 +11,7 @@ import { isChileanLocation, stripAccents } from "../lib/locations.js";
 import { matchesKnownExclusion, matchesKnownLowQualityDomain } from "../lib/known-exclusions.js";
 import { normalizeTitle } from "../lib/event-filters.js";
 import { parseLocalDatetimeToUtcIso } from "../lib/opening-time.js";
+import type { BrightSourceItem } from "./extractors.js";
 
 export { normalizeTitle };
 
@@ -817,4 +818,250 @@ export function enforceDateCompleteness(candidates: EventCandidate[]): EventCand
         }
       : c,
   );
+}
+
+// --- Bright sources with a real extractor: curatorial-only Haiku call ---
+//
+// A source with a dedicated extractor (extractors.ts) already gives an
+// exact title/sourceUrl/imageUrl per event, and often exact dates too
+// (wordpressRestApi's structured meta fields) — none of that should ever
+// touch Haiku, since there's nothing to extract, only to judge. This path
+// exists alongside `curate()` (unchanged, still used for the comuna/Tavily
+// search path and for bright sources with no extractor config yet) rather
+// than as another flag on it, because the input/output shape is genuinely
+// different here: indexed per-item curation, not one shared free-text
+// block. See docs/region-discovery.md's 2026-07-24 entry for the 3
+// separate production bugs (all "Haiku mis-transcribed a fact the code
+// already had") that motivated this.
+export function buildBrightSourceBlock(items: BrightSourceItem[]): string {
+  return items
+    .map((item, index) => {
+      const dateLine =
+        item.structuredStartDate && item.structuredEndDate
+          ? `Fechas de exhibición ya confirmadas: ${item.structuredStartDate} a ${item.structuredEndDate} (no hace falta reportarlas, el código ya las tiene — solo indica si hay una fecha/hora de inauguración distinta mencionada abajo).`
+          : `Texto de fecha de la fuente: ${item.rawDateText || "(sin fecha indicada)"}`;
+      const lines = [
+        `[${index}] "${item.title}"`,
+        dateLine,
+        item.locationHint ? `Lugar mencionado en la fuente: ${item.locationHint}` : null,
+        item.description ? `Descripción: ${item.description}` : null,
+      ].filter((l): l is string => l !== null);
+      return lines.join("\n");
+    })
+    .join("\n\n");
+}
+
+export function buildBrightSourceSystemPrompt(monthLabel: string, opts: { needsLocation: boolean }): string {
+  const locationInstructions = opts.needsLocation
+    ? `- \`location\`: la comuna/ciudad donde ocurre el evento — para esta fuente, infiérela del lugar/institución mencionado (ej. "MAC - Espacio Quinta Normal" -> "Santiago") usando tu conocimiento general de dónde queda cada lugar; no hay una cita textual que la respalde literalmente, así que no hace falta citar nada, solo tu mejor inferencia. Si no puedes determinar ninguna comuna real de Chile, el evento debe ser "rejected".
+- \`placeName\`: el nombre reconocible del lugar (museo, galería, centro cultural), si el texto lo menciona.
+`
+    : `- No reportes \`location\`/\`placeName\` — esta fuente es de un único lugar fijo y el código ya los conoce.
+`;
+
+  return `Eres un curador de Caldearte, un calendario de arte. A continuación recibirás una lista numerada de eventos reales de UNA fuente confiable (título, imagen y link por evento ya verificados por el código — tu trabajo es solo juicio editorial, no volver a extraer esos datos).
+
+Para cada ítem numerado, decide si es un evento real de arte visual dentro de alcance y reporta:
+- \`index\`: el mismo número entre corchetes que tiene el ítem — DEBES devolver exactamente una fila por cada ítem recibido, en cualquier orden, incluyendo los rechazados (con su \`curationReasoning\` explicando por qué).
+- \`status\`: "approved" o "rejected".
+- \`artist\`: si el texto nombra un artista, o null.
+- \`runStartDate\`/\`runEndDate\` (solo si el ítem NO trae ya fechas confirmadas — en ese caso el código las usa directamente e ignora lo que reportes aquí): interpreta el texto de fecha de la fuente, formato "YYYY-MM-DD", null si no se puede determinar.
+- \`openingDatetime\` + \`openingTimeConfirmed\`: SOLO si el texto confirma una apertura/inauguración específica (no las fechas de vigencia de la muestra en general) — mismo criterio que para runStartDate/runEndDate: si no hay una inauguración explícita, ambos van null/false. Si hay fecha pero no hora, usa hora "00:00" con \`openingTimeConfirmed: false\`. Formato "YYYY-MM-DDTHH:mm", SIEMPRE en hora LOCAL de Chile, nunca agregues "Z" ni offset.
+${locationInstructions}
+Regla general: si un dato no aparece en el texto, va null — nunca lo completes con un valor "razonable" o inferido de otros ítems del mismo lote. Ya no hace falta citar frases textuales para nada de esto — el texto que recibes por ítem ya es el material real de la fuente, no un bloque grande donde algo podría perderse o inventarse.
+
+${ART_SCOPE_POLICY}
+
+Excluye también, explícitamente:
+- Convocatorias (llamados a postular obras a una futura exposición) — no son un evento que esté ocurriendo.
+- Talleres (actividades de aprendizaje/participación, no una muestra o intervención artística).
+- Actividades recreativas o comerciales con lenguaje "creativo" pero que no son arte visual.
+- Actividades escolares o institucionales genéricas con nombre temático de arte que no son en sí mismas una exposición o intervención específica.
+
+${TEXT_CURATION_POLICY}
+
+${INSTITUTIONAL_EXCLUSION_POLICY}
+
+Importante sobre fechas: estamos armando el calendario de ${monthLabel}. Un evento cuya vigencia (runEndDate, o runStartDate si no hay término) ya terminó antes de ${monthLabel} no es útil, pero el código ya filtra eso al final — no rechaces solo por eso, tu juicio es sobre si el contenido ES arte visual real en alcance, no sobre su vigencia temporal exacta.
+
+Etiqueta también: \`mediumType\` ("tradicional" o "intervencion_no_tradicional") y \`sensitivityTags\` (array de ["desnudo_erotismo", "guerra_violencia", "memoria_dictadura"], vacío si no aplica). Escribe un \`curationReasoning\` breve explicando tu decisión.
+
+Responde SOLO con un bloque de código \`\`\`json que contenga un array de objetos con esta forma exacta, uno por cada ítem recibido, nada más antes o después:
+[{ "index": number, "status": "approved" | "rejected", "artist": string | null, "runStartDate": string | null, "runEndDate": string | null, "openingDatetime": string | null, "openingTimeConfirmed": boolean, "location": string | null, "placeName": string | null, "mediumType": "tradicional" | "intervencion_no_tradicional", "sensitivityTags": string[], "curationReasoning": string }]`;
+}
+
+interface BrightSourceCurationRow {
+  index: number;
+  status: "approved" | "rejected";
+  artist: string | null;
+  runStartDate: string | null;
+  runEndDate: string | null;
+  openingDatetime: string | null;
+  openingTimeConfirmed: boolean;
+  location: string | null;
+  placeName: string | null;
+  mediumType: "tradicional" | "intervencion_no_tradicional";
+  sensitivityTags: string[];
+  curationReasoning: string;
+}
+
+function extractFencedJsonBlock(text: string): string {
+  const match = text.match(/```json\s*([\s\S]*?)```/);
+  if (!match) {
+    throw new Error(`no fenced JSON block found in Haiku's response (likely truncated; tail: ${text.slice(-200)})`);
+  }
+  return match[1];
+}
+
+// Fails closed on any shape mismatch (wrong count, missing/duplicate/
+// out-of-range index) rather than trying to best-effort zip a partial or
+// reordered response onto `items` — a silent misalignment would attach
+// one event's curatorial verdict to a DIFFERENT event's deterministic
+// fields (wrong title/sourceUrl/image), worse than dropping the whole
+// source for one run. Caught by the caller, same degrade-to-empty posture
+// curate() already uses for a truncated response.
+function parseBrightSourceCurationRows(text: string, expectedCount: number): BrightSourceCurationRow[] {
+  const raw = JSON.parse(extractFencedJsonBlock(text)) as Partial<BrightSourceCurationRow>[];
+  if (!Array.isArray(raw) || raw.length !== expectedCount) {
+    throw new Error(`expected ${expectedCount} row(s), got ${Array.isArray(raw) ? raw.length : typeof raw}`);
+  }
+  const seen = new Set<number>();
+  return raw.map((r) => {
+    const index = typeof r.index === "number" ? r.index : -1;
+    if (index < 0 || index >= expectedCount || seen.has(index)) {
+      throw new Error(`malformed or duplicate index in curation response: ${JSON.stringify(r.index)}`);
+    }
+    seen.add(index);
+    return {
+      index,
+      status: r.status === "approved" ? "approved" : "rejected",
+      artist: typeof r.artist === "string" ? r.artist : null,
+      runStartDate: typeof r.runStartDate === "string" ? r.runStartDate : null,
+      runEndDate: typeof r.runEndDate === "string" ? r.runEndDate : null,
+      openingDatetime: typeof r.openingDatetime === "string" ? r.openingDatetime : null,
+      openingTimeConfirmed: typeof r.openingTimeConfirmed === "boolean" ? r.openingTimeConfirmed : true,
+      location: typeof r.location === "string" ? r.location : null,
+      placeName: typeof r.placeName === "string" ? r.placeName : null,
+      mediumType: r.mediumType === "intervencion_no_tradicional" ? "intervencion_no_tradicional" : "tradicional",
+      sensitivityTags: Array.isArray(r.sensitivityTags) ? r.sensitivityTags.filter((t): t is string => typeof t === "string") : [],
+      curationReasoning: typeof r.curationReasoning === "string" ? r.curationReasoning : "",
+    };
+  });
+}
+
+// item's own deterministic fields always win — sourceUrl/imageUrl/title
+// never came from Haiku, and a structured date (wordpressRestApi) always
+// overrides whatever Haiku wrote for that field, regardless of what the
+// row says (the prompt tells Haiku not to bother; this is the actual
+// enforcement of that, in code, not on Haiku's word).
+function mergeBrightSourceCandidate(
+  item: BrightSourceItem,
+  row: BrightSourceCurationRow,
+  fixedLocation: { location: string; placeName: string } | undefined,
+): EventCandidate {
+  const openingDatetime = row.openingDatetime ? parseLocalDatetimeToUtcIso(row.openingDatetime) : null;
+  return {
+    title: item.title,
+    description: item.description,
+    artist: row.artist,
+    runStartDate: item.structuredStartDate ?? row.runStartDate,
+    runEndDate: item.structuredEndDate ?? row.runEndDate,
+    openingDatetime,
+    openingTimeConfirmed: openingDatetime ? row.openingTimeConfirmed : false,
+    mediumType: row.mediumType,
+    sensitivityTags: row.sensitivityTags,
+    curationReasoning: row.curationReasoning,
+    imageUrl: item.imageUrl,
+    status: row.status,
+    location: fixedLocation?.location ?? row.location ?? "",
+    placeName: fixedLocation?.placeName ?? row.placeName ?? null,
+    sourceUrl: item.sourceUrl,
+    // Grounding-quote fields don't apply on this path at all — there's
+    // real source text behind every field Haiku still touches, and the
+    // deterministic fields never went through Haiku in the first place.
+    dateQuote: null,
+    locationQuote: null,
+    runStartDateQuote: null,
+    runEndDateQuote: null,
+  };
+}
+
+// Same convocatoria backstop as rejectConvocatorias, adapted for the
+// per-item shape here instead of block-splitting by URL (buildBlock's
+// format, which this path doesn't use).
+function rejectBrightSourceConvocatorias(candidates: EventCandidate[], items: BrightSourceItem[]): EventCandidate[] {
+  return candidates.map((c, i) => {
+    if (c.status !== "approved") return c;
+    const text = `${items[i].title} ${items[i].description ?? ""} ${items[i].rawDateText}`;
+    if (!looksLikeConvocatoria(text)) return c;
+    return {
+      ...c,
+      status: "rejected" as const,
+      curationReasoning: `${c.curationReasoning} [FILTRO DE CÓDIGO: la fuente contiene lenguaje de convocatoria/llamado a postular; forzado a rejected]`,
+    };
+  });
+}
+
+export interface BrightSourceCurateOpts {
+  fixedLocation?: { location: string; placeName: string };
+}
+
+export async function curateBrightSourceItems(
+  client: MessagesClient,
+  items: BrightSourceItem[],
+  monthLabel: string,
+  opts: BrightSourceCurateOpts = {},
+): Promise<CurateResult> {
+  const emptyUsage: DiscoverUsage = { inputTokens: 0, outputTokens: 0 };
+  if (items.length === 0) return { candidates: [], usage: emptyUsage };
+
+  const systemPrompt = buildBrightSourceSystemPrompt(monthLabel, { needsLocation: !opts.fixedLocation });
+  const block = buildBrightSourceBlock(items);
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 16000,
+    system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: block }],
+  });
+
+  const text = response.content
+    .filter((b) => b.type === "text" && b.text)
+    .map((b) => b.text)
+    .join("");
+
+  const usage: DiscoverUsage = {
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+    cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? undefined,
+    cacheReadInputTokens: response.usage.cache_read_input_tokens ?? undefined,
+  };
+
+  let rows: BrightSourceCurationRow[];
+  try {
+    rows = parseBrightSourceCurationRows(text, items.length);
+  } catch (err) {
+    console.error(`[event-discovery] curateBrightSourceItems: ${(err as Error).message}`);
+    return { candidates: [], usage };
+  }
+
+  // Built by index, not by push order — parseBrightSourceCurationRows
+  // guarantees every index 0..items.length-1 appears exactly once, but not
+  // in that order, so this keeps `merged[i]` aligned to `items[i]`.
+  const merged: EventCandidate[] = new Array(items.length);
+  for (const row of rows) {
+    merged[row.index] = mergeBrightSourceCandidate(items[row.index], row, opts.fixedLocation);
+  }
+
+  const convocatoriaFiltered = rejectBrightSourceConvocatorias(merged, items);
+  const locationFiltered = opts.fixedLocation ? convocatoriaFiltered : applyLocationFilter(convocatoriaFiltered);
+  const filteredCandidates = logBareDomainSourceUrls(
+    enforceSourceUrlInvariant(
+      applyKnownExclusionsFilter(
+        nullifyAggregatorSourceUrls(enforceDateCompleteness(nullifyOpeningDatetimeForKnownSources(locationFiltered))),
+      ),
+    ),
+  );
+
+  return { candidates: filteredCandidates, usage };
 }

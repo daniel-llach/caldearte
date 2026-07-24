@@ -19,7 +19,8 @@
 // detection; isSocialMediaUrl stays exported for image-rehost.ts, which
 // still needs to know when a recovered image is one of these signed,
 // short-lived CDN links that must be re-hosted before it rots.
-import { findOpeningTimeConfig } from "./known-sources.js";
+import { findDescriptionConfig, findOpeningTimeConfig } from "./known-sources.js";
+import { extractDescription } from "./description-extract.js";
 import {
   extractGenericInauguracionHour,
   extractOpeningDatetime,
@@ -158,6 +159,7 @@ interface EnrichCandidateLike {
   sourceUrl: string | null;
   openingDatetime: string | null;
   openingTimeConfirmed: boolean;
+  description: string | null;
 }
 
 // Deliberately conservative: unknown per-request latency to arbitrary
@@ -215,6 +217,22 @@ async function processCandidate<T extends EnrichCandidateLike>(c: T, fetchImpl: 
         console.log(`[page-fetch] recovered generic hour from ${c.sourceUrl} (day/month cross-checked against Haiku's confirmed date)`);
         c.openingDatetime = santiagoWallTimeToUtcIso(confirmed.year, confirmed.month0, confirmed.day, generic.hour, generic.minute);
         c.openingTimeConfirmed = true;
+      }
+    }
+
+    // Description recovery (2026-07-24) — most bright-source LISTING pages
+    // never carry event prose at all (only title/dates/place); the real
+    // description, when there is one, lives on the event's own detail
+    // page, same page already being fetched here for image/opening-time
+    // recovery (see known-sources.ts's descriptionExtractor doc comment).
+    if (c.description === null && c.sourceUrl) {
+      const descriptionConfig = findDescriptionConfig(c.sourceUrl);
+      if (descriptionConfig) {
+        const description = extractDescription(html, descriptionConfig);
+        if (description) {
+          console.log(`[page-fetch] recovered description from ${c.sourceUrl}`);
+          c.description = description;
+        }
       }
     }
 

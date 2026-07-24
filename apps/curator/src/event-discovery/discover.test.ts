@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import {
   applyKnownExclusionsFilter,
   applyLocationFilter,
+  buildBrightSourceBlock,
   buildQueries,
   currentMonthLabel,
+  curateBrightSourceItems,
   enforceDateCompleteness,
   enforceGroundedQuotes,
   enforceLocationMatchesQuote,
@@ -25,6 +27,7 @@ import {
   type MessagesClient,
   type RawResult,
 } from "./discover.js";
+import type { BrightSourceItem } from "./extractors.js";
 import type { FetchLike } from "../lib/tavily.js";
 
 // Used as the `block` param for every curate(...) integration test below —
@@ -819,4 +822,244 @@ test("curate degrades to zero candidates (not a throw) when no JSON block is pre
   assert.deepEqual(candidates, []);
   assert.equal(usage.inputTokens, 123);
   assert.equal(usage.outputTokens, 45);
+});
+
+// --- curateBrightSourceItems: deterministic fields, curatorial-only Haiku ---
+// (2026-07-24, see docs/region-discovery.md) — a source with a real
+// extractor already gives an exact title/sourceUrl/imageUrl (and often
+// dates) per event; Haiku only judges scope/curation, never re-extracts
+// what the code already has. No grounding-quote fields exist on this path
+// at all — there's nothing for Haiku to fabricate location/date/sourceUrl
+// FROM, since none of those ever come from Haiku here.
+
+const baseBrightItem: BrightSourceItem = {
+  title: "Muestra brillante",
+  sourceUrl: "https://fuente.cl/expo-1",
+  imageUrl: "https://fuente.cl/img.jpg",
+  description: "Una muestra real de arte visual.",
+  locationHint: null,
+  rawDateText: "Del 5 al 31 de julio",
+  structuredStartDate: null,
+  structuredEndDate: null,
+};
+
+function stubBrightClient(rows: unknown[]): MessagesClient {
+  return {
+    messages: {
+      create: async () => ({
+        content: [{ type: "text", text: "```json\n" + JSON.stringify(rows) + "\n```" }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+    },
+  };
+}
+
+test("buildBrightSourceBlock numbers each item and never includes sourceUrl/imageUrl — nothing for Haiku to transcribe", () => {
+  const block = buildBrightSourceBlock([baseBrightItem, { ...baseBrightItem, title: "Otra muestra" }]);
+  assert.match(block, /^\[0\] "Muestra brillante"/);
+  assert.match(block, /\[1\] "Otra muestra"/);
+  assert.doesNotMatch(block, /fuente\.cl/, "sourceUrl/imageUrl must never appear in Haiku's input");
+});
+
+test("buildBrightSourceBlock tells Haiku dates are already confirmed when structuredStartDate/EndDate are present, instead of showing rawDateText", () => {
+  const block = buildBrightSourceBlock([{ ...baseBrightItem, structuredStartDate: "2026-07-05", structuredEndDate: "2026-07-31" }]);
+  assert.match(block, /Fechas de exhibición ya confirmadas: 2026-07-05 a 2026-07-31/);
+  assert.doesNotMatch(block, /Del 5 al 31 de julio/);
+});
+
+test("curateBrightSourceItems merges Haiku's curatorial verdict by index onto the item's own deterministic title/sourceUrl/imageUrl — never onto whatever Haiku echoed", async () => {
+  const items: BrightSourceItem[] = [baseBrightItem];
+  const client = stubBrightClient([
+    {
+      index: 0,
+      status: "approved",
+      artist: null,
+      runStartDate: "2026-07-05",
+      runEndDate: "2026-07-31",
+      openingDatetime: null,
+      openingTimeConfirmed: false,
+      location: null,
+      placeName: null,
+      mediumType: "tradicional",
+      sensitivityTags: [],
+      curationReasoning: "ok",
+    },
+  ]);
+
+  const { candidates } = await curateBrightSourceItems(client, items, "julio 2026", { fixedLocation: { location: "Santiago", placeName: "Fuente" } });
+
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].title, "Muestra brillante");
+  assert.equal(candidates[0].sourceUrl, "https://fuente.cl/expo-1");
+  assert.equal(candidates[0].imageUrl, "https://fuente.cl/img.jpg");
+  assert.equal(candidates[0].status, "approved");
+  assert.equal(candidates[0].dateQuote, null, "no grounding fields on this path");
+  assert.equal(candidates[0].locationQuote, null);
+});
+
+test("curateBrightSourceItems always prefers the item's own structuredStartDate/EndDate over whatever Haiku returned for those fields", async () => {
+  const items: BrightSourceItem[] = [{ ...baseBrightItem, structuredStartDate: "2026-07-01", structuredEndDate: "2026-08-30" }];
+  const client = stubBrightClient([
+    {
+      index: 0,
+      status: "approved",
+      artist: null,
+      // Haiku (wrongly) tries to report different dates — must be ignored.
+      runStartDate: "2026-01-01",
+      runEndDate: "2026-01-02",
+      openingDatetime: null,
+      openingTimeConfirmed: false,
+      location: null,
+      placeName: null,
+      mediumType: "tradicional",
+      sensitivityTags: [],
+      curationReasoning: "ok",
+    },
+  ]);
+
+  const { candidates } = await curateBrightSourceItems(client, items, "julio 2026", { fixedLocation: { location: "Santiago", placeName: "Fuente" } });
+
+  assert.equal(candidates[0].runStartDate, "2026-07-01");
+  assert.equal(candidates[0].runEndDate, "2026-08-30");
+});
+
+test("curateBrightSourceItems attaches fixedLocation deterministically, ignoring whatever Haiku returned for location/placeName", async () => {
+  const items: BrightSourceItem[] = [baseBrightItem];
+  const client = stubBrightClient([
+    {
+      index: 0,
+      status: "approved",
+      artist: null,
+      runStartDate: "2026-07-05",
+      runEndDate: "2026-07-31",
+      openingDatetime: null,
+      openingTimeConfirmed: false,
+      location: "Un lugar inventado",
+      placeName: "Otro nombre",
+      mediumType: "tradicional",
+      sensitivityTags: [],
+      curationReasoning: "ok",
+    },
+  ]);
+
+  const { candidates } = await curateBrightSourceItems(client, items, "julio 2026", {
+    fixedLocation: { location: "Valparaíso", placeName: "Parque Cultural de Valparaíso" },
+  });
+
+  assert.equal(candidates[0].location, "Valparaíso");
+  assert.equal(candidates[0].placeName, "Parque Cultural de Valparaíso");
+});
+
+test("curateBrightSourceItems uses Haiku's location/placeName for an aggregator source (no fixedLocation) and applies the Chile-only backstop", async () => {
+  const items: BrightSourceItem[] = [{ ...baseBrightItem, locationHint: "MAC - Espacio Quinta Normal" }];
+  const client = stubBrightClient([
+    {
+      index: 0,
+      status: "approved",
+      artist: null,
+      runStartDate: "2026-07-05",
+      runEndDate: "2026-07-31",
+      openingDatetime: null,
+      openingTimeConfirmed: false,
+      location: "Santiago",
+      placeName: "MAC - Espacio Quinta Normal",
+      mediumType: "tradicional",
+      sensitivityTags: [],
+      curationReasoning: "ok",
+    },
+  ]);
+
+  const { candidates } = await curateBrightSourceItems(client, items, "julio 2026", {});
+
+  assert.equal(candidates[0].location, "Santiago");
+  assert.equal(candidates[0].placeName, "MAC - Espacio Quinta Normal");
+});
+
+test("curateBrightSourceItems rejects an aggregator candidate outside Chile even though it's an approved bright-source item (Chile-only backstop still applies)", async () => {
+  const items: BrightSourceItem[] = [baseBrightItem];
+  const client = stubBrightClient([
+    {
+      index: 0,
+      status: "approved",
+      artist: null,
+      runStartDate: "2026-07-05",
+      runEndDate: "2026-07-31",
+      openingDatetime: null,
+      openingTimeConfirmed: false,
+      location: "Buenos Aires, Argentina",
+      placeName: null,
+      mediumType: "tradicional",
+      sensitivityTags: [],
+      curationReasoning: "ok",
+    },
+  ]);
+
+  const { candidates } = await curateBrightSourceItems(client, items, "julio 2026", {});
+
+  assert.equal(candidates[0].status, "rejected");
+});
+
+test("curateBrightSourceItems fails closed (zero candidates) when Haiku returns the wrong number of rows, rather than guessing a partial merge", async () => {
+  const items: BrightSourceItem[] = [baseBrightItem, { ...baseBrightItem, title: "Otra" }];
+  const client = stubBrightClient([{ index: 0, status: "approved", artist: null, runStartDate: null, runEndDate: null, openingDatetime: null, openingTimeConfirmed: false, location: null, placeName: null, mediumType: "tradicional", sensitivityTags: [], curationReasoning: "ok" }]);
+
+  const { candidates } = await curateBrightSourceItems(client, items, "julio 2026", { fixedLocation: { location: "Santiago", placeName: "Fuente" } });
+
+  assert.deepEqual(candidates, []);
+});
+
+test("curateBrightSourceItems fails closed when Haiku returns a duplicate or out-of-range index", async () => {
+  const items: BrightSourceItem[] = [baseBrightItem];
+  const client = stubBrightClient([
+    { index: 5, status: "approved", artist: null, runStartDate: null, runEndDate: null, openingDatetime: null, openingTimeConfirmed: false, location: null, placeName: null, mediumType: "tradicional", sensitivityTags: [], curationReasoning: "ok" },
+  ]);
+
+  const { candidates } = await curateBrightSourceItems(client, items, "julio 2026", { fixedLocation: { location: "Santiago", placeName: "Fuente" } });
+
+  assert.deepEqual(candidates, []);
+});
+
+test("curateBrightSourceItems rejects a candidate whose own text contains convocatoria language, same backstop as the comuna path", async () => {
+  const items: BrightSourceItem[] = [
+    { ...baseBrightItem, description: "Postular es fácil: envía tu portafolio y completa el formulario antes del 30 de julio." },
+  ];
+  const client = stubBrightClient([
+    {
+      index: 0,
+      status: "approved",
+      artist: null,
+      runStartDate: "2026-07-05",
+      runEndDate: "2026-07-31",
+      openingDatetime: null,
+      openingTimeConfirmed: false,
+      location: null,
+      placeName: null,
+      mediumType: "tradicional",
+      sensitivityTags: [],
+      curationReasoning: "ok",
+    },
+  ]);
+
+  const { candidates } = await curateBrightSourceItems(client, items, "julio 2026", { fixedLocation: { location: "Santiago", placeName: "Fuente" } });
+
+  assert.equal(candidates[0].status, "rejected");
+  assert.match(candidates[0].curationReasoning, /convocatoria/);
+});
+
+test("curateBrightSourceItems returns zero candidates and zero usage without calling Haiku when there are no items", async () => {
+  let called = false;
+  const client: MessagesClient = {
+    messages: {
+      create: async () => {
+        called = true;
+        return { content: [], usage: { input_tokens: 0, output_tokens: 0 } };
+      },
+    },
+  };
+
+  const { candidates, usage } = await curateBrightSourceItems(client, [], "julio 2026", {});
+
+  assert.deepEqual(candidates, []);
+  assert.equal(usage.inputTokens, 0);
+  assert.equal(called, false);
 });

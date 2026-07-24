@@ -17,7 +17,41 @@
 // whole-page-flatten when it doesn't (or the config doesn't match) — that
 // fallback stays in sources.ts since it isn't config-driven, it's the
 // generic last resort.
+//
+// Real production pattern (2026-07-24, three separate bugs in one week —
+// see docs/region-discovery.md): both extractors below used to parse this
+// exact structure and then immediately THROW IT AWAY, flattening title/
+// link/date/image into one prose line and asking Haiku to re-extract them
+// from that prose — with deterministic "grounding" checks bolted on
+// afterward to catch Haiku mis-transcribing a fact the code already had.
+// Now they return the structure itself (`BrightSourceItem[]`) — sourceUrl/
+// imageUrl/title/structured dates never touch Haiku at all for a
+// source with a real extractor config; see discover.ts's
+// curateBrightSourceItems for the curatorial-only Haiku call these feed.
 import { isJunkImage, type ImageCandidate } from "./discover.js";
+
+// One real event, already resolved to its true per-event identity by the
+// extractor — never the listing/API page's own URL. `rawDateText` is
+// whatever free text the source states (daysRegex capture, WordPress
+// description field, etc.) for discover.ts to hand Haiku when there's no
+// structured date to fall back on; `structuredStartDate`/`structuredEndDate`
+// are populated only when the source itself gives an exact date (so far,
+// only wordpressRestApi's YYYYMMDD meta fields) and are used as-is,
+// bypassing Haiku's interpretation entirely. `locationHint` is raw venue/
+// place text captured from the source (e.g. an articleList's placeRegex) —
+// used only as a hint for Haiku's location inference on aggregator
+// sources (several different comunas in one feed); ignored entirely for a
+// source with a fixed known comuna (known-sources.ts's `fixedLocation`).
+export interface BrightSourceItem {
+  title: string;
+  sourceUrl: string;
+  imageUrl: string | null;
+  description: string | null;
+  locationHint: string | null;
+  rawDateText: string;
+  structuredStartDate: string | null; // YYYY-MM-DD
+  structuredEndDate: string | null; // YYYY-MM-DD
+}
 
 export function collapseWhitespace(text: string): string {
   return text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -88,6 +122,13 @@ export interface ArticleListConfig {
   titleLinkRegex: RegExp; // within a block: captures [href, title]
   daysRegex?: RegExp; // within a block: captures the date-range text
   placeRegex?: RegExp; // within a block: captures the place text
+  // Optional — most articleList sources' LISTING page has no prose at all
+  // (only title/dates/place), in which case description recovery happens
+  // separately, per-event, from the detail page (see lib/known-sources.ts's
+  // descriptionExtractor + lib/page-fetch.ts). A source whose listing page
+  // DOES carry real prose per event (confirmed 2026-07-24: molinomachmar.cl)
+  // captures it here instead — no extra fetch needed.
+  descriptionRegex?: RegExp;
 }
 
 // matchAll requires a global regex — a config author forgetting the "g"
@@ -96,13 +137,8 @@ function ensureGlobalFlag(re: RegExp): RegExp {
   return re.global ? re : new RegExp(re.source, `${re.flags}g`);
 }
 
-export function extractArticleList(
-  html: string,
-  pageUrl: string,
-  config: ArticleListConfig,
-): { content: string; images: ImageCandidate[] } | null {
-  const lines: string[] = [];
-  const images: ImageCandidate[] = [];
+export function extractArticleList(html: string, pageUrl: string, config: ArticleListConfig): BrightSourceItem[] | null {
+  const items: BrightSourceItem[] = [];
   const blockRegex = ensureGlobalFlag(config.blockRegex);
 
   for (const blockMatch of html.matchAll(blockRegex)) {
@@ -114,6 +150,7 @@ export function extractArticleList(
 
     const days = config.daysRegex ? collapseWhitespace(block.match(config.daysRegex)?.[1] ?? "") : "";
     const place = config.placeRegex ? collapseWhitespace(block.match(config.placeRegex)?.[1] ?? "") : "";
+    const descriptionMatch = config.descriptionRegex ? collapseWhitespace(block.match(config.descriptionRegex)?.[1] ?? "") : "";
 
     let individualUrl: string;
     try {
@@ -122,16 +159,22 @@ export function extractArticleList(
       individualUrl = pageUrl;
     }
 
-    lines.push(`- "${title}" (${days || "fecha no indicada"}). Lugar: ${place || "no indicado"}. Más info: ${individualUrl}`);
-
     const [firstImage] = filterKnownSourceImages(extractImgTags(block), pageUrl);
-    if (firstImage) {
-      images.push({ url: firstImage.url, description: `Imagen de la exposición: ${title}` });
-    }
+
+    items.push({
+      title,
+      sourceUrl: individualUrl,
+      imageUrl: firstImage?.url ?? null,
+      description: descriptionMatch || null,
+      locationHint: place || null,
+      rawDateText: days || "fecha no indicada",
+      structuredStartDate: null,
+      structuredEndDate: null,
+    });
   }
 
-  if (lines.length === 0) return null;
-  return { content: lines.join("\n"), images };
+  if (items.length === 0) return null;
+  return items;
 }
 
 // --- wordpressRestApi: structured JSON, fields named per-site -----------
@@ -157,56 +200,37 @@ function getStringPath(obj: unknown, path: string | undefined): string | undefin
   return typeof value === "string" ? value : undefined;
 }
 
-function formatWpDate(yyyymmdd: string | undefined): string {
-  if (!yyyymmdd || yyyymmdd.length !== 8) return "?";
+// YYYYMMDD -> YYYY-MM-DD, or null when absent/malformed — null (not a
+// display placeholder) since this now feeds BrightSourceItem's
+// structuredStartDate/EndDate directly, used as real data, not prose.
+function formatWpDate(yyyymmdd: string | undefined): string | null {
+  if (!yyyymmdd || yyyymmdd.length !== 8) return null;
   return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
 }
 
 // A WordPress REST API response is already structured — no HTML parsing,
-// no guessing which image belongs to which event. Real find (Parque
-// Cultural Valparaíso): hora_de_inicio/hora_de_termino are the venue's
-// daily opening hours, NOT the inauguración time — the real one, when
-// there is one, lives in the description field's free text, so Haiku
-// still reads that instead of trusting the structured hour fields blindly.
-export function extractWordpressItems(
-  items: unknown[],
-  config: WordpressRestConfig,
-  fallbackUrl: string,
-): { content: string; images: ImageCandidate[] } {
-  const rows = items.map((item) => ({
-    title: getStringPath(item, config.titleField) ?? "(sin título)",
-    image: getStringPath(item, config.imageField),
-    link: getStringPath(item, config.linkField),
-    description: getStringPath(item, config.descriptionField),
-    startDate: getStringPath(item, config.startDateField),
-    endDate: getStringPath(item, config.endDateField),
-  }));
-
-  const images: ImageCandidate[] = rows
-    .filter((row) => row.image)
-    .map((row) => ({ url: row.image as string, description: `Imagen de la exposición: ${row.title}` }));
-
-  // The per-event link sits right after the title, not at the end of the
-  // line — real bug found in production (2026-07-24): parquecultural.cl's
-  // description field (extracto_corto) is often long and itself contains
-  // embedded field-like text (e.g. its own "Lugar: ..." segment, several
-  // dashes), which reliably pushed a trailing "Más info: <url>" out of
-  // Haiku's attention — every real, in-scope candidate from this source
-  // came back with sourceUrl null despite the real per-event link being
-  // present in the block, while shorter articleList-sourced lines (url
-  // also at the end, but a much shorter line) never had this problem.
-  // Matches the pattern Haiku already follows reliably elsewhere: the
-  // block's own URL right after its title (buildBlock's own
-  // `### title\nurl\ncontent` convention).
-  const content = rows
-    .map((row) => {
-      const start = formatWpDate(row.startDate);
-      const end = formatWpDate(row.endDate);
-      return `- "${row.title}" — ${row.link ?? fallbackUrl} (${start} a ${end}): ${row.description ?? "sin descripción"}`;
-    })
-    .join("\n");
-
-  return { content, images };
+// no guessing which image belongs to which event, no need for Haiku to
+// interpret startDate/endDate at all when the source gives them exactly
+// (structuredStartDate/EndDate below). Real find (Parque Cultural
+// Valparaíso): hora_de_inicio/hora_de_termino are the venue's daily
+// opening hours, NOT the inauguración time — the real one, when there is
+// one, lives in the description field's free text (rawDateText), so
+// Haiku still reads that for openingDatetime specifically.
+export function extractWordpressItems(items: unknown[], config: WordpressRestConfig, fallbackUrl: string): BrightSourceItem[] {
+  return items.map((item) => {
+    const title = getStringPath(item, config.titleField) ?? "(sin título)";
+    const description = getStringPath(item, config.descriptionField) ?? null;
+    return {
+      title,
+      sourceUrl: getStringPath(item, config.linkField) ?? fallbackUrl,
+      imageUrl: getStringPath(item, config.imageField) ?? null,
+      description,
+      locationHint: null, // wordpressRestApi sources are always fixedLocation single-venue ones so far — no per-item venue text to infer from
+      rawDateText: description ?? "",
+      structuredStartDate: formatWpDate(getStringPath(item, config.startDateField)),
+      structuredEndDate: formatWpDate(getStringPath(item, config.endDateField)),
+    };
+  });
 }
 
 export type ExtractorConfig = ArticleListConfig | WordpressRestConfig;

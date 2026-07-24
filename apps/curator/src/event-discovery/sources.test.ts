@@ -50,7 +50,7 @@ function textResponse(body: string): ReturnType<StubFetch> {
   return Promise.resolve({ ok: true, status: 200, text: async () => body, json: async () => JSON.parse(body) });
 }
 
-test("fetchBrightSources dispatches an articleList-configured source to the registry parser", async () => {
+test("fetchBrightSources dispatches an articleList-configured source to the registry parser, returning structured items", async () => {
   const source: BrightSource = {
     url: "https://sitio.cl/agenda",
     note: "sitio",
@@ -65,10 +65,14 @@ test("fetchBrightSources dispatches an articleList-configured source to the regi
   const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([source]));
 
   assert.equal(results.length, 1);
-  assert.equal(results[0].content, '- "Muestra" (fecha no indicada). Lugar: no indicado. Más info: https://sitio.cl/e/1');
+  assert.equal(results[0].kind, "items");
+  if (results[0].kind !== "items") throw new Error("unreachable");
+  assert.equal(results[0].items.length, 1);
+  assert.equal(results[0].items[0].title, "Muestra");
+  assert.equal(results[0].items[0].sourceUrl, "https://sitio.cl/e/1");
 });
 
-test("fetchBrightSources falls back to a whole-page flatten when the configured extractor doesn't match the fetched markup", async () => {
+test("fetchBrightSources falls back to a whole-page flatten (RawResult) when the configured extractor doesn't match the fetched markup", async () => {
   const source: BrightSource = {
     url: "https://sitio.cl/agenda",
     note: "sitio",
@@ -84,21 +88,25 @@ test("fetchBrightSources falls back to a whole-page flatten when the configured 
   const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([source]));
 
   assert.equal(results.length, 1);
-  assert.match(results[0].content, /Contenido inesperado/);
+  assert.equal(results[0].kind, "rawResult");
+  if (results[0].kind !== "rawResult") throw new Error("unreachable");
+  assert.match(results[0].result.content, /Contenido inesperado/);
 });
 
-test("fetchBrightSources falls back to a whole-page flatten for an html source with no extractor configured at all (today's auto-detected sources)", async () => {
+test("fetchBrightSources falls back to a whole-page flatten (RawResult) for an html source with no extractor configured at all (today's auto-detected sources)", async () => {
   const source: BrightSource = { url: "https://sitio.cl/agenda", note: "sitio" }; // no type, no extractor — the shape an auto-detected row has
   const html = `<html><body><script>ignoreme()</script><p>Texto real del sitio.</p></body></html>`;
 
   const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([source]));
 
   assert.equal(results.length, 1);
-  assert.match(results[0].content, /Texto real del sitio/);
-  assert.doesNotMatch(results[0].content, /ignoreme/);
+  assert.equal(results[0].kind, "rawResult");
+  if (results[0].kind !== "rawResult") throw new Error("unreachable");
+  assert.match(results[0].result.content, /Texto real del sitio/);
+  assert.doesNotMatch(results[0].result.content, /ignoreme/);
 });
 
-test("fetchBrightSources merges additionalPages into ONE result — content concatenated, images combined (pagination, e.g. arteinformado.com page 2)", async () => {
+test("fetchBrightSources merges additionalPages into ONE result — items concatenated across pages (pagination, e.g. arteinformado.com page 2)", async () => {
   const source: BrightSource = {
     url: "https://sitio.cl/agenda",
     note: "sitio",
@@ -121,11 +129,14 @@ test("fetchBrightSources merges additionalPages into ONE result — content conc
 
   // ONE result for the whole logical source, not one per page.
   assert.equal(results.length, 1);
-  assert.match(results[0].content, /Página uno/);
-  assert.match(results[0].content, /Página dos/);
+  assert.equal(results[0].kind, "items");
+  if (results[0].kind !== "items") throw new Error("unreachable");
+  assert.equal(results[0].items.length, 2);
+  assert.ok(results[0].items.some((i) => i.title === "Página uno"));
+  assert.ok(results[0].items.some((i) => i.title === "Página dos"));
   // The result is still keyed by the source's own primary url — page URLs
   // are an implementation detail, not a separate bright source.
-  assert.equal(results[0].url, "https://sitio.cl/agenda");
+  assert.equal(results[0].source.url, "https://sitio.cl/agenda");
 });
 
 test("fetchBrightSources keeps the primary page's result even when an additional page fails — losing one extra page shouldn't drop the whole source", async () => {
@@ -149,10 +160,13 @@ test("fetchBrightSources keeps the primary page's result even when an additional
   const results = await withStubFetch(stub, () => fetchBrightSources([source]));
 
   assert.equal(results.length, 1);
-  assert.match(results[0].content, /Página uno/);
+  assert.equal(results[0].kind, "items");
+  if (results[0].kind !== "items") throw new Error("unreachable");
+  assert.equal(results[0].items.length, 1);
+  assert.equal(results[0].items[0].title, "Página uno");
 });
 
-test("fetchBrightSources dispatches a wordpressRestApi-configured source to the registry parser", async () => {
+test("fetchBrightSources dispatches a wordpressRestApi-configured source to the registry parser, returning structured items", async () => {
   const source: BrightSource = {
     url: "https://sitio.cl/wp-json/wp/v2/events",
     note: "sitio",
@@ -164,7 +178,10 @@ test("fetchBrightSources dispatches a wordpressRestApi-configured source to the 
   const results = await withStubFetch(() => jsonResponse(items), () => fetchBrightSources([source]));
 
   assert.equal(results.length, 1);
-  assert.deepEqual(results[0].images, [{ url: "https://sitio.cl/img.jpg", description: "Imagen de la exposición: Muestra API" }]);
+  assert.equal(results[0].kind, "items");
+  if (results[0].kind !== "items") throw new Error("unreachable");
+  assert.equal(results[0].items.length, 1);
+  assert.equal(results[0].items[0].imageUrl, "https://sitio.cl/img.jpg");
 });
 
 test("fetchBrightSources logs and skips (doesn't crash the run) a json-api source with no extractor configured", async () => {
@@ -192,8 +209,11 @@ test("fetchBrightSources against the real KNOWN_SOURCES config for uchile.cl par
   const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([{ url: uchile.url, note: uchile.note, extractor: config }]));
 
   assert.equal(results.length, 1);
-  assert.match(results[0].content, /Muestra Real.*MAC Quinta Normal/);
-  assert.equal(results[0].images[0]?.url, "https://artes.uchile.cl/dam/uno.jpg");
+  assert.equal(results[0].kind, "items");
+  if (results[0].kind !== "items") throw new Error("unreachable");
+  assert.equal(results[0].items[0].title, "Muestra Real");
+  assert.equal(results[0].items[0].locationHint, "MAC Quinta Normal");
+  assert.equal(results[0].items[0].imageUrl, "https://artes.uchile.cl/dam/uno.jpg");
 });
 
 test("fetchBrightSources against the real KNOWN_SOURCES config for uchile.cl (root domain, cross-faculty) resolves relative hrefs against its own domain, not artes.uchile.cl (regression check against production config, real bug found 2026-07-20)", async () => {
@@ -213,8 +233,15 @@ test("fetchBrightSources against the real KNOWN_SOURCES config for uchile.cl (ro
   const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([{ url: uchile.url, note: uchile.note, extractor: config }]));
 
   assert.equal(results.length, 1);
-  assert.match(results[0].content, /Alzar curva la mirada.*Galería Micromedios.*Más info: https:\/\/uchile\.cl\/agenda\/241838\/exhibicion-alzar-curva-la-mirada-del-artista-francisco-belarmino/s);
-  assert.equal(results[0].images[0]?.url, "https://uchile.cl/dam/foto.jpg");
+  assert.equal(results[0].kind, "items");
+  if (results[0].kind !== "items") throw new Error("unreachable");
+  assert.equal(results[0].items[0].title, "Exhibición Alzar curva la mirada");
+  assert.equal(results[0].items[0].locationHint, "Galería Micromedios");
+  assert.equal(
+    results[0].items[0].sourceUrl,
+    "https://uchile.cl/agenda/241838/exhibicion-alzar-curva-la-mirada-del-artista-francisco-belarmino",
+  );
+  assert.equal(results[0].items[0].imageUrl, "https://uchile.cl/dam/foto.jpg");
 });
 
 test("fetchBrightSources against the real KNOWN_SOURCES config for molinomachmar.cl extracts an exhibition even when it sits past the whole-page-flatten's char cutoff (regression check against production config, real bug found 2026-07-16)", async () => {
@@ -241,8 +268,11 @@ test("fetchBrightSources against the real KNOWN_SOURCES config for molinomachmar
   const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([{ url: camm.url, note: camm.note, extractor: config }]));
 
   assert.equal(results.length, 1);
-  assert.match(results[0].content, /UNA PALOMA EN EL MOLINO.*20 JUN 16 AGO 2026/);
-  assert.equal(results[0].images[0]?.url, "https://www.molinomachmar.cl/web/wp-content/uploads/2026/06/paloma.jpg");
+  assert.equal(results[0].kind, "items");
+  if (results[0].kind !== "items") throw new Error("unreachable");
+  assert.equal(results[0].items[0].title, "UNA PALOMA EN EL MOLINO");
+  assert.equal(results[0].items[0].rawDateText, "20 JUN 16 AGO 2026");
+  assert.equal(results[0].items[0].imageUrl, "https://www.molinomachmar.cl/web/wp-content/uploads/2026/06/paloma.jpg");
 });
 
 test("fetchBrightSources against the real KNOWN_SOURCES config for arteinformado.com extracts per-event links, not the aggregator page's own URL (regression check against production config, real bug found 2026-07-16)", async () => {
@@ -288,10 +318,16 @@ test("fetchBrightSources against the real KNOWN_SOURCES config for arteinformado
   const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([{ url: arteinformado.url, note: arteinformado.note, extractor: config }]));
 
   assert.equal(results.length, 1);
-  assert.match(results[0].content, /Existen otros mundos.*existen-otros-mundos-243857/);
-  assert.match(results[0].content, /Sín-tesis.*sin-tesis-999999/);
+  assert.equal(results[0].kind, "items");
+  if (results[0].kind !== "items") throw new Error("unreachable");
+  assert.equal(results[0].items.length, 2);
+  assert.equal(results[0].items[0].title, "Existen otros mundos, pero están en este");
+  assert.equal(results[0].items[0].sourceUrl, "https://www.arteinformado.com/agenda/f/existen-otros-mundos-243857");
+  assert.equal(results[0].items[1].title, "Sín-tesis");
+  assert.equal(results[0].items[1].sourceUrl, "https://www.arteinformado.com/agenda/f/sin-tesis-999999");
   // The two events' own detail-page links, NOT the single aggregator page URL.
-  assert.equal(results[0].images.length, 2);
+  assert.equal(results[0].items[0].imageUrl, "https://www.arteinformado.com/docs/evento/57/f.uno.jpg");
+  assert.equal(results[0].items[1].imageUrl, "https://www.arteinformado.com/docs/evento/99/f.dos.jpg");
 });
 
 test("mergeBrightSources dedups by domain with the hand-curated list winning", () => {
