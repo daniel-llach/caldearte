@@ -1,12 +1,31 @@
 name: Run Event Discovery
 
-# Weekly batch rollout (2026-07-17, see docs/region-discovery.md): every
-# Monday, getUnitsDueForRun caps itself to `weekly_batch_size`
-# (system_config, no redeploy to change) due comunas, oldest-last_run_at-
-# first — rotates through all 346 seeded comunas forever, no reset logic
-# needed. workflow_dispatch stays available for a manual run any time
-# (e.g. right after raising weekly_batch_size, to see the new size take
-# effect immediately instead of waiting for next Monday).
+# Dual cadence (2026-07-23, see docs/region-discovery.md): comuna coverage
+# via Tavily is broad but noisy (social media, not necessarily official art
+# venues) — bright sources are curated, official-venue listings, higher
+# signal-to-noise. Two separate cron triggers on the SAME workflow/job,
+# distinguished at runtime by `github.event.schedule` (the exact cron
+# string that fired — only populated on a `schedule` event, not
+# `workflow_dispatch`):
+#   - 1st of the month, 06:00 UTC: a normal full run — getUnitsDueForRun
+#     caps itself to `weekly_batch_size` (system_config, still that name
+#     even though the cadence isn't weekly anymore — renaming the config
+#     key needs a migration, not worth it for a label) due comunas,
+#     oldest-last_run_at-first. Any bright source that happens to also be
+#     due that day gets swept up too, harmless — it just means the
+#     Monday-only run below finds nothing new for it that week.
+#   - Every Monday, 06:00 UTC: bright_sources_only — comuna batch skipped
+#     entirely, only due bright sources processed. Their own per-source
+#     cadence (isSourceDue) is 7 days now (was 14), so this actually finds
+#     something new most weeks instead of every other one.
+# workflow_dispatch stays available for a manual run any time, with its
+# own explicit bright_sources_only input (used instead of
+# github.event.schedule when NOT a schedule-triggered run). bright_source_urls
+# (2026-07-23) debugs one or a few named sources on demand — comma-separated
+# substrings matched against each source's own url, ignoring its normal
+# 7-day cadence entirely (e.g. "arteinformado.com,parquecultural.cl" to
+# retry two known-flaky sources and see their real logs without waiting or
+# resetting every other source's fetch state too).
 #
 # Requires the TAVILY_API_KEY repo secret (searches run via Tavily, not
 # Anthropic's web_search tool — see docs/region-discovery.md).
@@ -15,12 +34,6 @@ name: Run Event Discovery
 # email just logs a warning and no-ops — the run itself still succeeds.
 # Independent from apps/web's Vercel env var of the same name (different
 # secret store) — see docs/region-discovery.md's cost-governance section.
-#
-# bright_sources_only (2026-07-23): tick this on a manual run to skip the
-# comuna batch entirely and only refresh due bright sources — a plain
-# manual run always processes the next weekly_batch_size due comunas too,
-# which is real, unwanted Tavily/Haiku spend if all you wanted was to
-# check/refresh bright sources.
 on:
   workflow_dispatch:
     inputs:
@@ -28,8 +41,13 @@ on:
         description: "Skip the comuna batch, only refresh due bright sources"
         type: boolean
         default: false
+      bright_source_urls:
+        description: "Debug specific bright source(s): comma-separated URL substrings (e.g. arteinformado.com,parquecultural.cl) — ignores their own fetch cadence, implies bright_sources_only"
+        type: string
+        default: ""
   schedule:
-    - cron: "0 6 * * 1" # every Monday, 06:00 UTC
+    - cron: "0 6 1 * *" # 1st of the month, 06:00 UTC — full run (comuna batch + any due bright sources)
+    - cron: "0 6 * * 1" # every Monday, 06:00 UTC — bright sources only
 
 jobs:
   discover:
@@ -55,4 +73,5 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          BRIGHT_SOURCES_ONLY: ${{ github.event.inputs.bright_sources_only }}
+          BRIGHT_SOURCES_ONLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.bright_sources_only || (github.event.schedule == '0 6 * * 1' && 'true' || 'false') }}
+          BRIGHT_SOURCE_URLS: ${{ github.event.inputs.bright_source_urls }}

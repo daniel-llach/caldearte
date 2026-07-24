@@ -125,7 +125,7 @@ test(
         assert.equal(inserted?.[0].opening_datetime, null, "MAVI/uc.cl sources never get an openingDatetime, even if Haiku somehow set one");
 
         const { data: fetchState } = await client.from("bright_source_fetch_state").select("url").eq("url", MAVI_SOURCE_URL);
-        assert.equal(fetchState?.length, 1, "fetch state recorded so the next run doesn't re-fetch for 14 days");
+        assert.equal(fetchState?.length, 1, "fetch state recorded so the next run doesn't re-fetch for 7 days");
       } finally {
         await client.from("events").delete().eq("title", activity.title);
         await client.from("bright_source_fetch_state").delete().eq("url", MAVI_SOURCE_URL);

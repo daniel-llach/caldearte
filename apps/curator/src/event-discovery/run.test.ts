@@ -170,7 +170,8 @@ const SEARCH_CONTENT =
   "Evento en Centro Cultural Recoleta, Buenos Aires, Argentina desde el 10 de julio. " +
   "En Concepción, Chile hasta el 15 de agosto. " +
   "Otra muestra en GAM, Santiago desde el 25 de diciembre hasta el 31 de diciembre. " +
-  "Registro en GAM, Santiago desde el 1 de mayo hasta el 15 de mayo.";
+  "Registro en GAM, Santiago desde el 1 de mayo hasta el 15 de mayo. " +
+  "Tres muestras el 12 de agosto en GAM, Santiago: Ejercicios de enlaces, Vestiario y Materia sensible.";
 
 const brightCandidates = [
   {
@@ -518,7 +519,7 @@ test(
         assert.match(detected![0].note, /2 eventos completos/);
       });
 
-      await t.test("a bright source fetched recently is skipped until its own 2-week cadence elapses, independent of other sources", async () => {
+      await t.test("a bright source fetched recently is skipped until its own 7-day cadence elapses, independent of other sources", async () => {
         await client.from("bright_source_fetch_state").delete().neq("url", "");
         let fetchCallCount = 0;
         const fetchBrightSourcesFn = async () => {
@@ -535,7 +536,7 @@ test(
         });
         assert.equal(fetchCallCount, 1);
 
-        // Second run, 3 days later — well under the 2-week interval —
+        // Second run, 3 days later — well under the 7-day interval —
         // must be skipped: fetchBrightSourcesFn is not called again.
         await run({
           messagesClient,
@@ -543,17 +544,17 @@ test(
           fetchBrightSourcesFn,
           now: new Date(2026, 6, 16), // July 16
         });
-        assert.equal(fetchCallCount, 1, "still 1 — 3 days is under the 2-week cadence");
+        assert.equal(fetchCallCount, 1, "still 1 — 3 days is under the 7-day cadence");
 
-        // Third run, 15 days after the FIRST fetch — past the interval —
+        // Third run, 8 days after the FIRST fetch — past the interval —
         // due again, fetch happens.
         await run({
           messagesClient,
           searchUnitFn: async () => ({ results: [], credits: 0 }),
           fetchBrightSourcesFn,
-          now: new Date(2026, 6, 28), // July 28 — 15 days after July 13
+          now: new Date(2026, 6, 21), // July 21 — 8 days after July 13
         });
-        assert.equal(fetchCallCount, 2, "due again once 2 weeks have passed since ITS OWN last fetch");
+        assert.equal(fetchCallCount, 2, "due again once 7 days have passed since ITS OWN last fetch");
 
         await client.from("events").delete().like("title", "__test__ Brillante%");
         await client.from("detected_sources").delete().like("url", "%nuevositio.cl%");
@@ -888,7 +889,7 @@ test(
           ],
           brightSourcesOnly: true,
           // May 20, 2027 — 32 days after the previous test's Apr 18, 2027,
-          // safely past both the comuna's 28-day and bright sources' 14-day
+          // safely past both the comuna's 28-day and bright sources' 7-day
           // cadence, so both WOULD be due without brightSourcesOnly — this
           // is what makes the searchUnitFnCalled assertion below meaningful
           // (proving the skip, not just an unrelated not-due state).
@@ -1032,6 +1033,96 @@ test(
         await client.from("events").delete().eq("title", "__test__ Brillante Bueno");
         await client.from("bright_source_fetch_state").delete().neq("url", "");
         await client.from("api_usage_log").delete().eq("input_tokens", 50).eq("output_tokens", 16000);
+      });
+
+      // 2026-07-23: debugging one misbehaving real bright source (e.g.
+      // arteinformado.com) meant waiting for its own 7-day cadence or
+      // clearing EVERY source's fetch state just to force the one you
+      // actually wanted logs for. brightSourceUrlFilter replaces the
+      // isSourceDue check entirely for the matched set — a real registry
+      // source, freshly marked as fetched moments ago, still runs when
+      // explicitly named.
+      await t.test("brightSourceUrlFilter matches by url substring and ignores each source's own cadence", async () => {
+        await client.from("bright_source_fetch_state").delete().neq("url", "");
+        // Mark every real source as JUST fetched — without the filter,
+        // none of them would be due.
+        const { mergeBrightSources } = await import("./sources.js");
+        const { recordBrightSourcesFetched } = await import("./run.js");
+        const allSources = mergeBrightSources([]);
+        await recordBrightSourcesFetched(allSources.map((s) => s.url), new Date(2027, 6, 5));
+
+        let capturedSources: { url: string }[] = [];
+        await run({
+          messagesClient,
+          searchUnitFn: async () => ({ results: [], credits: 0 }),
+          fetchBrightSourcesFn: async (sources) => {
+            capturedSources = sources;
+            return [];
+          },
+          brightSourceUrlFilter: ["arteinformado.com"],
+          now: new Date(2027, 6, 5, 0, 1), // 1 minute after "just fetched" above — nothing would be due otherwise
+        });
+
+        assert.ok(capturedSources.length > 0, "the filter matched at least arteinformado.com");
+        assert.ok(
+          capturedSources.every((s) => s.url.includes("arteinformado.com")),
+          "only the matching source was passed through, not every other (freshly-fetched, not-due) source",
+        );
+
+        await client.from("bright_source_fetch_state").delete().neq("url", "");
+      });
+
+      // Real production bug (2026-07-23, arteinformado.com): 9 genuinely
+      // different exhibitions opening the same day in the same museum wing
+      // (same location, same exact opening datetime, completely unrelated
+      // titles) — the location+date fingerprint blindly matched sibling
+      // candidates within the SAME batch and kept only the first, silently
+      // dropping the other 8. The fingerprint must only apply against a
+      // PAST run's already-stored events, never between candidates in this
+      // same run.
+      await t.test("multiple genuinely different candidates sharing the exact same location+date in one batch all insert — no false same-batch dedup", async () => {
+        const concurrentCandidates = ["Ejercicios de enlaces", "Vestiario", "Materia sensible"].map((title) => ({
+          title: `__test__ ${title}`,
+          description: null,
+          artist: null,
+          runStartDate: null,
+          runEndDate: null,
+          openingDatetime: "2027-08-12T19:00", // matches this test's own "now" year (Aug 2027) — a 2026 date would already be stale by then
+          openingTimeConfirmed: true,
+          dateQuote: "12 de agosto",
+          locationQuote: "GAM, Santiago",
+          runStartDateQuote: null,
+          runEndDateQuote: null,
+          mediumType: "tradicional",
+          sensitivityTags: [],
+          curationReasoning: "ok",
+          imageUrl: null,
+          status: "approved",
+          location: "GAM, Santiago",
+          placeName: null,
+          sourceUrl: `https://museo.cl/${title.toLowerCase().replace(/\s+/g, "-")}`,
+        }));
+        const concurrentMessagesClient = {
+          messages: {
+            create: async () => ({
+              content: [{ type: "text", text: fencedJson(concurrentCandidates) }],
+              usage: { input_tokens: 100, output_tokens: 50 },
+            }),
+          },
+        };
+
+        await run({
+          messagesClient: concurrentMessagesClient,
+          searchUnitFn,
+          fetchBrightSourcesFn: async () => [],
+          now: new Date(2027, 7, 5), // Aug 5, 2027 — safely past the comuna's 28-day cadence since the Jul 1, 2027 run
+        });
+
+        const { data: inserted } = await client.from("events").select("title").like("title", "__test__%");
+        const titles = (inserted ?? []).map((e) => e.title);
+        assert.ok(titles.includes("__test__ Ejercicios de enlaces"), "first candidate inserted");
+        assert.ok(titles.includes("__test__ Vestiario"), "second candidate NOT dropped as a same-batch duplicate");
+        assert.ok(titles.includes("__test__ Materia sensible"), "third candidate NOT dropped as a same-batch duplicate");
       });
     } finally {
       await client.from("events").delete().like("title", "__test__%");

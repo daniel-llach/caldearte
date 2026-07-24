@@ -122,11 +122,17 @@ async function loadDetectedSources(): Promise<BrightSource[]> {
 
 // Per-source independent fetch cadence — until now, EVERY bright source got
 // fetched on EVERY run with no gating at all. Same "due" shape as regions'
-// isDueForRun/RUN_INTERVAL_MS, but 2 weeks (not a month) and keyed by the
-// source's own url (see the bright_source_fetch_state migration for why:
-// KNOWN_SOURCES is hand-curated in code, not a DB row, so url is the only
-// identity both hand-curated and auto-detected sources share).
-const BRIGHT_SOURCE_INTERVAL_MS = 14 * 24 * 60 * 60 * 1000;
+// isDueForRun/RUN_INTERVAL_MS, but keyed by the source's own url (see the
+// bright_source_fetch_state migration for why: KNOWN_SOURCES is
+// hand-curated in code, not a DB row, so url is the only identity both
+// hand-curated and auto-detected sources share).
+//
+// 14 days -> 7 (2026-07-23, dual-cadence strategy — see
+// event-discovery.yml's own doc comment): bright sources moved to their
+// own weekly cron, separate from the comuna batch's monthly one. A 14-day
+// per-source cadence against a 7-day cron would only find something new
+// every OTHER run — halved to match.
+const BRIGHT_SOURCE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function isSourceDue(lastFetchedAt: string | undefined, now: Date): boolean {
   if (!lastFetchedAt) return true;
@@ -152,7 +158,7 @@ export async function loadBrightSourceFetchState(): Promise<Map<string, string>>
 // it rather than throwing, so by the time this runs there's no per-source
 // success/failure signal left to key off. Retrying a broken source every
 // single run wastes just as much time as retrying a working one; the
-// 2-week backoff applies equally, same posture as regions' own due-check
+// 7-day backoff applies equally, same posture as regions' own due-check
 // (which doesn't distinguish a zero-yield run from a failed one either).
 export async function recordBrightSourcesFetched(urls: string[], now: Date): Promise<void> {
   const client = getSupabaseClient();
@@ -187,6 +193,25 @@ export async function recordBrightSourcesFetched(urls: string[], now: Date): Pro
 //   exact same location, run dates, and opening time. That combination is
 //   an extremely unlikely coincidence for genuinely different events, so
 //   it's treated as a third dedup signal.
+//
+//   ONLY checked against events already in the DB from a PAST run
+//   (`seen.locationDates`, loaded once via loadExistingKeys and never
+//   mutated below) — deliberately NOT re-applied blindly between sibling
+//   candidates within the SAME run's own batch. Real production bug
+//   (found 2026-07-23): a single arteinformado.com pass had 9 genuinely
+//   DIFFERENT concurrent exhibitions ("Ejercicios de enlaces", "Vestiario",
+//   "Materia sensible", ...) all opening the same day in the same MAC wing
+//   — same location, same exact run dates, completely unrelated titles.
+//   Blind same-batch matching kept only the first and silently dropped
+//   the other 8 as "duplicates". Within a single batch, only the
+//   title-similarity-aware fuzzy check below (isFuzzyDuplicateTitle)
+//   applies — safe for both real shapes: a repost with a garbled title
+//   still needs the title to be at least somewhat similar to get merged
+//   (true for real reposts, false for e.g. "Vestiario" vs "Materia
+//   sensible"), while a PAST run's already-stored event is still caught
+//   unconditionally on the exact fingerprint alone, no title check
+//   needed — that's what the San Felipe case itself actually was: a
+//   re-run finding an event already in the calendar from days earlier.
 function locationDateKey(location: string, c: Pick<EventCandidate, "openingDatetime" | "runStartDate" | "runEndDate">): string {
   const dateFingerprint = c.openingDatetime ?? `${c.runStartDate ?? ""}|${c.runEndDate ?? ""}`;
   return `${normalizeLocation(location)}|${dateFingerprint}`;
@@ -351,7 +376,12 @@ export async function insertCandidates(
 
     seen.titles.add(titleKey);
     if (c.sourceUrl) seen.sourceUrls.add(c.sourceUrl);
-    seen.locationDates.add(locDateKey);
+    // seen.locationDates is deliberately NOT updated here — see this
+    // function's own doc comment above (2026-07-23 MAC case): the blind
+    // location+date fingerprint only applies against events already
+    // stored from a PAST run, never between sibling candidates in this
+    // same batch. Sibling comparisons rely on titlesByLocationDateOnly
+    // below instead, which requires title similarity too.
     const bucket = seen.titlesByLocationDateOnly.get(locDateOnlyKey);
     if (bucket) bucket.push(c.title);
     else seen.titlesByLocationDateOnly.set(locDateOnlyKey, [c.title]);
@@ -465,6 +495,19 @@ export interface RunDeps {
   // still only fetch if actually due (isSourceDue) — this doesn't force
   // them, it only removes the comuna batch as a side effect of checking.
   brightSourcesOnly?: boolean;
+  // Added 2026-07-23: debugging one misbehaving bright source (e.g.
+  // arteinformado.com's "Cannot read properties of null" failure) meant
+  // waiting for its own 7-day cadence, or clearing EVERY source's fetch
+  // state just to force the one you actually wanted logs for. A substring
+  // match against each source's own url (e.g. "arteinformado.com",
+  // "parquecultural.cl") — when set, this REPLACES the normal isSourceDue
+  // check entirely for that filtered set: a matched source runs
+  // regardless of its own cadence, and everything else is skipped, not
+  // just deprioritized. Implies brightSourcesOnly in spirit (there's
+  // rarely a reason to also want the comuna batch when debugging one
+  // named source) but doesn't force it — set both explicitly if that's
+  // not what you want.
+  brightSourceUrlFilter?: string[];
 }
 
 export async function run(deps: RunDeps = {}): Promise<void> {
@@ -498,7 +541,9 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   // exclude_domains isn't perfectly reliable on Tavily's side.
   const excludeDomains = [...brightSources.map((s) => knownSourceDomain(s.url)), ...KNOWN_LOW_QUALITY_SOURCE_DOMAINS];
   const fetchState = await loadBrightSourceFetchState();
-  const dueBrightSources = brightSources.filter((s) => isSourceDue(fetchState.get(s.url), now));
+  const dueBrightSources = deps.brightSourceUrlFilter?.length
+    ? brightSources.filter((s) => deps.brightSourceUrlFilter!.some((f) => s.url.includes(f)))
+    : brightSources.filter((s) => isSourceDue(fetchState.get(s.url), now));
   const seenKeys = await loadExistingKeys();
   const regions = await loadAllRegions();
   const allCandidates: EventCandidate[] = [];
@@ -600,7 +645,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   // Bright sources: fetched directly, curated ONE SOURCE AT A TIME — not
   // attached to each unit's prompt (real runs showed Haiku inconsistently
   // surfacing that content when attached per-unit). Only the ones due for
-  // their own 2-week cadence get fetched at all.
+  // their own 7-day cadence get fetched at all.
   //
   // Was ONE combined curate() call over every due source's content at
   // once — real production crash (2026-07-23): with enough sources due
@@ -619,7 +664,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
     for (const result of brightResults) {
       try {
         const block = buildBlock("Fuentes brillantes (no específicas a ninguna comuna)", [result]);
-        const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
+        const { candidates, usage } = await curate(messagesClient, systemPrompt, block, { isBrightSource: true });
         await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
         summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
         await enrichCandidates(candidates, pageFetchFn, now);
