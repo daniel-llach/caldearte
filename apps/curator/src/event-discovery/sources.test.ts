@@ -201,7 +201,7 @@ test("fetchBrightSources against the real KNOWN_SOURCES config for uchile.cl par
     <article class="mod-cal-result__item">
       <figure><img src="/dam/uno.jpg" alt="Imagen"></figure>
       <h4 class="mod__item-title"><a href="/agenda/evento-uno">Muestra Real</a></h4>
-      <p class="mod-cal-result__item-days">Del 1 al 20 de julio</p>
+      <p class="mod-cal-result__item-days">Todos los días (excepto el lunes) del 11/07/2026 al 11/10/2026</p>
       <p class="mod-cal-result__item-placer">MAC Quinta Normal</p>
     </article>
   `;
@@ -214,6 +214,8 @@ test("fetchBrightSources against the real KNOWN_SOURCES config for uchile.cl par
   assert.equal(results[0].items[0].title, "Muestra Real");
   assert.equal(results[0].items[0].locationHint, "MAC Quinta Normal");
   assert.equal(results[0].items[0].imageUrl, "https://artes.uchile.cl/dam/uno.jpg");
+  assert.equal(results[0].items[0].structuredStartDate, "2026-07-11", "dateRangeExtractor parses the real DD/MM/YYYY markup deterministically");
+  assert.equal(results[0].items[0].structuredEndDate, "2026-10-11");
 });
 
 test("fetchBrightSources against the real KNOWN_SOURCES config for uchile.cl (root domain, cross-faculty) resolves relative hrefs against its own domain, not artes.uchile.cl (regression check against production config, real bug found 2026-07-20)", async () => {
@@ -328,6 +330,39 @@ test("fetchBrightSources against the real KNOWN_SOURCES config for arteinformado
   // The two events' own detail-page links, NOT the single aggregator page URL.
   assert.equal(results[0].items[0].imageUrl, "https://www.arteinformado.com/docs/evento/57/f.uno.jpg");
   assert.equal(results[0].items[1].imageUrl, "https://www.arteinformado.com/docs/evento/99/f.dos.jpg");
+  // dateRangeExtractor deterministically parses this real date text —
+  // real production regression, 2026-07-24: a live ~28-item batch left
+  // to Haiku's own interpretation came back with every runStartDate/
+  // runEndDate null despite text this unambiguous.
+  assert.equal(results[0].items[0].structuredStartDate, "2026-04-25");
+  assert.equal(results[0].items[0].structuredEndDate, "2026-08-23");
+  assert.equal(results[0].items[1].structuredStartDate, "2026-07-01");
+  assert.equal(results[0].items[1].structuredEndDate, "2026-08-15");
+});
+
+test("fetchBrightSources against the real KNOWN_SOURCES config for mnba.gob.cl reads the embedded machine-readable date directly, no month-name parsing needed (regression check against production config)", async () => {
+  const mnba = KNOWN_SOURCES.find((s) => s.url.includes("mnba.gob.cl"));
+  assert.ok(mnba?.extractor?.kind === "articleList");
+  const config = mnba.extractor as ArticleListConfig;
+
+  const html = `
+    <article class="node node--evento">
+      <h2 class="destacado__title"><a href="/cartelera/roberto-matta-abrir-la-mirada">Roberto Matta. Abrir la mirada</a></h2>
+      <div class="field--name-field-fechas"><time datetime="2025-07-10T12:00:00Z">10/Julio/2025</time>
+       hasta el <time datetime="2027-07-31T12:00:00Z">31/Julio/2027</time>
+      </div>
+      <div class="field--name-institucion"><a href="/espacios/sala-chile">Sala Chile</a></div>
+    </article>
+  `;
+
+  const results = await withStubFetch(() => textResponse(html), () => fetchBrightSources([{ url: mnba.url, note: mnba.note, extractor: config }]));
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].kind, "items");
+  if (results[0].kind !== "items") throw new Error("unreachable");
+  assert.equal(results[0].items[0].title, "Roberto Matta. Abrir la mirada");
+  assert.equal(results[0].items[0].structuredStartDate, "2025-07-10");
+  assert.equal(results[0].items[0].structuredEndDate, "2027-07-31");
 });
 
 test("mergeBrightSources dedups by domain with the hand-curated list winning", () => {

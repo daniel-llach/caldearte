@@ -2,10 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   extractArticleList,
+  extractDateRange,
   extractImgTags,
   extractWordpressItems,
   filterKnownSourceImages,
   type ArticleListConfig,
+  type DateRangeConfig,
   type WordpressRestConfig,
 } from "./extractors.js";
 
@@ -239,4 +241,100 @@ test("extractWordpressItems is genuinely config-driven: a different WordPress si
   assert.equal(result[0].sourceUrl, "https://otro.cl/p/1");
   assert.equal(result[0].imageUrl, "https://otro.cl/img.jpg");
   assert.equal(result[0].structuredStartDate, null);
+});
+
+// --- extractDateRange: deterministic parsing of a source's own date text ---
+// (2026-07-24) — real production regression: asking Haiku to interpret a
+// batch of ~28 unambiguous date ranges (arteinformado.com) came back with
+// runStartDate/runEndDate null for nearly every item. Each real format
+// below is verified against actual live markup, not invented — see
+// docs/region-discovery.md.
+
+test("extractDateRange parses DD/MM/YYYY numeric-month ranges (uchile.cl-style)", () => {
+  const config: DateRangeConfig = {
+    pattern: /del\s+(?<startDay>\d{1,2})\/(?<startMonth>\d{1,2})\/(?<startYear>\d{4})\s+al\s+(?<endDay>\d{1,2})\/(?<endMonth>\d{1,2})\/(?<endYear>\d{4})/i,
+  };
+  const result = extractDateRange("Todos los días (excepto el lunes) del 11/07/2026 al 11/10/2026", config);
+  assert.deepEqual(result, { runStartDate: "2026-07-11", runEndDate: "2026-10-11" });
+});
+
+test("extractDateRange reads an already-embedded machine-readable ISO date directly, no month parsing at all (mnba.gob.cl-style)", () => {
+  const config: DateRangeConfig = {
+    pattern: /<time datetime="(?<startIso>\d{4}-\d{2}-\d{2})[^"]*"[^>]*>[\s\S]*?<time datetime="(?<endIso>\d{4}-\d{2}-\d{2})[^"]*"[^>]*>/,
+  };
+  const html = '<time datetime="2025-07-10T12:00:00Z">10/Julio/2025</time>\n hasta el <time datetime="2027-07-31T12:00:00Z">31/Julio/2027</time>';
+  const result = extractDateRange(html, config);
+  assert.deepEqual(result, { runStartDate: "2025-07-10", runEndDate: "2027-07-31" });
+});
+
+test("extractDateRange parses day + 3-letter-month pairs with a shared year element (molinomachmar.cl-style)", () => {
+  const config: DateRangeConfig = {
+    pattern:
+      /class="evento-fecha[^"]*"[^>]*>[\s\S]*?<span>\s*(?<startDay>\d{1,2})\s+(?<startMonth>[A-ZÁÉÍÓÚ]{3})[\s\S]*?<\/span>\s*<span>\s*(?<endDay>\d{1,2})\s+(?<endMonth>[A-ZÁÉÍÓÚ]{3})[\s\S]*?<\/span>[\s\S]*?evento-ano[^"]*"[^>]*>\s*(?<year>\d{4})/,
+  };
+  const html = 'class="evento-fecha ff-secondary"><span>20 JUN</span><span>16 AGO</span></div><p class="evento-ano ff-secondary">2026</p>';
+  const result = extractDateRange(html, config);
+  assert.deepEqual(result, { runStartDate: "2026-06-20", runEndDate: "2026-08-16" });
+});
+
+test("extractDateRange parses day + 3-letter Spanish-abbreviation + year ranges (arteinformado.com-style)", () => {
+  const config: DateRangeConfig = {
+    pattern:
+      /(?<startDay>\d{1,2})\s+(?<startMonth>[a-zé]{3})\.?\s+de\s+(?<startYear>\d{4})\s*-\s*(?<endDay>\d{1,2})\s+(?<endMonth>[a-zé]{3})\.?\s+de\s+(?<endYear>\d{4})/i,
+  };
+  const result = extractDateRange("11 jul de 2026 - 11 oct de 2026", config);
+  assert.deepEqual(result, { runStartDate: "2026-07-11", runEndDate: "2026-10-11" });
+});
+
+test("extractDateRange returns null instead of a wrong date when the second slot isn't a real month (molinomachmar.cl single-day events show an hour there instead, e.g. '18 HRS')", () => {
+  const config: DateRangeConfig = {
+    pattern:
+      /class="evento-fecha[^"]*"[^>]*>[\s\S]*?<span>\s*(?<startDay>\d{1,2})\s+(?<startMonth>[A-ZÁÉÍÓÚ]{3})[\s\S]*?<\/span>\s*<span>\s*(?<endDay>\d{1,2})\s+(?<endMonth>[A-ZÁÉÍÓÚ]{3})[\s\S]*?<\/span>[\s\S]*?evento-ano[^"]*"[^>]*>\s*(?<year>\d{4})/,
+  };
+  const html = 'class="evento-fecha ff-secondary"><span>23 JUL</span><span>18 HRS</span></div><p class="evento-ano ff-secondary">2026</p>';
+  assert.equal(extractDateRange(html, config), null);
+});
+
+test("extractDateRange returns null when the pattern doesn't match at all", () => {
+  const config: DateRangeConfig = { pattern: /nunca va a matchear/ };
+  assert.equal(extractDateRange("Vigente", config), null);
+});
+
+test("extractArticleList populates structuredStartDate/EndDate when dateRangeExtractor is configured and matches, leaving rawDateText as the display fallback either way", () => {
+  const configWithDateRange: ArticleListConfig = {
+    ...UCHILE_CONFIG,
+    dateRangeExtractor: {
+      pattern: /del\s+(?<startDay>\d{1,2})\/(?<startMonth>\d{1,2})\/(?<startYear>\d{4})\s+al\s+(?<endDay>\d{1,2})\/(?<endMonth>\d{1,2})\/(?<endYear>\d{4})/i,
+    },
+  };
+  const html = `
+    <article class="mod-cal-result__item">
+      <h4 class="mod__item-title"><a href="/agenda/evento-uno">Muestra Uno</a></h4>
+      <p class="mod-cal-result__item-days">del 11/07/2026 al 11/10/2026</p>
+    </article>
+  `;
+  const items = extractArticleList(html, "https://artes.uchile.cl/agenda/30dias/6", configWithDateRange);
+  assert.ok(items);
+  assert.equal(items[0].structuredStartDate, "2026-07-11");
+  assert.equal(items[0].structuredEndDate, "2026-10-11");
+  assert.equal(items[0].rawDateText, "del 11/07/2026 al 11/10/2026", "raw text stays available even once parsed");
+});
+
+test("extractArticleList leaves structuredStartDate/EndDate null when dateRangeExtractor is configured but doesn't match this block", () => {
+  const configWithDateRange: ArticleListConfig = {
+    ...UCHILE_CONFIG,
+    dateRangeExtractor: {
+      pattern: /del\s+(?<startDay>\d{1,2})\/(?<startMonth>\d{1,2})\/(?<startYear>\d{4})\s+al\s+(?<endDay>\d{1,2})\/(?<endMonth>\d{1,2})\/(?<endYear>\d{4})/i,
+    },
+  };
+  const html = `
+    <article class="mod-cal-result__item">
+      <h4 class="mod__item-title"><a href="/agenda/evento-uno">Muestra Uno</a></h4>
+      <p class="mod-cal-result__item-days">Vigente</p>
+    </article>
+  `;
+  const items = extractArticleList(html, "https://artes.uchile.cl/agenda/30dias/6", configWithDateRange);
+  assert.ok(items);
+  assert.equal(items[0].structuredStartDate, null);
+  assert.equal(items[0].structuredEndDate, null);
 });
