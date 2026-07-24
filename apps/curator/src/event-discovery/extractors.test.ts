@@ -47,7 +47,7 @@ const UCHILE_CONFIG: ArticleListConfig = {
   placeRegex: /class="mod-cal-result__item-place[a-z]*"[^>]*>([\s\S]*?)<\/p>/,
 };
 
-test("extractArticleList pairs each event with its own image and text, handling the item-place/item-placer typo", () => {
+test("extractArticleList pairs each event with its own structured title/link/image/date/place, handling the item-place/item-placer typo", () => {
   const html = `
     <article class="mod-cal-result__item">
       <figure><img src="/dam/uno.jpg" alt="Imagen 1"></figure>
@@ -63,31 +63,32 @@ test("extractArticleList pairs each event with its own image and text, handling 
     </article>
   `;
 
-  const result = extractArticleList(html, "https://artes.uchile.cl/agenda/30dias/6", UCHILE_CONFIG);
-  assert.ok(result);
-  assert.equal(result.images.length, 2);
-  assert.deepEqual(result.images[0], {
-    url: "https://artes.uchile.cl/dam/uno.jpg",
-    description: "Imagen de la exposición: Muestra Uno",
+  const items = extractArticleList(html, "https://artes.uchile.cl/agenda/30dias/6", UCHILE_CONFIG);
+  assert.ok(items);
+  assert.equal(items.length, 2);
+  assert.deepEqual(items[0], {
+    title: "Muestra Uno",
+    sourceUrl: "https://artes.uchile.cl/agenda/evento-uno",
+    imageUrl: "https://artes.uchile.cl/dam/uno.jpg",
+    description: null,
+    locationHint: "Sala Juan Egenau",
+    rawDateText: "Del 1 al 20 de julio",
+    structuredStartDate: null,
+    structuredEndDate: null,
   });
-  assert.deepEqual(result.images[1], {
-    url: "https://artes.uchile.cl/dam/dos.jpg",
-    description: "Imagen de la exposición: Muestra Dos",
+  assert.deepEqual(items[1], {
+    title: "Muestra Dos",
+    sourceUrl: "https://artes.uchile.cl/agenda/evento-dos",
+    imageUrl: "https://artes.uchile.cl/dam/dos.jpg",
+    description: null,
+    locationHint: "Galería Central",
+    rawDateText: "Del 5 al 30 de julio",
+    structuredStartDate: null,
+    structuredEndDate: null,
   });
-
-  const lines = result.content.split("\n");
-  assert.equal(lines.length, 2);
-  assert.equal(
-    lines[0],
-    '- "Muestra Uno" (Del 1 al 20 de julio). Lugar: Sala Juan Egenau. Más info: https://artes.uchile.cl/agenda/evento-uno',
-  );
-  assert.equal(
-    lines[1],
-    '- "Muestra Dos" (Del 5 al 30 de julio). Lugar: Galería Central. Más info: https://artes.uchile.cl/agenda/evento-dos',
-  );
 });
 
-test("extractArticleList falls back to placeholder text when days/place are missing, but skips a block with no title link", () => {
+test("extractArticleList falls back to placeholder date text when days/place are missing, but skips a block with no title link", () => {
   const html = `
     <article class="mod-cal-result__item">
       <h4 class="mod__item-title"><a href="/agenda/evento-tres">Muestra Tres</a></h4>
@@ -97,9 +98,13 @@ test("extractArticleList falls back to placeholder text when days/place are miss
     </article>
   `;
 
-  const result = extractArticleList(html, "https://artes.uchile.cl/agenda/30dias/6", UCHILE_CONFIG);
-  assert.ok(result);
-  assert.equal(result.content, '- "Muestra Tres" (fecha no indicada). Lugar: no indicado. Más info: https://artes.uchile.cl/agenda/evento-tres');
+  const items = extractArticleList(html, "https://artes.uchile.cl/agenda/30dias/6", UCHILE_CONFIG);
+  assert.ok(items);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].title, "Muestra Tres");
+  assert.equal(items[0].sourceUrl, "https://artes.uchile.cl/agenda/evento-tres");
+  assert.equal(items[0].rawDateText, "fecha no indicada");
+  assert.equal(items[0].locationHint, null);
 });
 
 test("extractArticleList returns null when the page has no matching blocks (fallback signal)", () => {
@@ -118,9 +123,13 @@ test("extractArticleList is genuinely config-driven: a different site's markup w
     // no daysRegex configured for this site — must still work (optional field).
   };
   const html = `<ul><li class="event-card"><a class="event-card__link" href="/e/1">Otra Muestra</a><span class="venue">MAVI</span></li></ul>`;
-  const result = extractArticleList(html, "https://otro-sitio.cl/agenda", otherSiteConfig);
-  assert.ok(result);
-  assert.equal(result.content, '- "Otra Muestra" (fecha no indicada). Lugar: MAVI. Más info: https://otro-sitio.cl/e/1');
+  const items = extractArticleList(html, "https://otro-sitio.cl/agenda", otherSiteConfig);
+  assert.ok(items);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].title, "Otra Muestra");
+  assert.equal(items[0].sourceUrl, "https://otro-sitio.cl/e/1");
+  assert.equal(items[0].locationHint, "MAVI");
+  assert.equal(items[0].rawDateText, "fecha no indicada");
 });
 
 // Matches Parque Cultural Valparaíso's real WordPress meta-field names —
@@ -135,7 +144,7 @@ const PARQUE_CULTURAL_CONFIG: WordpressRestConfig = {
   endDateField: "meta.fecha_de_termino",
 };
 
-test("extractWordpressItems maps title/image/description/dates/link by configured dotted paths", () => {
+test("extractWordpressItems maps title/image/description/dates/link by configured dotted paths, resolving structured start/end dates directly", () => {
   const items = [
     {
       title: { rendered: "Expo A" },
@@ -149,20 +158,35 @@ test("extractWordpressItems maps title/image/description/dates/link by configure
     },
   ];
   const result = extractWordpressItems(items, PARQUE_CULTURAL_CONFIG, "https://parquecultural.cl/agenda");
-  assert.deepEqual(result.images, [
-    { url: "https://parquecultural.cl/img/a.jpg", description: "Imagen de la exposición: Expo A" },
+  assert.deepEqual(result, [
+    {
+      title: "Expo A",
+      sourceUrl: "https://parquecultural.cl/expo-a",
+      imageUrl: "https://parquecultural.cl/img/a.jpg",
+      description: "Inauguración 20 de julio a las 19h.",
+      locationHint: null,
+      rawDateText: "Inauguración 20 de julio a las 19h.",
+      structuredStartDate: "2026-07-01",
+      structuredEndDate: "2026-08-30",
+    },
   ]);
-  assert.equal(
-    result.content,
-    '- "Expo A" — https://parquecultural.cl/expo-a (2026-07-01 a 2026-08-30): Inauguración 20 de julio a las 19h.',
-  );
 });
 
-test("extractWordpressItems falls back gracefully: missing image is skipped, missing link uses fallbackUrl, missing dates render as '?'", () => {
+test("extractWordpressItems falls back gracefully: missing link uses fallbackUrl, missing dates are null (not a display placeholder), missing description is null", () => {
   const items = [{ title: { rendered: "Expo B" }, meta: {} }];
   const result = extractWordpressItems(items, PARQUE_CULTURAL_CONFIG, "https://parquecultural.cl/agenda");
-  assert.equal(result.images.length, 0);
-  assert.equal(result.content, '- "Expo B" — https://parquecultural.cl/agenda (? a ?): sin descripción');
+  assert.deepEqual(result, [
+    {
+      title: "Expo B",
+      sourceUrl: "https://parquecultural.cl/agenda",
+      imageUrl: null,
+      description: null,
+      locationHint: null,
+      rawDateText: "",
+      structuredStartDate: null,
+      structuredEndDate: null,
+    },
+  ]);
 });
 
 test("extractWordpressItems is genuinely config-driven: a different WordPress site's field names work with only a different config", () => {
@@ -177,6 +201,9 @@ test("extractWordpressItems is genuinely config-driven: a different WordPress si
   };
   const items = [{ title: { rendered: "Otra Expo" }, link: "https://otro.cl/p/1", featured_image_url: "https://otro.cl/img.jpg" }];
   const result = extractWordpressItems(items, otherSiteConfig, "https://otro.cl/agenda");
-  assert.deepEqual(result.images, [{ url: "https://otro.cl/img.jpg", description: "Imagen de la exposición: Otra Expo" }]);
-  assert.equal(result.content, '- "Otra Expo" — https://otro.cl/p/1 (? a ?): sin descripción');
+  assert.equal(result.length, 1);
+  assert.equal(result[0].title, "Otra Expo");
+  assert.equal(result[0].sourceUrl, "https://otro.cl/p/1");
+  assert.equal(result[0].imageUrl, "https://otro.cl/img.jpg");
+  assert.equal(result[0].structuredStartDate, null);
 });

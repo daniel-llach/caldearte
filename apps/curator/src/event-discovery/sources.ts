@@ -28,6 +28,7 @@ import {
   extractWordpressItems,
   filterKnownSourceImages,
   collapseWhitespace,
+  type BrightSourceItem,
   type ExtractorConfig,
 } from "./extractors.js";
 
@@ -46,42 +47,74 @@ export interface BrightSource {
   // increasingly return events that have already ended (real check:
   // page 5 already had events that ended ~2 months before today).
   additionalPages?: string[];
+  // Present only for a confirmed single fixed-venue source — see
+  // lib/known-sources.ts's KnownSource.fixedLocation doc comment. Kept in
+  // sync with that field so run.ts's curateBrightSourceItems call can read
+  // it directly off whatever merged source produced a given fetch result.
+  fixedLocation?: { location: string; placeName: string };
 }
 
-async function fetchHtmlPage(
-  pageUrl: string,
-  extractor: ExtractorConfig | undefined,
-): Promise<{ content: string; images: ImageCandidate[] }> {
+// A source with a real extractor config yields structured BrightSourceItems
+// (title/sourceUrl/imageUrl/dates never touch Haiku, see discover.ts's
+// curateBrightSourceItems) — a source with none (every auto-detected one
+// today; detected_sources only stores a simple source_type enum, not a
+// full parser config) falls back to the old whole-page-flatten RawResult,
+// which still goes through the original curate()/isBrightSource path in
+// run.ts unchanged.
+export type BrightSourceFetchResult =
+  | { kind: "items"; source: BrightSource; items: BrightSourceItem[] }
+  | { kind: "rawResult"; source: BrightSource; result: RawResult };
+
+async function fetchHtmlPage(pageUrl: string, extractor: ExtractorConfig | undefined): Promise<BrightSourceItem[] | null> {
   const res = await fetch(pageUrl);
   if (!res.ok) {
     throw new Error(`html source ${pageUrl} responded ${res.status}`);
   }
   const html = await res.text();
+  if (extractor?.kind !== "articleList") return null;
+  return extractArticleList(html, pageUrl, extractor);
+}
 
-  if (extractor?.kind === "articleList") {
-    const structured = extractArticleList(html, pageUrl, extractor);
-    if (structured) return structured;
+async function fetchHtmlPageFallback(pageUrl: string): Promise<{ content: string; images: ImageCandidate[] }> {
+  const res = await fetch(pageUrl);
+  if (!res.ok) {
+    throw new Error(`html source ${pageUrl} responded ${res.status}`);
   }
-
-  // Fallback: no configured extractor, or the configured one didn't match
-  // this page's actual markup — whole-page flatten, as before (script/
-  // style CONTENTS stripped first, not just the tags, so JS/CSS source
-  // doesn't leak into the text Haiku reads).
+  const html = await res.text();
+  // Whole-page flatten for sources with no configured extractor (or one
+  // that didn't match this page's actual markup) — script/style CONTENTS
+  // stripped first, not just the tags, so JS/CSS source doesn't leak into
+  // the text Haiku reads.
   const images = filterKnownSourceImages(extractImgTags(html), pageUrl);
   const text = collapseWhitespace(html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "")).slice(0, 4000);
   return { content: text, images };
 }
 
-async function fetchHtmlSource(source: BrightSource): Promise<RawResult> {
-  const primary = await fetchHtmlPage(source.url, source.extractor);
-  let content = primary.content;
-  let images = primary.images;
+async function fetchHtmlSource(source: BrightSource): Promise<BrightSourceFetchResult> {
+  const primaryItems = await fetchHtmlPage(source.url, source.extractor);
 
+  if (primaryItems === null) {
+    // No matching extractor — old fallback path, unchanged shape (RawResult).
+    const primary = await fetchHtmlPageFallback(source.url);
+    let content = primary.content;
+    let images = primary.images;
+    for (const pageUrl of source.additionalPages ?? []) {
+      try {
+        const page = await fetchHtmlPageFallback(pageUrl);
+        content += "\n" + page.content;
+        images = images.concat(page.images);
+      } catch (err) {
+        console.error(`[event-discovery] additional page failed for ${source.url}: ${pageUrl}: ${(err as Error).message}`);
+      }
+    }
+    return { kind: "rawResult", source, result: { title: source.note, url: source.url, content, score: 1, images } };
+  }
+
+  let items = primaryItems;
   for (const pageUrl of source.additionalPages ?? []) {
     try {
       const page = await fetchHtmlPage(pageUrl, source.extractor);
-      content += "\n" + page.content;
-      images = images.concat(page.images);
+      if (page) items = items.concat(page);
     } catch (err) {
       // Losing one extra page shouldn't drop the whole source's primary
       // page too — only the primary page's own failure propagates (kept
@@ -89,11 +122,10 @@ async function fetchHtmlSource(source: BrightSource): Promise<RawResult> {
       console.error(`[event-discovery] additional page failed for ${source.url}: ${pageUrl}: ${(err as Error).message}`);
     }
   }
-
-  return { title: source.note, url: source.url, content, score: 1, images };
+  return { kind: "items", source, items };
 }
 
-async function fetchJsonApiSource(source: BrightSource): Promise<RawResult> {
+async function fetchJsonApiSource(source: BrightSource): Promise<BrightSourceFetchResult> {
   const res = await fetch(source.url);
   if (!res.ok) {
     throw new Error(`json-api source ${source.url} responded ${res.status}`);
@@ -104,8 +136,7 @@ async function fetchJsonApiSource(source: BrightSource): Promise<RawResult> {
     throw new Error(`json-api source ${source.url} has no wordpressRestApi extractor configured`);
   }
 
-  const { content, images } = extractWordpressItems(items, source.extractor, source.url);
-  return { title: source.note, url: source.url, content, score: 1, images };
+  return { kind: "items", source, items: extractWordpressItems(items, source.extractor, source.url) };
 }
 
 // Merge hand-curated + detected, deduped by domain (hand-curated wins —
@@ -123,8 +154,8 @@ export function mergeBrightSources(detected: BrightSource[]): BrightSource[] {
   return merged;
 }
 
-export async function fetchBrightSources(sources: BrightSource[]): Promise<RawResult[]> {
-  const out: RawResult[] = [];
+export async function fetchBrightSources(sources: BrightSource[]): Promise<BrightSourceFetchResult[]> {
+  const out: BrightSourceFetchResult[] = [];
   for (const source of sources) {
     try {
       out.push(source.type === "json-api" ? await fetchJsonApiSource(source) : await fetchHtmlSource(source));

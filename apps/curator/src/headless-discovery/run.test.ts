@@ -76,25 +76,23 @@ test(
         imageUrl: "https://agendauc-prod.s3.amazonaws.com/test-image.jpg",
         placeName: "Museo de Artes Visuales MAVI UC",
       };
+      // Row shape for curateBrightSourceItems (2026-07-24, index-keyed,
+      // curatorial fields only) — title/sourceUrl/imageUrl/location/
+      // placeName are never sent by Haiku for MAVI at all (MAVI_FIXED_LOCATION
+      // in run.ts), they come from the activity itself deterministically.
       const candidateJson = {
-        title: "__test_mavi_headless_expo__",
-        description: "Muestra de prueba",
+        index: 0,
+        status: "approved",
         artist: null,
         runStartDate: "2026-08-01",
         runEndDate: "2026-09-30",
         openingDatetime: null,
-        dateQuote: null,
-        locationQuote: "Santiago",
-        runStartDateQuote: "1 de agosto de 2026",
-        runEndDateQuote: "30 de septiembre de 2026",
+        openingTimeConfirmed: false,
+        location: null,
+        placeName: null,
         mediumType: "tradicional",
         sensitivityTags: [],
         curationReasoning: "test",
-        imageUrl: activity.imageUrl,
-        status: "approved",
-        location: "Santiago",
-        placeName: activity.placeName,
-        sourceUrl: activity.detailUrl,
       };
 
       let sentSummary: HeadlessRunSummary | undefined;

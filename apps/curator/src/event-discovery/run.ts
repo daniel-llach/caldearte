@@ -33,12 +33,14 @@ import {
   buildBlock,
   buildSystemPrompt,
   curate,
+  curateBrightSourceItems,
   currentMonthLabel,
   EVENT_DISCOVERY_MODEL,
   filterKnownExclusions,
   isCurrentOrUpcoming,
   normalizeTitle,
   searchUnit,
+  type DiscoverUsage,
   type EventCandidate,
   type MessagesClient,
   type RawResult,
@@ -661,23 +663,38 @@ export async function run(deps: RunDeps = {}): Promise<void> {
   // candidates, not every other due source's.
   if (dueBrightSources.length > 0) {
     const brightResults = await fetchBrightSourcesFn(dueBrightSources);
+    const monthLabel = currentMonthLabel(now);
     for (const result of brightResults) {
+      // "items": a source with a real extractor config — deterministic
+      // title/sourceUrl/imageUrl/dates, Haiku only does curatorial
+      // judgment (curateBrightSourceItems, discover.ts). "rawResult": the
+      // old fallback path, still used for auto-detected sources with no
+      // extractor config yet — unchanged curate()/isBrightSource behavior.
+      const sourceUrl = result.kind === "items" ? result.source.url : result.result.url;
       try {
-        const block = buildBlock("Fuentes brillantes (no específicas a ninguna comuna)", [result]);
-        const { candidates, usage } = await curate(messagesClient, systemPrompt, block, { isBrightSource: true });
+        let candidates: EventCandidate[];
+        let usage: DiscoverUsage;
+        if (result.kind === "items") {
+          ({ candidates, usage } = await curateBrightSourceItems(messagesClient, result.items, monthLabel, {
+            fixedLocation: result.source.fixedLocation,
+          }));
+        } else {
+          const block = buildBlock("Fuentes brillantes (no específicas a ninguna comuna)", [result.result]);
+          ({ candidates, usage } = await curate(messagesClient, systemPrompt, block, { isBrightSource: true }));
+        }
         await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
         summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
         await enrichCandidates(candidates, pageFetchFn, now);
         allCandidates.push(...candidates);
         const inserted = await insertCandidates(candidates, regions, seenKeys, now, rehostImageFn);
         summary.candidates.insertedCount += inserted;
-        console.log(`[event-discovery] bright source ${result.url}: ${inserted} new approved event(s)`);
+        console.log(`[event-discovery] bright source ${sourceUrl}: ${inserted} new approved event(s)`);
       } catch (err) {
         // Stack, not just message — a real production case (2026-07-23,
         // arteinformado.com: "Cannot read properties of null (reading
         // 'replace')") had no line number to go on afterward, since only
         // .message was ever logged.
-        console.error(`[event-discovery] bright source ${result.url}: pass failed, skipping: ${(err as Error).stack ?? (err as Error).message}`);
+        console.error(`[event-discovery] bright source ${sourceUrl}: pass failed, skipping: ${(err as Error).stack ?? (err as Error).message}`);
       }
     }
     await recordBrightSourcesFetched(

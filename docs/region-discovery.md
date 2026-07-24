@@ -1668,6 +1668,69 @@ next step would be to skip Haiku's sourceUrl extraction entirely for
 already gives us the correct answer without needing Haiku to transcribe
 it at all.
 
+## Deterministic fields for bright sources with a real extractor — Haiku only curates (2026-07-24)
+
+The two sections above (relaxed grounding, then the parquecultural.cl
+`sourceUrl` position fix) were both patches on the same underlying
+problem: three separate production bugs in one week, all caused by asking
+Haiku to **retranscribe from free text a fact the code already had
+structured**. `extractArticleList`/`extractWordpressItems`
+(`extractors.ts`) always parsed an exact title/link/image/date per event
+internally — then immediately flattened all of it into one prose line and
+discarded the structure, handing Haiku a blob to re-extract from, with
+deterministic "grounding" filters bolted on afterward to catch Haiku
+mis-transcribing what the code already knew.
+
+The fix: both extractors now return `BrightSourceItem[]` — structured
+data — instead of flattened text. A new, much narrower curatorial-only
+Haiku call, `curateBrightSourceItems` (`discover.ts`), replaces `curate()`
+for any bright source with a real `extractor` config:
+
+- `title`/`sourceUrl`/`imageUrl` never touch Haiku at all — they come
+  straight from the extractor, merged back onto Haiku's response by
+  **index** (Haiku's per-item JSON output includes `index`, the same
+  number the item was shown under in the prompt) rather than by matching
+  titles, which was itself a historical dedup bug source (Haiku reliably
+  reworded titles across separate calls on identical input).
+- `location`/`placeName` are deterministic too for a confirmed
+  single-fixed-venue source — `known-sources.ts`'s new `KnownSource.
+  fixedLocation` field (set on parquecultural.cl, mnba.gob.cl,
+  molinomachmar.cl, and MAVI in `headless-discovery/run.ts`) — since
+  there's nothing to infer, the comuna never varies per event. A real
+  aggregator (arteinformado.com, uchile.cl root, artes.uchile.cl) has no
+  `fixedLocation` and Haiku still resolves location per item, since that
+  genuinely requires real-world venue knowledge (e.g. "MAC - Espacio
+  Quinta Normal" -> "Santiago") a regex can't have — but even there,
+  there's no citation/grounding requirement, since it was never a
+  transcription task to begin with, just inference.
+- `runStartDate`/`runEndDate` are deterministic wherever the source
+  itself gives them exactly (wordpressRestApi's `meta.fecha_de_inicio`/
+  `fecha_de_termino`, already YYYY-MM-DD) — the prompt tells Haiku not to
+  bother for those items, and the merge step ignores whatever it says
+  regardless. `openingDatetime` stays Haiku-derived everywhere (no source
+  gives a structured inauguración hour), but now interprets a short,
+  already-isolated per-item date phrase instead of hunting through one
+  giant shared blob.
+- All four grounding-quote fields (`dateQuote`/`locationQuote`/
+  `runStartDateQuote`/`runEndDateQuote`) are gone from this path
+  entirely — not just skipped by a flag, genuinely never asked for or
+  produced. There was never a real fabrication-from-nothing risk here the
+  way there is on the comuna/Tavily free-text path (which keeps all of
+  this completely unchanged): every field Haiku still touches has real
+  source text right behind it, and every field that could be fabricated
+  from thin air is no longer something Haiku is asked to report at all.
+
+Net effect: title/link/image/location bugs (all three found this week)
+become structurally impossible on this path, not just less likely — the
+smaller prompt and JSON schema also cut per-event token cost. `curate()`,
+`buildSystemPrompt`, and the comuna/Tavily search path's own grounding
+filters are completely untouched — this only replaces the bright-source
+loop's call site in `run.ts` and `headless-discovery/run.ts`, and only
+for a source with a real `extractor` config (auto-detected sources with
+no config yet still fall back to the old `curate()`/`isBrightSource`
+path unchanged, same posture `sources.ts`'s `fetchHtmlPageFallback`
+always had).
+
 ## Cost governance
 
 A self-tracked ledger keeps both processes bounded, without depending on

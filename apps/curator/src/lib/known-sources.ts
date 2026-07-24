@@ -38,6 +38,16 @@ export interface KnownSource {
   // enrichCandidates and docs/region-discovery.md. Opt-in per source since
   // the phrasing varies too much across sites for one universal regex.
   openingTimeExtractor?: OpeningTimeConfig;
+  // Present only for a confirmed single fixed-venue source — its comuna
+  // never varies per event, so there's nothing for Haiku to infer or
+  // report: attached directly in code by discover.ts's
+  // curateBrightSourceItems, same posture as sourceUrl/imageUrl already
+  // being deterministic from the extractor (2026-07-24). Deliberately
+  // absent for real aggregators (arteinformado.com, uchile.cl root,
+  // artes.uchile.cl) whose events span many different comunas/venues —
+  // resolving "MAC Quinta Normal" -> "Santiago" needs real-world venue
+  // knowledge a regex can't have, so those sources keep asking Haiku.
+  fixedLocation?: { location: string; placeName: string };
 }
 
 export const KNOWN_SOURCES: KnownSource[] = [
@@ -95,6 +105,10 @@ export const KNOWN_SOURCES: KnownSource[] = [
       startDateField: "meta.fecha_de_inicio",
       endDateField: "meta.fecha_de_termino",
     },
+    // Single physical venue, one comuna — see BrightSourceItem.locationHint
+    // doc comment in extractors.ts for why this is deterministic here but
+    // not for a real aggregator.
+    fixedLocation: { location: "Valparaíso", placeName: "Parque Cultural de Valparaíso" },
   },
   {
     url: "https://www.mnba.gob.cl/cartelera",
@@ -107,6 +121,7 @@ export const KNOWN_SOURCES: KnownSource[] = [
       daysRegex: /field--name-field-fechas"[^>]*>([\s\S]*?)<\/div>/,
       placeRegex: /field--name-institucion"><a[^>]*>([^<]*)<\/a>/,
     },
+    fixedLocation: { location: "Santiago", placeName: "Museo Nacional de Bellas Artes" },
   },
   {
     url: "https://www.molinomachmar.cl/cartelera/",
@@ -118,6 +133,7 @@ export const KNOWN_SOURCES: KnownSource[] = [
       titleLinkRegex: /<a href="([^"]+)" title="Leer: ([^"]*)" class="page-evento__enlace/,
       daysRegex: /class="evento-fecha[^"]*"[^>]*>([\s\S]*?class="evento-ano[^"]*"[^>]*>[\s\S]*?)<\/p>/,
     },
+    fixedLocation: { location: "Frutillar", placeName: "Centro de Arte Molino Machmar" },
   },
   {
     url: "https://www.arteinformado.com/agenda/exposiciones/exposiciones-de-arte-en-chile-cl_1",

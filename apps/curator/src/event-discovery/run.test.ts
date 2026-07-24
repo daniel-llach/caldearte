@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RunSummary } from "../lib/notify.js";
+import type { BrightSourceFetchResult } from "./sources.js";
 
 // Integration test against local Supabase. Run `supabase start`, then export
 // SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY before running this suite.
@@ -228,6 +229,14 @@ const brightCandidates = [
 const BRIGHT_CONTENT =
   "Exposición en Plaza Sotomayor, Valparaíso desde el 8 de julio hasta el 30 de agosto. " +
   "Otra muestra en Barrio Inventado, Chile desde el 9 de julio hasta el 30 de agosto.";
+
+// A bright source with NO extractor config — the old fallback path
+// (whole-page-flatten RawResult, still curated via curate()/
+// isBrightSource, unchanged by the 2026-07-24 deterministic-fields
+// refactor) — matches the shape of an auto-detected source in production.
+function rawBrightResult(url: string, note: string, content: string): BrightSourceFetchResult {
+  return { kind: "rawResult", source: { url, note }, result: { title: note, url, content, score: 1, images: [] } };
+}
 
 function fencedJson(payload: unknown): string {
   return "```json\n" + JSON.stringify(payload) + "\n```";
@@ -470,9 +479,7 @@ test(
         await run({
           messagesClient,
           searchUnitFn: async () => ({ results: [], credits: 0 }), // units yield nothing this time
-          fetchBrightSourcesFn: async () => [
-            { title: "fuente", url: "https://agenda.cl", content: BRIGHT_CONTENT, score: 1, images: [] },
-          ],
+          fetchBrightSourcesFn: async () => [rawBrightResult("https://agenda.cl", "fuente", BRIGHT_CONTENT)],
           now: new Date(2026, 8, 20), // Sep 20 — but candidates dated July...
         });
 
@@ -494,9 +501,7 @@ test(
         await run({
           messagesClient,
           searchUnitFn: async () => ({ results: [], credits: 0 }),
-          fetchBrightSourcesFn: async () => [
-            { title: "fuente", url: "https://agenda.cl", content: BRIGHT_CONTENT, score: 1, images: [] },
-          ],
+          fetchBrightSourcesFn: async () => [rawBrightResult("https://agenda.cl", "fuente", BRIGHT_CONTENT)],
           now: new Date(2026, 6, 13), // July 13
         });
 
@@ -524,7 +529,7 @@ test(
         let fetchCallCount = 0;
         const fetchBrightSourcesFn = async () => {
           fetchCallCount += 1;
-          return [{ title: "fuente", url: "https://agenda.cl", content: BRIGHT_CONTENT, score: 1, images: [] }];
+          return [rawBrightResult("https://agenda.cl", "fuente", BRIGHT_CONTENT)];
         };
 
         // First run: nothing fetched yet -> due -> fetch happens, state recorded.
@@ -879,13 +884,7 @@ test(
           messagesClient: mayMessagesClient,
           searchUnitFn: failIfCalledSearchUnitFn,
           fetchBrightSourcesFn: async () => [
-            {
-              title: "fuente",
-              url: "https://agenda.cl",
-              content: "Muestra en GAM, Santiago desde el 10 de mayo hasta el 30 de junio.",
-              score: 1,
-              images: [],
-            },
+            rawBrightResult("https://agenda.cl", "fuente", "Muestra en GAM, Santiago desde el 10 de mayo hasta el 30 de junio."),
           ],
           brightSourcesOnly: true,
           // May 20, 2027 — 32 days after the previous test's Apr 18, 2027,
@@ -936,9 +935,7 @@ test(
         await run({
           messagesClient: malformedMessagesClient,
           searchUnitFn,
-          fetchBrightSourcesFn: async () => [
-            { title: "fuente", url: "https://agenda.cl", content: BRIGHT_CONTENT, score: 1, images: [] },
-          ],
+          fetchBrightSourcesFn: async () => [rawBrightResult("https://agenda.cl", "fuente", BRIGHT_CONTENT)],
           now: new Date(2027, 5, 21), // Jun 21, 2027 — after every previous test's "now" in this suite
         });
 
@@ -1015,14 +1012,8 @@ test(
           messagesClient: perSourceMessagesClient,
           searchUnitFn: async () => ({ results: [], credits: 0 }),
           fetchBrightSourcesFn: async () => [
-            { title: "malo", url: "https://malo.cl", content: "contenido irrelevante", score: 1, images: [] },
-            {
-              title: "bueno",
-              url: "https://bueno.cl",
-              content: "Muestra en GAM, Santiago desde el 10 de julio hasta el 20 de agosto.",
-              score: 1,
-              images: [],
-            },
+            rawBrightResult("https://malo.cl", "malo", "contenido irrelevante"),
+            rawBrightResult("https://bueno.cl", "bueno", "Muestra en GAM, Santiago desde el 10 de julio hasta el 20 de agosto."),
           ],
           now: new Date(2027, 6, 1), // Jul 1, 2027 — after the previous test's Jun 21, 2027
         });
@@ -1123,6 +1114,90 @@ test(
         assert.ok(titles.includes("__test__ Ejercicios de enlaces"), "first candidate inserted");
         assert.ok(titles.includes("__test__ Vestiario"), "second candidate NOT dropped as a same-batch duplicate");
         assert.ok(titles.includes("__test__ Materia sensible"), "third candidate NOT dropped as a same-batch duplicate");
+      });
+
+      // 2026-07-24: a bright source with a real extractor config goes
+      // through curateBrightSourceItems, not curate() — title/sourceUrl/
+      // imageUrl/location/placeName must come from the item's own
+      // deterministic fields, never from what Haiku's curatorial-only
+      // response says, even when Haiku tries to say something different.
+      await t.test("a source.extractor-configured bright source uses the deterministic items path — title/sourceUrl/imageUrl/location come from the item, not from Haiku", async () => {
+        // The previous subtest's own run() already marked every real
+        // registry source as freshly fetched — clear it so this test's
+        // dueBrightSources isn't empty (same pattern used throughout this
+        // file whenever a test needs a guaranteed-due bright-source pass).
+        await client.from("bright_source_fetch_state").delete().neq("url", "");
+        const brightItemMessagesClient = {
+          messages: {
+            create: async () => ({
+              content: [
+                {
+                  type: "text",
+                  text: fencedJson([
+                    {
+                      index: 0,
+                      status: "approved",
+                      artist: null,
+                      runStartDate: "1999-01-01", // Haiku trying to override — must be ignored, item has no structured dates so this WOULD apply if not for fixedLocation-style determinism on the other fields
+                      runEndDate: "1999-01-02",
+                      openingDatetime: null,
+                      openingTimeConfirmed: false,
+                      location: "Un lugar que Haiku inventó",
+                      placeName: "Nombre inventado",
+                      mediumType: "tradicional",
+                      sensitivityTags: [],
+                      curationReasoning: "ok",
+                    },
+                  ]),
+                },
+              ],
+              usage: { input_tokens: 20, output_tokens: 10 },
+            }),
+          },
+        };
+
+        await run({
+          messagesClient: brightItemMessagesClient,
+          searchUnitFn: async () => ({ results: [], credits: 0 }),
+          fetchBrightSourcesFn: async () => [
+            {
+              kind: "items",
+              source: {
+                url: "https://fuente-estructurada.cl/agenda",
+                note: "fuente estructurada",
+                fixedLocation: { location: "Valparaíso", placeName: "Parque Cultural de Valparaíso" },
+              },
+              items: [
+                {
+                  title: "__test__ Item Determinista",
+                  sourceUrl: "https://fuente-estructurada.cl/expo-1",
+                  imageUrl: "https://fuente-estructurada.cl/img.jpg",
+                  description: "Una muestra real.",
+                  locationHint: null,
+                  rawDateText: "Del 5 al 31 de agosto",
+                  structuredStartDate: "2027-08-05",
+                  structuredEndDate: "2027-08-31",
+                },
+              ],
+            },
+          ],
+          now: new Date(2027, 7, 10), // Aug 10, 2027 — after every previous test's "now" in this suite
+        });
+
+        const { data: inserted } = await client
+          .from("events")
+          .select("*")
+          .eq("title", "__test__ Item Determinista")
+          .maybeSingle();
+        assert.ok(inserted, "the deterministic-path candidate was inserted");
+        assert.equal(inserted!.source_url, "https://fuente-estructurada.cl/expo-1", "sourceUrl from the item, not Haiku");
+        assert.equal(inserted!.image_url, "https://fuente-estructurada.cl/img.jpg", "imageUrl from the item, not Haiku");
+        assert.equal(inserted!.freeform_location, "Valparaíso", "location from fixedLocation, not Haiku's invented value");
+        assert.equal(inserted!.place_name, "Parque Cultural de Valparaíso", "placeName from fixedLocation, not Haiku's invented value");
+        assert.equal(inserted!.run_start_date, "2027-08-05", "structuredStartDate wins over whatever Haiku returned");
+        assert.equal(inserted!.run_end_date, "2027-08-31", "structuredEndDate wins over whatever Haiku returned");
+
+        await client.from("events").delete().eq("title", "__test__ Item Determinista");
       });
     } finally {
       await client.from("events").delete().like("title", "__test__%");

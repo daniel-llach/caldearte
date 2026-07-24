@@ -12,25 +12,23 @@
 // pipeline) can never fail the main run.
 //
 // Reuses event-discovery/run.ts's curation/insertion pipeline completely
-// unchanged (same buildSystemPrompt, same curate(), same
+// unchanged (same curateBrightSourceItems, same
 // nullifyOpeningDatetimeForKnownSources safety net, same insertCandidates
 // dedup) — the only new thing here is HOW the source content gets fetched,
-// not how it gets curated.
+// not how it gets curated. MAVI is a single physical museum (confirmed
+// 2026-07-24 against a real captured API response, mavi-headless.test.ts's
+// own fixture: `place.name` is always "Museo de Artes Visuales MAVI UC")
+// so, like the other single-venue bright sources, its location is
+// deterministic — Haiku only judges scope/content, never re-derives where
+// the museum is.
 import Anthropic from "@anthropic-ai/sdk";
 import { recordUsage, getConfigNumber, getCurrentMonthSpend } from "../lib/usage-tracking.js";
 import { estimateCostUsd } from "../lib/pricing.js";
 import { enrichCandidates, type FetchLike as PageFetchLike } from "../lib/page-fetch.js";
 import { fetchMaviActivities, type MaviActivity } from "../lib/mavi-headless.js";
 import { sendHeadlessRunSummaryEmail, type HeadlessRunSummary } from "../lib/notify.js";
-import {
-  buildBlock,
-  buildSystemPrompt,
-  currentMonthLabel,
-  curate,
-  EVENT_DISCOVERY_MODEL,
-  type MessagesClient,
-  type RawResult,
-} from "../event-discovery/discover.js";
+import { curateBrightSourceItems, currentMonthLabel, EVENT_DISCOVERY_MODEL, type MessagesClient } from "../event-discovery/discover.js";
+import type { BrightSourceItem } from "../event-discovery/extractors.js";
 import {
   insertCandidates,
   loadAllRegions,
@@ -45,14 +43,18 @@ import {
 // bright sources already use (see lib/mavi-headless.ts's own doc comment
 // for why THIS URL specifically can't be fetched any other way).
 const MAVI_SOURCE_URL = "https://mavi.uc.cl/exposiciones-actuales/";
+const MAVI_FIXED_LOCATION = { location: "Santiago", placeName: "Museo de Artes Visuales MAVI UC" };
 
-function maviActivityToRawResult(activity: MaviActivity): RawResult {
+function maviActivityToBrightSourceItem(activity: MaviActivity): BrightSourceItem {
   return {
     title: activity.title,
-    url: activity.detailUrl,
-    content: activity.placeName ? `${activity.content}\n\nLugar: ${activity.placeName}` : activity.content,
-    score: 1,
-    images: activity.imageUrl ? [{ url: activity.imageUrl, description: "Imagen principal de la exposición" }] : [],
+    sourceUrl: activity.detailUrl,
+    imageUrl: activity.imageUrl,
+    description: activity.content,
+    locationHint: null, // fixedLocation below — MAVI is always the same museum
+    rawDateText: activity.content,
+    structuredStartDate: null, // MAVI's API never gives structured dates, see lib/mavi-headless.ts
+    structuredEndDate: null,
   };
 }
 
@@ -97,12 +99,10 @@ export async function run(deps: HeadlessRunDeps = {}): Promise<void> {
   console.log(`[headless-discovery] fetched ${activities.length} MAVI activity(ies)`);
 
   if (activities.length > 0) {
-    const systemPrompt = buildSystemPrompt(currentMonthLabel(now));
-    const block = buildBlock("Fuentes brillantes headless (MAVI UC)", activities.map(maviActivityToRawResult));
-    // isBrightSource: true (2026-07-24) — MAVI is a bright source like any
-    // other, see event-discovery/discover.ts's curate() doc comment for
-    // why the comuna-match and run-date-quote checks don't apply here.
-    const { candidates, usage } = await curate(messagesClient, systemPrompt, block, { isBrightSource: true });
+    const items = activities.map(maviActivityToBrightSourceItem);
+    const { candidates, usage } = await curateBrightSourceItems(messagesClient, items, currentMonthLabel(now), {
+      fixedLocation: MAVI_FIXED_LOCATION,
+    });
 
     await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
     summary.cost.anthropicUsd = estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
