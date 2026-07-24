@@ -166,11 +166,16 @@ test("fetchBrightSources keeps the primary page's result even when an additional
   assert.equal(results[0].items[0].title, "Página uno");
 });
 
-test("fetchBrightSources dispatches a wordpressRestApi-configured source to the registry parser, returning structured items", async () => {
+// Deliberately NO `type` field set — real production bug, found
+// 2026-07-24: KnownSource (known-sources.ts) never sets `type` at all
+// (dropped when extraction moved to the extractor.kind registry), so a
+// test fixture that sets `type: "json-api"` explicitly doesn't reproduce
+// the real shape a hand-curated source actually has and would hide this
+// exact regression. Dispatch must work off `extractor.kind` alone.
+test("fetchBrightSources dispatches a wordpressRestApi-configured source to the registry parser via extractor.kind alone, with no type field set", async () => {
   const source: BrightSource = {
     url: "https://sitio.cl/wp-json/wp/v2/events",
     note: "sitio",
-    type: "json-api",
     extractor: { kind: "wordpressRestApi", titleField: "title.rendered", linkField: "link", imageField: "image" },
   };
   const items = [{ title: { rendered: "Muestra API" }, link: "https://sitio.cl/e/1", image: "https://sitio.cl/img.jpg" }];
@@ -182,6 +187,20 @@ test("fetchBrightSources dispatches a wordpressRestApi-configured source to the 
   if (results[0].kind !== "items") throw new Error("unreachable");
   assert.equal(results[0].items.length, 1);
   assert.equal(results[0].items[0].imageUrl, "https://sitio.cl/img.jpg");
+});
+
+test("fetchBrightSources against the real KNOWN_SOURCES config for parquecultural.cl dispatches to the JSON parser, not the HTML fallback (regression check against production config, real bug found 2026-07-24)", async () => {
+  const parquecultural = KNOWN_SOURCES.find((s) => s.url.includes("parquecultural.cl"));
+  assert.ok(parquecultural?.extractor?.kind === "wordpressRestApi");
+  assert.equal(parquecultural.type, undefined, "hand-curated sources never set type — dispatch must not depend on it");
+
+  const items = [{ title: { rendered: "Muestra Real" }, meta: { link_al_evento: "https://parquecultural.cl/e/1" } }];
+  const results = await withStubFetch(() => jsonResponse(items), () => fetchBrightSources([parquecultural]));
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].kind, "items", "must be the structured JSON path, not a whole-page-flatten RawResult");
+  if (results[0].kind !== "items") throw new Error("unreachable");
+  assert.equal(results[0].items[0].title, "Muestra Real");
 });
 
 test("fetchBrightSources logs and skips (doesn't crash the run) a json-api source with no extractor configured", async () => {

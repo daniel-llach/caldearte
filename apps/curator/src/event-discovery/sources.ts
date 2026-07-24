@@ -154,11 +154,27 @@ export function mergeBrightSources(detected: BrightSource[]): BrightSource[] {
   return merged;
 }
 
+// Real production bug, found 2026-07-24: `KnownSource` (known-sources.ts)
+// has never set `type` at all — it was dropped when extraction moved to
+// the config-driven `extractor.kind` registry, but this dispatch check
+// was never updated to match, so parquecultural.cl (the one
+// wordpressRestApi source) has ALWAYS been routed to `fetchHtmlSource`
+// instead of `fetchJsonApiSource` in production. `fetchHtmlPage` bails
+// immediately for a non-`articleList` extractor, so every real run fell
+// through to the whole-page-flatten fallback — raw JSON text truncated
+// and treated as HTML — meaning `extractWordpressItems`'s structured
+// dates/sourceUrl/etc. (and this whole file's `curateBrightSourceItems`
+// deterministic path) were NEVER actually exercised for parquecultural.cl
+// despite being built and tested. `source.type` still wins first for
+// auto-detected sources (`detected_sources.source_type`, the one place a
+// real `type` value can still come from) — but `extractor.kind` is the
+// authoritative signal for hand-curated sources now.
 export async function fetchBrightSources(sources: BrightSource[]): Promise<BrightSourceFetchResult[]> {
   const out: BrightSourceFetchResult[] = [];
   for (const source of sources) {
     try {
-      out.push(source.type === "json-api" ? await fetchJsonApiSource(source) : await fetchHtmlSource(source));
+      const isJsonApi = source.type === "json-api" || source.extractor?.kind === "wordpressRestApi";
+      out.push(isJsonApi ? await fetchJsonApiSource(source) : await fetchHtmlSource(source));
     } catch (err) {
       // One broken source shouldn't kill the whole monthly run — log and
       // keep going; the periodic manual review (lastReviewedAt) is the
