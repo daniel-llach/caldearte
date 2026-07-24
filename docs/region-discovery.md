@@ -1630,6 +1630,44 @@ title-similarity-aware fuzzy check (`isFuzzyDuplicateTitle`), which
 correctly tells "Vestiario" apart from "Materia sensible" while still
 catching a real repost with a merely-differently-punctuated title.
 
+### parquecultural.cl's real per-event links, still dropped after the grounding fix (2026-07-24)
+
+Re-ran all bright sources after merging the relaxed-grounding fix above
+(#114) to measure the real effect: arteinformado.com went from 2 to 14
+new approved events, mnba.gob.cl went from 0 to 4 — the expected result.
+parquecultural.cl still produced 0, but for a different, new reason: all
+4 real, in-scope candidates ("Operación Colombo", "Puentes", "Hilando
+resistencias...", "Una metáfora verde...") were rejected by
+`enforceSourceUrlInvariant` for having `sourceUrl: null`, despite the
+source's real per-event link (`meta.link_al_evento`) being present,
+correct, and distinct per item — confirmed directly against the live API
+response.
+
+Root cause: `extractWordpressItems` (`extractors.ts`) built each event's
+content line as `- "title" (start a end): description. Más info: link`
+— the URL last, after a description field (`meta.extracto_corto`) that
+is often long and itself contains embedded field-like text (its own
+"Lugar: ..." segment, several dashes for opening hours). That reliably
+pushed the trailing URL out of Haiku's attention: every real candidate
+came back with `sourceUrl: null` even though the link was right there in
+the block. The equivalent `articleList` sources (arteinformado.com,
+mnba.gob.cl) also put the URL at the end of the line, but their lines are
+much shorter and don't have another field-like segment competing for
+attention right before the URL — they never hit this failure.
+
+Fix: moved the link to sit right after the title —
+`- "title" — link (start a end): description` — matching the pattern
+Haiku already follows reliably everywhere else (`buildBlock`'s own
+`### title\nurl\ncontent` convention, and the per-event block header in
+general). Not yet re-verified against a real production run (next due
+run of this source will confirm) — same "measure before building more
+infra" posture as the rest of this doc: if this doesn't fully fix it, the
+next step would be to skip Haiku's sourceUrl extraction entirely for
+`wordpressRestApi` sources and match candidates back to their known
+`meta.link_al_evento` deterministically by title, since the JSON API
+already gives us the correct answer without needing Haiku to transcribe
+it at all.
+
 ## Cost governance
 
 A self-tracked ledger keeps both processes bounded, without depending on

@@ -154,7 +154,7 @@ test("extractWordpressItems maps title/image/description/dates/link by configure
   ]);
   assert.equal(
     result.content,
-    '- "Expo A" (2026-07-01 a 2026-08-30): Inauguración 20 de julio a las 19h.. Más info: https://parquecultural.cl/expo-a',
+    '- "Expo A" — https://parquecultural.cl/expo-a (2026-07-01 a 2026-08-30): Inauguración 20 de julio a las 19h.',
   );
 });
 
@@ -162,7 +162,7 @@ test("extractWordpressItems falls back gracefully: missing image is skipped, mis
   const items = [{ title: { rendered: "Expo B" }, meta: {} }];
   const result = extractWordpressItems(items, PARQUE_CULTURAL_CONFIG, "https://parquecultural.cl/agenda");
   assert.equal(result.images.length, 0);
-  assert.equal(result.content, '- "Expo B" (? a ?): sin descripción. Más info: https://parquecultural.cl/agenda');
+  assert.equal(result.content, '- "Expo B" — https://parquecultural.cl/agenda (? a ?): sin descripción');
 });
 
 test("extractWordpressItems is genuinely config-driven: a different WordPress site's field names work with only a different config", () => {
@@ -178,5 +178,5 @@ test("extractWordpressItems is genuinely config-driven: a different WordPress si
   const items = [{ title: { rendered: "Otra Expo" }, link: "https://otro.cl/p/1", featured_image_url: "https://otro.cl/img.jpg" }];
   const result = extractWordpressItems(items, otherSiteConfig, "https://otro.cl/agenda");
   assert.deepEqual(result.images, [{ url: "https://otro.cl/img.jpg", description: "Imagen de la exposición: Otra Expo" }]);
-  assert.equal(result.content, '- "Otra Expo" (? a ?): sin descripción. Más info: https://otro.cl/p/1');
+  assert.equal(result.content, '- "Otra Expo" — https://otro.cl/p/1 (? a ?): sin descripción');
 });

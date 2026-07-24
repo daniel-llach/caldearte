@@ -186,11 +186,23 @@ export function extractWordpressItems(
     .filter((row) => row.image)
     .map((row) => ({ url: row.image as string, description: `Imagen de la exposición: ${row.title}` }));
 
+  // The per-event link sits right after the title, not at the end of the
+  // line — real bug found in production (2026-07-24): parquecultural.cl's
+  // description field (extracto_corto) is often long and itself contains
+  // embedded field-like text (e.g. its own "Lugar: ..." segment, several
+  // dashes), which reliably pushed a trailing "Más info: <url>" out of
+  // Haiku's attention — every real, in-scope candidate from this source
+  // came back with sourceUrl null despite the real per-event link being
+  // present in the block, while shorter articleList-sourced lines (url
+  // also at the end, but a much shorter line) never had this problem.
+  // Matches the pattern Haiku already follows reliably elsewhere: the
+  // block's own URL right after its title (buildBlock's own
+  // `### title\nurl\ncontent` convention).
   const content = rows
     .map((row) => {
       const start = formatWpDate(row.startDate);
       const end = formatWpDate(row.endDate);
-      return `- "${row.title}" (${start} a ${end}): ${row.description ?? "sin descripción"}. Más info: ${row.link ?? fallbackUrl}`;
+      return `- "${row.title}" — ${row.link ?? fallbackUrl} (${start} a ${end}): ${row.description ?? "sin descripción"}`;
     })
     .join("\n");
 
