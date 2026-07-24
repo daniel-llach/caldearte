@@ -657,6 +657,70 @@ test("curate parses the fenced JSON block and applies the location backstop", as
   assert.equal(usage.outputTokens, 50);
 });
 
+// Real production bug (2026-07-23): enforceLocationMatchesQuote's own
+// rule (comuna in `location` must be a substring of `locationQuote`)
+// exists to catch Haiku defaulting to the COMUNA BEING SEARCHED — a
+// per-comuna Tavily concept that doesn't apply to bright sources, which
+// have no "searched comuna" at all. Applying it anyway rejected nearly
+// every real arteinformado.com candidate in production (Haiku correctly
+// inferring a well-known venue's comuna from general knowledge, without
+// the page ever spelling the comuna out in citable text).
+test("curate skips enforceLocationMatchesQuote when isBrightSource is set — a comuna inferred from a well-known venue, not literally cited, still approves", async () => {
+  const candidates = [
+    { ...baseCandidate, location: "Santiago", locationQuote: "MAC - Espacio Quinta Normal", placeName: "MAC - Espacio Quinta Normal" },
+  ];
+  const client: MessagesClient = {
+    messages: {
+      create: async () => ({
+        content: [{ type: "text", text: "```json\n" + JSON.stringify(candidates) + "\n```" }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+    },
+  };
+
+  const { candidates: parsed } = await curate(
+    client,
+    "system",
+    "Exposición en MAC - Espacio Quinta Normal desde el 5 de julio hasta el 31 de julio.",
+    { isBrightSource: true },
+  );
+
+  assert.equal(parsed[0].status, "approved");
+});
+
+// Real production bug (2026-07-23): parquecultural.cl's dates come from
+// structured JSON fields (meta.fecha_de_inicio/fecha_de_termino),
+// already-correct before Haiku ever sees them — not guessed from prose.
+// Requiring a literal runStartDateQuote/runEndDateQuote citation anyway
+// rejected nearly every real candidate from that source in production.
+test("curate skips runStartDateQuote/runEndDateQuote grounding when isBrightSource is set", async () => {
+  const candidates = [
+    {
+      ...baseCandidate,
+      location: "Santiago",
+      locationQuote: "Santiago",
+      runStartDate: "2026-07-05",
+      runEndDate: "2026-07-31",
+      runStartDateQuote: null,
+      runEndDateQuote: null,
+    },
+  ];
+  const client: MessagesClient = {
+    messages: {
+      create: async () => ({
+        content: [{ type: "text", text: "```json\n" + JSON.stringify(candidates) + "\n```" }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+    },
+  };
+
+  const { candidates: parsed } = await curate(client, "system", "Exposición en Santiago.", { isBrightSource: true });
+
+  assert.equal(parsed[0].status, "approved");
+  assert.equal(parsed[0].runStartDate, "2026-07-05", "not nulled despite no citable quote");
+  assert.equal(parsed[0].runEndDate, "2026-07-31", "not nulled despite no citable quote");
+});
+
 test("curate converts Haiku's plain Chile-local openingDatetime to a real UTC instant (real bug, found 2026-07-20: was written through unconverted)", async () => {
   const candidates = [{ ...baseCandidate, openingDatetime: "2026-07-26T12:30", dateQuote: "26 de julio a las 12:30" }];
   const client: MessagesClient = {

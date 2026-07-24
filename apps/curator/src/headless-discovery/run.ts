@@ -99,7 +99,10 @@ export async function run(deps: HeadlessRunDeps = {}): Promise<void> {
   if (activities.length > 0) {
     const systemPrompt = buildSystemPrompt(currentMonthLabel(now));
     const block = buildBlock("Fuentes brillantes headless (MAVI UC)", activities.map(maviActivityToRawResult));
-    const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
+    // isBrightSource: true (2026-07-24) — MAVI is a bright source like any
+    // other, see event-discovery/discover.ts's curate() doc comment for
+    // why the comuna-match and run-date-quote checks don't apply here.
+    const { candidates, usage } = await curate(messagesClient, systemPrompt, block, { isBrightSource: true });
 
     await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
     summary.cost.anthropicUsd = estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);

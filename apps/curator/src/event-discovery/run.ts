@@ -193,6 +193,25 @@ export async function recordBrightSourcesFetched(urls: string[], now: Date): Pro
 //   exact same location, run dates, and opening time. That combination is
 //   an extremely unlikely coincidence for genuinely different events, so
 //   it's treated as a third dedup signal.
+//
+//   ONLY checked against events already in the DB from a PAST run
+//   (`seen.locationDates`, loaded once via loadExistingKeys and never
+//   mutated below) — deliberately NOT re-applied blindly between sibling
+//   candidates within the SAME run's own batch. Real production bug
+//   (found 2026-07-23): a single arteinformado.com pass had 9 genuinely
+//   DIFFERENT concurrent exhibitions ("Ejercicios de enlaces", "Vestiario",
+//   "Materia sensible", ...) all opening the same day in the same MAC wing
+//   — same location, same exact run dates, completely unrelated titles.
+//   Blind same-batch matching kept only the first and silently dropped
+//   the other 8 as "duplicates". Within a single batch, only the
+//   title-similarity-aware fuzzy check below (isFuzzyDuplicateTitle)
+//   applies — safe for both real shapes: a repost with a garbled title
+//   still needs the title to be at least somewhat similar to get merged
+//   (true for real reposts, false for e.g. "Vestiario" vs "Materia
+//   sensible"), while a PAST run's already-stored event is still caught
+//   unconditionally on the exact fingerprint alone, no title check
+//   needed — that's what the San Felipe case itself actually was: a
+//   re-run finding an event already in the calendar from days earlier.
 function locationDateKey(location: string, c: Pick<EventCandidate, "openingDatetime" | "runStartDate" | "runEndDate">): string {
   const dateFingerprint = c.openingDatetime ?? `${c.runStartDate ?? ""}|${c.runEndDate ?? ""}`;
   return `${normalizeLocation(location)}|${dateFingerprint}`;
@@ -357,7 +376,12 @@ export async function insertCandidates(
 
     seen.titles.add(titleKey);
     if (c.sourceUrl) seen.sourceUrls.add(c.sourceUrl);
-    seen.locationDates.add(locDateKey);
+    // seen.locationDates is deliberately NOT updated here — see this
+    // function's own doc comment above (2026-07-23 MAC case): the blind
+    // location+date fingerprint only applies against events already
+    // stored from a PAST run, never between sibling candidates in this
+    // same batch. Sibling comparisons rely on titlesByLocationDateOnly
+    // below instead, which requires title similarity too.
     const bucket = seen.titlesByLocationDateOnly.get(locDateOnlyKey);
     if (bucket) bucket.push(c.title);
     else seen.titlesByLocationDateOnly.set(locDateOnlyKey, [c.title]);
@@ -640,7 +664,7 @@ export async function run(deps: RunDeps = {}): Promise<void> {
     for (const result of brightResults) {
       try {
         const block = buildBlock("Fuentes brillantes (no específicas a ninguna comuna)", [result]);
-        const { candidates, usage } = await curate(messagesClient, systemPrompt, block);
+        const { candidates, usage } = await curate(messagesClient, systemPrompt, block, { isBrightSource: true });
         await recordUsage({ purpose: "event_discovery", model: EVENT_DISCOVERY_MODEL, usage });
         summary.cost.anthropicUsd += estimateCostUsd(EVENT_DISCOVERY_MODEL, usage);
         await enrichCandidates(candidates, pageFetchFn, now);

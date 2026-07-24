@@ -471,7 +471,11 @@ function splitBlockByUrl(block: string): Map<string, string> {
   return sections;
 }
 
-export function enforceGroundedQuotes(candidates: EventCandidate[], block: string): EventCandidate[] {
+export function enforceGroundedQuotes(
+  candidates: EventCandidate[],
+  block: string,
+  opts: { skipRunDateGrounding?: boolean } = {},
+): EventCandidate[] {
   const sections = splitBlockByUrl(block);
 
   return candidates.map((c) => {
@@ -506,6 +510,21 @@ export function enforceGroundedQuotes(candidates: EventCandidate[], block: strin
     // exhibition as running through July when the real source said it had
     // already closed in May). Each date is nulled independently — an
     // ungrounded runEndDate doesn't invalidate a grounded runStartDate.
+    //
+    // skipRunDateGrounding (2026-07-24): bright sources with a structured
+    // extractor (e.g. parquecultural.cl's wordpressRestApi, dates read
+    // straight from meta.fecha_de_inicio/fecha_de_termino, not guessed
+    // from prose) already got these dates right BEFORE Haiku ever saw
+    // them — the JSON API itself is the ground truth, not Haiku's own
+    // reading of free text. Requiring a literal quote anyway rejected
+    // nearly every real candidate from that source in production, for a
+    // fabrication risk that a hand-verified structured extractor doesn't
+    // actually carry. openingDatetime/location above stay grounded
+    // regardless — bright sources can still fabricate an inauguración
+    // hour or misname a venue, just not a plain start/end date pulled
+    // directly from the source's own structured fields.
+    if (opts.skipRunDateGrounding) return c;
+
     let next = c;
     if (next.runStartDate && !isGrounded(next.runStartDateQuote)) {
       next = {
@@ -681,6 +700,7 @@ export async function curate(
   client: MessagesClient,
   systemPrompt: string,
   block: string,
+  opts: { isBrightSource?: boolean } = {},
 ): Promise<CurateResult> {
   // cache_control is currently a no-op (the prompt is under Haiku's
   // 2048-token minimum cacheable prefix — measured for real, both cache
@@ -726,15 +746,24 @@ export async function curate(
     return { candidates: [], usage };
   }
 
-  const groundedCandidates = rejectConvocatorias(enforceGroundedQuotes(parsed, block), block);
+  const groundedCandidates = rejectConvocatorias(
+    enforceGroundedQuotes(parsed, block, { skipRunDateGrounding: opts.isBrightSource }),
+    block,
+  );
+  // enforceLocationMatchesQuote (2026-07-23) exists to catch Haiku
+  // defaulting `location` to the COMUNA BEING SEARCHED with no textual
+  // support — a per-comuna Tavily search concept that doesn't apply to
+  // bright sources at all (there's no "comuna being searched"; Haiku
+  // reasonably infers a well-known venue's real comuna from general
+  // knowledge, e.g. "MAC - Espacio Quinta Normal" -> Santiago, without
+  // the page ever spelling out "Santiago" in citable text). Applying it
+  // to bright sources anyway rejected nearly every real arteinformado.com
+  // candidate in production for a failure mode that can't happen there.
+  const locationFiltered = opts.isBrightSource ? applyLocationFilter(groundedCandidates) : applyLocationFilter(enforceLocationMatchesQuote(groundedCandidates));
   const filteredCandidates = logBareDomainSourceUrls(
     enforceSourceUrlInvariant(
       applyKnownExclusionsFilter(
-        nullifyAggregatorSourceUrls(
-          enforceDateCompleteness(
-            nullifyOpeningDatetimeForKnownSources(applyLocationFilter(enforceLocationMatchesQuote(groundedCandidates))),
-          ),
-        ),
+        nullifyAggregatorSourceUrls(enforceDateCompleteness(nullifyOpeningDatetimeForKnownSources(locationFiltered))),
       ),
     ),
   );

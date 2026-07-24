@@ -170,7 +170,8 @@ const SEARCH_CONTENT =
   "Evento en Centro Cultural Recoleta, Buenos Aires, Argentina desde el 10 de julio. " +
   "En Concepción, Chile hasta el 15 de agosto. " +
   "Otra muestra en GAM, Santiago desde el 25 de diciembre hasta el 31 de diciembre. " +
-  "Registro en GAM, Santiago desde el 1 de mayo hasta el 15 de mayo.";
+  "Registro en GAM, Santiago desde el 1 de mayo hasta el 15 de mayo. " +
+  "Tres muestras el 12 de agosto en GAM, Santiago: Ejercicios de enlaces, Vestiario y Materia sensible.";
 
 const brightCandidates = [
   {
@@ -1069,6 +1070,59 @@ test(
         );
 
         await client.from("bright_source_fetch_state").delete().neq("url", "");
+      });
+
+      // Real production bug (2026-07-23, arteinformado.com): 9 genuinely
+      // different exhibitions opening the same day in the same museum wing
+      // (same location, same exact opening datetime, completely unrelated
+      // titles) — the location+date fingerprint blindly matched sibling
+      // candidates within the SAME batch and kept only the first, silently
+      // dropping the other 8. The fingerprint must only apply against a
+      // PAST run's already-stored events, never between candidates in this
+      // same run.
+      await t.test("multiple genuinely different candidates sharing the exact same location+date in one batch all insert — no false same-batch dedup", async () => {
+        const concurrentCandidates = ["Ejercicios de enlaces", "Vestiario", "Materia sensible"].map((title) => ({
+          title: `__test__ ${title}`,
+          description: null,
+          artist: null,
+          runStartDate: null,
+          runEndDate: null,
+          openingDatetime: "2027-08-12T19:00", // matches this test's own "now" year (Aug 2027) — a 2026 date would already be stale by then
+          openingTimeConfirmed: true,
+          dateQuote: "12 de agosto",
+          locationQuote: "GAM, Santiago",
+          runStartDateQuote: null,
+          runEndDateQuote: null,
+          mediumType: "tradicional",
+          sensitivityTags: [],
+          curationReasoning: "ok",
+          imageUrl: null,
+          status: "approved",
+          location: "GAM, Santiago",
+          placeName: null,
+          sourceUrl: `https://museo.cl/${title.toLowerCase().replace(/\s+/g, "-")}`,
+        }));
+        const concurrentMessagesClient = {
+          messages: {
+            create: async () => ({
+              content: [{ type: "text", text: fencedJson(concurrentCandidates) }],
+              usage: { input_tokens: 100, output_tokens: 50 },
+            }),
+          },
+        };
+
+        await run({
+          messagesClient: concurrentMessagesClient,
+          searchUnitFn,
+          fetchBrightSourcesFn: async () => [],
+          now: new Date(2027, 7, 5), // Aug 5, 2027 — safely past the comuna's 28-day cadence since the Jul 1, 2027 run
+        });
+
+        const { data: inserted } = await client.from("events").select("title").like("title", "__test__%");
+        const titles = (inserted ?? []).map((e) => e.title);
+        assert.ok(titles.includes("__test__ Ejercicios de enlaces"), "first candidate inserted");
+        assert.ok(titles.includes("__test__ Vestiario"), "second candidate NOT dropped as a same-batch duplicate");
+        assert.ok(titles.includes("__test__ Materia sensible"), "third candidate NOT dropped as a same-batch duplicate");
       });
     } finally {
       await client.from("events").delete().like("title", "__test__%");
