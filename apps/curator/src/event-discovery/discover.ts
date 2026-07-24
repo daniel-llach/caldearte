@@ -604,8 +604,15 @@ export function applyLocationFilter(candidates: EventCandidate[]): EventCandidat
 export function enforceLocationMatchesQuote(candidates: EventCandidate[]): EventCandidate[] {
   return candidates.map((c) => {
     if (c.status !== "approved") return c;
+    // Real production crash (2026-07-23, arteinformado.com): `location` is
+    // typed as always-a-string, but Haiku can violate that at runtime the
+    // same way it has before (the 2026-07-22 location:null crash this
+    // exact filter was chained after — applyLocationFilter/
+    // isChileanLocation already guard against it, this newer filter
+    // didn't). `?? ""` normalizes to "no segments match", which correctly
+    // falls through to the rejection branch below rather than throwing.
     const quote = stripAccents(normalizeForMatch(c.locationQuote ?? ""));
-    const segments = stripAccents(normalizeForMatch(c.location))
+    const segments = stripAccents(normalizeForMatch(c.location ?? ""))
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
