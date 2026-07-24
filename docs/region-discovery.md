@@ -1764,6 +1764,98 @@ Two mechanisms, matching where the text actually lives:
 `wordpressRestApi` (parquecultural.cl) and MAVI already had a real
 description from their own structured data — untouched by this.
 
+### Dates go fully deterministic too, after a real regression (2026-07-24, same day)
+
+Testing the deterministic-fields redesign in production surfaced one more
+"Haiku doing a mechanical job" case: `daysRegex` captures each source's
+raw date text, but nothing ever PARSED it — handed to Haiku as free text
+to interpret into `runStartDate`/`runEndDate`. A real batch against
+arteinformado.com (~28 items) came back with **every item's dates null**,
+despite the raw text being completely unambiguous ("11 jul de 2026 - 11
+oct de 2026") — confirmed directly, extracting it with no Haiku involved
+at all.
+
+Fixed the same way as everything else in this section: `extractDateRange`
+(`extractors.ts`) + a new `ArticleListConfig.dateRangeExtractor`, one
+regex per source (formats genuinely differ):
+
+- **artes.uchile.cl / uchile.cl**: `del DD/MM/YYYY al DD/MM/YYYY` — plain
+  numeric months, no Spanish month-name table needed for this one.
+- **mnba.gob.cl**: the Drupal date field already embeds a real
+  machine-readable instant — `<time datetime="2025-07-10T12:00:00Z">` —
+  read directly, zero parsing.
+- **molinomachmar.cl**: day + 3-letter month in two separate `<span>`s,
+  with a single shared year in a sibling element. A single-day event
+  (concert/talk, not an exhibition) puts an hour ("18 HRS") in the second
+  span instead of a month — the parser correctly fails to resolve that as
+  a month and returns `null`, degrading safely (harmless in practice,
+  since these get rejected on scope grounds anyway).
+- **arteinformado.com**: `DD mon de YYYY - DD mon de YYYY`, 3-letter
+  Spanish abbreviations.
+
+`resolveMonthGroup` handles both a plain number and a Spanish 3-letter
+abbreviation transparently, so uchile.cl's numeric case and the other
+three's named-month case share one parser. Haiku's `runStartDate`/
+`runEndDate` instruction in `buildBrightSourceSystemPrompt` is now a rare
+fallback (only fires for the handful of items where the regex genuinely
+doesn't match — markup drift, an edge-case format) rather than the common
+path — reworded accordingly.
+
+### Adding a new bright source: what to determine, every time
+
+Codified here so this doesn't have to be rediscovered per source (it's
+been rediscovered piecemeal, in production, several times this week
+alone). Before wiring a new `KnownSource` entry, fetch a handful of real
+pages from the actual site and determine each of these — write the
+answer into the config, not into a comment to revisit later:
+
+1. **Listing shape**: one JSON REST endpoint (`wordpressRestApi`) or an
+   HTML page with repeating per-event blocks (`articleList`)? Write
+   `blockRegex`/`titleLinkRegex` (or the WP field paths) against real
+   markup, not assumed markup.
+2. **sourceUrl per event**: does the listing already link to each event's
+   own detail page, or only to itself (an aggregator page)? If only
+   itself, is there a separate JSON field or `<a>` per item that resolves
+   to the real one? This must never end up null or shared across 2+
+   approved events (`enforceSourceUrlInvariant`/
+   `nullifyAggregatorSourceUrls` catch it if it does, but the goal is a
+   correct extractor, not needing that backstop).
+3. **Dates**: does the listing give a structured field (JSON date, an
+   embedded `<time datetime>` attribute) — read it directly, zero
+   parsing. Otherwise, what's the EXACT text format ("11 jul de 2026",
+   "11/07/2026", "20 JUN" + separate year, ...)? Write a
+   `dateRangeExtractor` regex for it, verified against several real
+   entries, not just one. Only fall back to leaving it for Haiku to
+   interpret (rare, and now explicitly the exception, not the rule) if
+   the format is genuinely too irregular to regex reliably.
+4. **Location**: is this a single fixed venue (one comuna, always) or a
+   real aggregator (events span multiple comunas/venues)? Fixed venue ->
+   `fixedLocation` on the `KnownSource`, zero Haiku involvement.
+   Aggregator -> no `fixedLocation`, Haiku infers per item from a
+   `locationHint` (venue/place text the block gives, when it does) — this
+   is the one case where trusting Haiku is still correct, since resolving
+   a venue name to a real comuna needs actual knowledge a regex doesn't
+   have.
+5. **Description**: does the LISTING page carry real prose per event
+   (rare — only molinomachmar.cl so far), or only the detail page (the
+   common case)? Listing prose -> `descriptionRegex` on the
+   `ArticleListConfig`, no extra fetch. Detail-page-only ->
+   `descriptionExtractor` on the `KnownSource`, recovered by
+   `page-fetch.ts`'s `enrichCandidates` during the same fetch already
+   done for image/opening-time.
+6. **Opening time/hour**: does a detail page ever state an exact
+   inauguración hour distinct from the run dates? If so, an
+   `openingTimeExtractor` (same detail-page fetch as description
+   recovery above).
+
+The throughline: **the only thing Haiku should ever be asked to do for a
+bright source is judge whether the content is real, in-scope art** —
+title, link, image, dates, and location are all deterministic whenever
+the source's own markup/API gives them in ANY parseable form, however
+irregular. If a future source turns out to need Haiku for something in
+this list beyond location-on-an-aggregator, that's a signal the
+extractor config is incomplete, not that the field belongs to Haiku.
+
 ## Cost governance
 
 A self-tracked ledger keeps both processes bounded, without depending on

@@ -71,6 +71,11 @@ export const KNOWN_SOURCES: KnownSource[] = [
       // "item-placer" — match both rather than assuming the source will fix it.
       daysRegex: /class="mod-cal-result__item-days"[^>]*>([\s\S]*?)<\/p>/,
       placeRegex: /class="mod-cal-result__item-place[a-z]*"[^>]*>([\s\S]*?)<\/p>/,
+      // Real markup, confirmed 2026-07-24: "Todos los días (excepto el
+      // lunes) del 11/07/2026 al 11/10/2026" — DD/MM/YYYY, always a range.
+      dateRangeExtractor: {
+        pattern: /del\s+(?<startDay>\d{1,2})\/(?<startMonth>\d{1,2})\/(?<startYear>\d{4})\s+al\s+(?<endDay>\d{1,2})\/(?<endMonth>\d{1,2})\/(?<endYear>\d{4})/i,
+      },
     },
     // Real markup, confirmed 2026-07-24 against a live detail page — the
     // listing page itself never carries description prose (only title/
@@ -90,6 +95,10 @@ export const KNOWN_SOURCES: KnownSource[] = [
       titleLinkRegex: /<h4 class="mod__item-title"><a href="([^"]+)">([^<]*)<\/a><\/h4>/,
       daysRegex: /class="mod-cal-result__item-days"[^>]*>([\s\S]*?)<\/p>/,
       placeRegex: /class="mod-cal-result__item-place[a-z]*"[^>]*>([\s\S]*?)<\/p>/,
+      // Same CMS/template as artes.uchile.cl — see its own dateRangeExtractor comment.
+      dateRangeExtractor: {
+        pattern: /del\s+(?<startDay>\d{1,2})\/(?<startMonth>\d{1,2})\/(?<startYear>\d{4})\s+al\s+(?<endDay>\d{1,2})\/(?<endMonth>\d{1,2})\/(?<endYear>\d{4})/i,
+      },
     },
     // Real markup, confirmed 2026-07-20 against
     // .../agenda/241838/exhibicion-alzar-curva-la-mirada-del-artista-francisco-belarmino:
@@ -140,6 +149,14 @@ export const KNOWN_SOURCES: KnownSource[] = [
       titleLinkRegex: /<h2 class="destacado__title"><a href="([^"]+)">([^<]*)<\/a><\/h2>/,
       daysRegex: /field--name-field-fechas"[^>]*>([\s\S]*?)<\/div>/,
       placeRegex: /field--name-institucion"><a[^>]*>([^<]*)<\/a>/,
+      // Real markup, confirmed 2026-07-24: the site's own Drupal date
+      // field already embeds machine-readable ISO instants —
+      // <time datetime="2025-07-10T12:00:00Z">10/Julio/2025</time> hasta
+      // el <time datetime="...">31/Julio/2027</time> — no month-name
+      // parsing needed at all, just read the attributes directly.
+      dateRangeExtractor: {
+        pattern: /<time datetime="(?<startIso>\d{4}-\d{2}-\d{2})[^"]*"[^>]*>[\s\S]*?<time datetime="(?<endIso>\d{4}-\d{2}-\d{2})[^"]*"[^>]*>/,
+      },
     },
     fixedLocation: { location: "Santiago", placeName: "Museo Nacional de Bellas Artes" },
     // Real markup, confirmed 2026-07-24 against a live detail page —
@@ -161,6 +178,17 @@ export const KNOWN_SOURCES: KnownSource[] = [
       // carries real description prose per event (confirmed 2026-07-24) —
       // captured directly here, no separate detail-page fetch needed.
       descriptionRegex: /class="ff-secondary fz-medium lh-high text-uppercase mb-0-last rmb-32">([\s\S]*?)<\/div>\s*<div class="page-evento__entradas">/,
+      // Real markup, confirmed 2026-07-24: day+3-letter-month appear in two
+      // separate <span> elements, with a single shared year in a sibling
+      // element (evento-ano). A single-day event (concert/talk, not an
+      // exhibition) puts an hour ("18 HRS") in the second span instead of
+      // a month — resolveMonthGroup correctly fails to parse that as a
+      // month, so this just yields null for those (harmless: they're
+      // rejected on scope grounds anyway, never real exhibitions).
+      dateRangeExtractor: {
+        pattern:
+          /class="evento-fecha[^"]*"[^>]*>[\s\S]*?<span>\s*(?<startDay>\d{1,2})\s+(?<startMonth>[A-ZÁÉÍÓÚ]{3})[\s\S]*?<\/span>\s*<span>\s*(?<endDay>\d{1,2})\s+(?<endMonth>[A-ZÁÉÍÓÚ]{3})[\s\S]*?<\/span>[\s\S]*?evento-ano[^"]*"[^>]*>\s*(?<year>\d{4})/,
+      },
     },
     fixedLocation: { location: "Frutillar", placeName: "Centro de Arte Molino Machmar" },
   },
@@ -174,6 +202,17 @@ export const KNOWN_SOURCES: KnownSource[] = [
       titleLinkRegex: /<h3><a href="([^"]+)"[^>]*>([^<]*)<\/a><\/h3>/,
       daysRegex: /class="txt-date txt-gris">([^<]*)<\/span>/,
       placeRegex: /class="font17">([\s\S]*?)<\/div>/,
+      // Real markup, confirmed 2026-07-24: "11 jul de 2026 - 11 oct de
+      // 2026" — day + 3-letter Spanish month + "de" + year, both ends.
+      // Real production regression, same day: with dates left to Haiku to
+      // interpret, a real ~28-item batch against this source came back
+      // with EVERY item's runStartDate/runEndDate null despite this exact
+      // unambiguous text — a mechanical parsing task Haiku shouldn't have
+      // been doing in the first place, now fully deterministic.
+      dateRangeExtractor: {
+        pattern:
+          /(?<startDay>\d{1,2})\s+(?<startMonth>[a-zé]{3})\.?\s+de\s+(?<startYear>\d{4})\s*-\s*(?<endDay>\d{1,2})\s+(?<endMonth>[a-zé]{3})\.?\s+de\s+(?<endYear>\d{4})/i,
+      },
     },
     // Real production check (2026-07-17): "Sín-tesis" (Galería NAC) was
     // missing from page 1 and only showed up on page 2. The site's sort

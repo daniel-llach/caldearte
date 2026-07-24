@@ -114,13 +114,94 @@ export function filterKnownSourceImages(
   return out;
 }
 
+// --- Deterministic date-range parsing (2026-07-24) -----------------------
+//
+// Real production regression: every articleList source's date text is
+// captured (daysRegex) but never PARSED — handed to Haiku as free text to
+// interpret into runStartDate/runEndDate, same "ask Haiku to do a
+// mechanical job" mistake this whole file's BrightSourceItem redesign was
+// built to eliminate elsewhere. Running a real batch against
+// arteinformado.com (~28 items) showed Haiku silently returning null dates
+// for nearly every item despite the raw text being completely
+// unambiguous ("11 jul de 2026 - 11 oct de 2026") — a task worth making
+// deterministic once code has to keep re-proving it can't trust Haiku with
+// it. Each known source already needs its OWN regex to find the date text
+// at all (formats genuinely differ site to site); parsing what that regex
+// finds into YYYY-MM-DD is the same kind of per-source, hand-verified
+// config work as blockRegex/titleLinkRegex already are — not a bigger
+// engineering investment, just carrying the pattern one step further.
+//
+// Two shapes, matching what's actually been found across 4 real sources
+// so far: startIso/endIso (a source that ALREADY embeds a machine-readable
+// date somewhere in its markup, e.g. mnba.gob.cl's own <time datetime="...">
+// attribute — use it verbatim, nothing to parse) or
+// startDay/startMonth/startYear/endDay/endMonth/endYear (everything else
+// — startMonth/endMonth may be a plain number, "07", or a 3-letter Spanish
+// abbreviation, "jul": resolveMonthGroup below handles either without the
+// config needing to say which). `year` is a single shared-year fallback
+// for a source whose markup states the year once for both dates (e.g.
+// molinomachmar.cl's separate "evento-ano" element).
+const ES_MONTH_ABBR: Record<string, number> = {
+  ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5,
+  jul: 6, ago: 7, sep: 8, oct: 9, nov: 10, dic: 11,
+};
+
+export interface DateRangeConfig {
+  // Matched against the block's raw markup (tags intact, same reasoning
+  // as DescriptionConfig in lib/description-extract.ts — a source like
+  // mnba.gob.cl needs the `<time datetime="...">` ATTRIBUTE, not its
+  // stripped inner text).
+  pattern: RegExp;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function resolveMonthGroup(raw: string | undefined): number | null {
+  if (!raw) return null;
+  if (/^\d{1,2}$/.test(raw)) {
+    const n = Number(raw);
+    return n >= 1 && n <= 12 ? n : null;
+  }
+  return (ES_MONTH_ABBR[raw.toLowerCase()] ?? -1) + 1 || null;
+}
+
+function buildDateString(day: string | undefined, month0based1: number | null, year: string | undefined): string | null {
+  if (!day || month0based1 === null || !year) return null;
+  const dayNum = Number(day);
+  if (Number.isNaN(dayNum) || dayNum < 1 || dayNum > 31) return null;
+  return `${year}-${pad2(month0based1)}-${pad2(dayNum)}`;
+}
+
+// Pure, never throws — null on no match or any unparseable piece, same
+// defensive posture as opening-time.ts's extractors. A caller degrading
+// to Haiku's own free-text interpretation as a fallback (or to null, and
+// letting enforceDateCompleteness reject the candidate) is a reasonable
+// safety net for a source's markup changing — never a crash.
+export function extractDateRange(html: string, config: DateRangeConfig): { runStartDate: string; runEndDate: string } | null {
+  const match = html.match(config.pattern);
+  if (!match?.groups) return null;
+  const g = match.groups;
+
+  if (g.startIso && g.endIso) {
+    return { runStartDate: g.startIso, runEndDate: g.endIso };
+  }
+
+  const startMonth = resolveMonthGroup(g.startMonth);
+  const endMonth = resolveMonthGroup(g.endMonth);
+  const runStartDate = buildDateString(g.startDay, startMonth, g.startYear ?? g.year);
+  const runEndDate = buildDateString(g.endDay, endMonth, g.endYear ?? g.year);
+  return runStartDate && runEndDate ? { runStartDate, runEndDate } : null;
+}
+
 // --- articleList: repeating HTML blocks, one event per block ------------
 
 export interface ArticleListConfig {
   kind: "articleList";
   blockRegex: RegExp; // wraps one event's markup; capture group 1 is the block body (falls back to the whole match if there's no group)
   titleLinkRegex: RegExp; // within a block: captures [href, title]
-  daysRegex?: RegExp; // within a block: captures the date-range text
+  daysRegex?: RegExp; // within a block: captures the date-range text (display/fallback — see dateRangeExtractor below for the deterministic parse)
   placeRegex?: RegExp; // within a block: captures the place text
   // Optional — most articleList sources' LISTING page has no prose at all
   // (only title/dates/place), in which case description recovery happens
@@ -129,6 +210,14 @@ export interface ArticleListConfig {
   // DOES carry real prose per event (confirmed 2026-07-24: molinomachmar.cl)
   // captures it here instead — no extra fetch needed.
   descriptionRegex?: RegExp;
+  // Optional — deterministically parses the block's date text into
+  // structuredStartDate/EndDate (see DateRangeConfig above), matched
+  // against the same block already isolated by blockRegex. When absent or
+  // when it doesn't match a particular block, structuredStartDate/EndDate
+  // stay null and rawDateText (daysRegex) is the only signal left —
+  // curateBrightSourceItems's prompt still asks Haiku to interpret that as
+  // a fallback, since a source's markup can always drift.
+  dateRangeExtractor?: DateRangeConfig;
 }
 
 // matchAll requires a global regex — a config author forgetting the "g"
@@ -151,6 +240,7 @@ export function extractArticleList(html: string, pageUrl: string, config: Articl
     const days = config.daysRegex ? collapseWhitespace(block.match(config.daysRegex)?.[1] ?? "") : "";
     const place = config.placeRegex ? collapseWhitespace(block.match(config.placeRegex)?.[1] ?? "") : "";
     const descriptionMatch = config.descriptionRegex ? collapseWhitespace(block.match(config.descriptionRegex)?.[1] ?? "") : "";
+    const dateRange = config.dateRangeExtractor ? extractDateRange(block, config.dateRangeExtractor) : null;
 
     let individualUrl: string;
     try {
@@ -168,8 +258,8 @@ export function extractArticleList(html: string, pageUrl: string, config: Articl
       description: descriptionMatch || null,
       locationHint: place || null,
       rawDateText: days || "fecha no indicada",
-      structuredStartDate: null,
-      structuredEndDate: null,
+      structuredStartDate: dateRange?.runStartDate ?? null,
+      structuredEndDate: dateRange?.runEndDate ?? null,
     });
   }
 
