@@ -60,9 +60,23 @@ export interface KnownSource {
 
 export const KNOWN_SOURCES: KnownSource[] = [
   {
-    url: "https://artes.uchile.cl/agenda/30dias/6",
+    url: "https://artes.uchile.cl/agenda/30dias/1",
     note: "Rolling 30-day agenda, Universidad de Chile — lists multiple real exhibitions per entry, updates dynamically.",
-    lastReviewedAt: "2026-07-12",
+    lastReviewedAt: "2026-07-24",
+    // Real bug, found 2026-07-24 (user caught it from a screenshot): the
+    // trailing number is real pagination (confirmed live — links up to
+    // page 30+), not an arbitrary suffix. This was "/6" — no page 1, no
+    // justification for 6 anywhere in history — likely a leftover from
+    // whatever page a manual test happened to load originally. Each real
+    // exhibition repeats across many pages (the agenda lists every open
+    // day within the 30-day window as its own entry), so "/6" alone
+    // wasn't silently broken (it still had ~14/15 real exhibitions), but
+    // "/1" is the correct, current, non-arbitrary starting page. Even so,
+    // page 1 alone was still missing 1 real exhibition ("Materia
+    // sensible") that only showed on later pages — additionalPages: page
+    // 2 closes that gap (page 1 + page 2 together had all 15/15 real
+    // exhibitions in the live check), same pattern as arteinformado.com.
+    additionalPages: ["https://artes.uchile.cl/agenda/30dias/2"],
     extractor: {
       kind: "articleList",
       blockRegex: /<article class="mod-cal-result__item">([\s\S]*?)<\/article>/g,
@@ -86,9 +100,13 @@ export const KNOWN_SOURCES: KnownSource[] = [
     },
   },
   {
-    url: "https://uchile.cl/agenda/30dias/6",
+    url: "https://uchile.cl/agenda/30dias/1",
     note: 'Rolling 30-day agenda, Universidad de Chile\'s ROOT domain (not artes.uchile.cl — same underlying CMS/template, confirmed identical markup, but this feed aggregates exhibitions across faculties, e.g. Arquitectura y Urbanismo\'s Galería Micromedios, which artes.uchile.cl (Facultad de Artes only) never surfaces). Real production bug (found 2026-07-20): "Exhibición \'Alzar curva la mirada\'..." (Galería Micromedios, FAU) had sourceUrl=https://uchile.cl/agenda/exposiciones/10 — a listing page, not its own detail page — because this root domain had no dedicated entry yet, so it came in via regular per-comuna Tavily search instead of a direct fetch, and Tavily\'s plain-text extraction of a listing page drops per-event hrefs (same root cause as the arteinformado.com bug above). A dedicated extractor here fixes it the same way: each block\'s own <h4 class="mod__item-title"><a href="..."> is the correct per-event detail page, resolved against this page\'s own URL since the hrefs are relative (e.g. "/agenda/241838/exhibicion-alzar-curva-la-mirada-del-artista-francisco-belarmino").',
-    lastReviewedAt: "2026-07-20",
+    lastReviewedAt: "2026-07-24",
+    // Real bug, found 2026-07-24 — see artes.uchile.cl's own comment above
+    // (identical issue, same CMS): "/6" was an arbitrary, undocumented
+    // page number, not page 1. Fixed to "/1" + additionalPages page 2.
+    additionalPages: ["https://uchile.cl/agenda/30dias/2"],
     extractor: {
       kind: "articleList",
       blockRegex: /<article class="mod-cal-result__item">([\s\S]*?)<\/article>/g,
